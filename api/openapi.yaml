@@ -1,0 +1,12 @@
+openapi: 3.1.0
+info:
+  title: Vantor API
+  version: 0.1.0-planned
+  description: Placeholder — full OpenAPI generated from backend in Phase 3. All routes under /api/v1.
+paths:
+  /api/v1/health:
+    get:
+      summary: Liveness
+      responses:
+        '200':
+          description: OK

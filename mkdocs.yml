@@ -1,0 +1,24 @@
+site_name: VANTOR Docs
+nav:
+  - Brain: docs/BRAIN.md
+  - Index: docs/README.md
+  - Glossary: docs/glossary.md
+  - Product: docs/01-product/requirements.md
+  - Architecture:
+      - System: docs/02-architecture/system.md
+      - Domain: docs/02-architecture/domain.md
+      - Database: docs/02-architecture/database.md
+      - API: docs/02-architecture/api.md
+  - AI:
+      - Architecture: docs/03-ai/architecture.md
+      - Safety: docs/03-ai/safety.md
+      - Evaluation: docs/03-ai/evaluation.md
+  - Security:
+      - Architecture: docs/04-security/architecture.md
+      - Threat model: docs/04-security/threat-model.md
+  - Frontend: docs/05-frontend/design-system.md
+  - Brand: docs/06-brand/logo.md
+  - Android: docs/07-android/strategy.md
+  - Deployment: docs/08-deployment/local.md
+  - Operations: docs/09-operations/runbook.md
+  - Decisions: docs/10-decisions/README.md

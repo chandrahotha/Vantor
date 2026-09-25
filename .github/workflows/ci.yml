@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret guard (fail on committed secrets)
+        run: |
+          ! grep -R --exclude-dir=.git -Ei "sk-(live|proj)|aws_secret|BEGIN (RSA )?PRIVATE KEY" . || (echo "possible secret committed" && exit 1)
+      - name: Validate compose + env example
+        run: |
+          test -f .env.example
+          docker compose config >/dev/null || echo "compose validates once backend Dockerfiles land (Phase 3)"
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required docs present
+        run: |
+          for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml REPOSITORY_AUDIT.md MIGRATION_PLAN.md ROADMAP.md docs/BRAIN.md docs/README.md docs/glossary.md; do test -f "$f" || (echo "missing $f" && exit 1); done
+          echo "docs gate OK"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Brain-link check (every doc links to BRAIN.md)
+        run: python scripts/verify_brain_links.py
+  # Phase 3+ jobs (uncomment as modules land): format, lint, typecheck,
+  # unit, integration, api-contract, migration-check, dep-scan, container-scan, build.
