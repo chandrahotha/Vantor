@@ -10,7 +10,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 ### Added
 - Public repo skeleton: README, LICENSE (Apache-2.0), SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, `.env.example`, `.gitignore`, `docker-compose.yml` (free stack), CI workflow
 - Prerequisite docs: requirements, system/domain/database/api, AI (arch/safety/eval), security (arch/threat-model), design-system, brand/logo, android strategy, deployment, runbook, ADRs
-- `REPOSITORY_AUDIT.md` (BLOCKED — awaiting private repo access), `MIGRATION_PLAN.md`, `ROADMAP.md`
+- `docs/00-plan/REPOSITORY_AUDIT.md` (BLOCKED — awaiting private repo access), `docs/00-plan/MIGRATION_PLAN.md`, `docs/00-plan/ROADMAP.md`
 - Vantor identity pack: logo/mono/dark/favicon/app-icon/social SVGs
 - Module placeholders: `backend/ frontend/ worker/ android/ api/`
 

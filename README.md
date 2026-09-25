@@ -13,7 +13,7 @@ VANTOR is a unified, production-grade procurement operating system merging five 
 - Sourcing / RFQ intelligence (ex-RFQLens/QuotientX)
 - Procurement AI agent (ex-ProcurementOS-Agent)
 
-**Status: `PLANNED` — docs-first V1 scaffold. Not production-ready. See `ROADMAP.md` and `docs/`.**
+**Status: `PLANNED` — docs-first V1 scaffold. Not production-ready. See `docs/00-plan/ROADMAP.md` and `docs/`.**
 
 ## Why VANTOR
 
@@ -34,7 +34,7 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 - [ ] Backend / frontend implementation — `PLANNED` (starts Phase 3, pending repository audit)
 - [ ] AI Copilot, document pipeline, Android — `PLANNED`
 
-Never claim functionality that is not implemented. See `REPOSITORY_AUDIT.md` (currently `BLOCKED` — private repos not yet accessible).
+Never claim functionality that is not implemented. See `docs/00-plan/REPOSITORY_AUDIT.md` (currently `BLOCKED` — private repos not yet accessible).
 
 ## Quickstart (local, 100% free)
 
@@ -53,10 +53,10 @@ See `docs/08-deployment/local.md` and `.env.example`.
 
 ```
 README.md  LICENSE  SECURITY.md  CONTRIBUTING.md  CODE_OF_CONDUCT.md  CHANGELOG.md
-.env.example  docker-compose.yml  .gitignore
-REPOSITORY_AUDIT.md  MIGRATION_PLAN.md  ROADMAP.md
+.env.example  docker-compose.yml  .gitignore  mkdocs.yml
 docs/
   BRAIN.md  README.md  glossary.md
+  00-plan/{ROADMAP.md,REPOSITORY_AUDIT.md,MIGRATION_PLAN.md,masterdoc.md}
   01-product/requirements.md
   02-architecture/{system.md,domain.md,database.md,api.md}
   03-ai/{architecture.md,safety.md,evaluation.md}
@@ -76,9 +76,9 @@ mkdocs.yml  .github/workflows/ci.yml
 
 | Doc | Purpose |
 |---|---|
-| `REPOSITORY_AUDIT.md` | Audit of 5 private repos (blocked until access) |
-| `MIGRATION_PLAN.md` | KEEP/ADAPT/MERGE/REFACTOR/REWRITE plan |
-| `ROADMAP.md` | Phases 0–10, Definition of Done |
+| `docs/00-plan/REPOSITORY_AUDIT.md` | Audit of 5 private repos (blocked until access) |
+| `docs/00-plan/MIGRATION_PLAN.md` | KEEP/ADAPT/MERGE/REFACTOR/REWRITE plan |
+| `docs/00-plan/ROADMAP.md` | Phases 0–10, Definition of Done |
 | `docs/01-product/requirements.md` | PRD |
 | `docs/02-architecture/system.md` | Modular monolith, free stack |
 | `docs/03-ai/architecture.md` | Gateway, typed tools, HITL, free providers |
@@ -100,4 +100,4 @@ Apache-2.0 — see `LICENSE`.
 
 ## Roadmap summary
 
-Phase 0 Discovery (audit) → 1 Architecture → 2 Design → 3 Foundation → 4 Core P2P → 5 Intelligence → 6 AI → 7 Premium UI → 8 Integrations → 9 Android → 10 Production hardening. Details in `ROADMAP.md`.
+Phase 0 Discovery (audit) → 1 Architecture → 2 Design → 3 Foundation → 4 Core P2P → 5 Intelligence → 6 AI → 7 Premium UI → 8 Integrations → 9 Android → 10 Production hardening. Details in `docs/00-plan/ROADMAP.md`.

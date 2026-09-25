@@ -3,6 +3,10 @@ nav:
   - Brain: docs/BRAIN.md
   - Index: docs/README.md
   - Glossary: docs/glossary.md
+  - Plan:
+      - Roadmap: docs/00-plan/ROADMAP.md
+      - Repository audit: docs/00-plan/REPOSITORY_AUDIT.md
+      - Migration plan: docs/00-plan/MIGRATION_PLAN.md
   - Product: docs/01-product/requirements.md
   - Architecture:
       - System: docs/02-architecture/system.md

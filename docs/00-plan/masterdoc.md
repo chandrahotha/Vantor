@@ -1,3 +1,5 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md) · Original build brief, preserved verbatim (references to "PROCURA X" predate the VANTOR rename).
 
 Below is the prompt I would use. It is deliberately strict about **not producing a mock/demo** and about making the AI inspect the existing repositories before deciding the architecture.
 

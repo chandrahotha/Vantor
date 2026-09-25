@@ -14,4 +14,4 @@
 | Typed tool | Permission-checked AI function (no raw SQL) | `../02-architecture/api.md` |
 | maverick spend | Off-contract purchasing | `../01-product/requirements.md` |
 | PPV | Purchase-price variance | `../01-product/requirements.md` |
-| Definition of Done | Domain+DB+BE+AuthZ+FE+tests+docs… | `ROADMAP.md` |
+| Definition of Done | Domain+DB+BE+AuthZ+FE+tests+docs… | `00-plan/ROADMAP.md` |

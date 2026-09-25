@@ -5,7 +5,7 @@
 
 ## Ground rules
 
-1. Never claim `PRODUCTION READY` unless Definition of Done is met (see `ROADMAP.md`).
+1. Never claim `PRODUCTION READY` unless Definition of Done is met (see `docs/00-plan/ROADMAP.md`).
 2. No mocks presented as real: no fake dashboards, fake AI, hard-coded suppliers, UI-only CRUD.
 3. If an integration needs credentials you lack, implement a clean interface + document required config. Never fake it as operational.
 4. Every PR: format + lint + typecheck + tests + security/dependency scan + migration check.

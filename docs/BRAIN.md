@@ -4,14 +4,14 @@
 # 🧠 VANTOR Brain — central knowledge index
 
 > **Start here.** Every document in this repo links back here, and this brain links to every document. No orphan pages.
-> Mirror index: [`docs/README.md`](README.md) · Root: [`../README.md`](../README.md) · Roadmap: [`../ROADMAP.md`](../ROADMAP.md)
+> Mirror index: [`docs/README.md`](README.md) · Root: [`../README.md`](../README.md) · Roadmap: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
 
 ## How to read VANTOR in 5 minutes
 
 1. Vision + status → [`../README.md`](../README.md)
-2. What blocks us → [`../REPOSITORY_AUDIT.md`](../REPOSITORY_AUDIT.md) (BLOCKED: private repos)
-3. How 5 repos become 1 → [`../MIGRATION_PLAN.md`](../MIGRATION_PLAN.md)
-4. Build order → [`../ROADMAP.md`](../ROADMAP.md)
+2. What blocks us → [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) (BLOCKED: private repos)
+3. How 5 repos become 1 → [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md)
+4. Build order → [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
 5. Shared language → [`glossary.md`](glossary.md)
 
 ## Knowledge graph
@@ -47,9 +47,9 @@ flowchart TD
 | # | Document | Answers | Status |
 |---|---|---|---|
 | 0 | [`../README.md`](../README.md) | What is VANTOR, quickstart, layout | PLANNED scaffold |
-| 0 | [`../ROADMAP.md`](../ROADMAP.md) | Phases 0–10, Definition of Done | PLANNED |
-| 0 | [`../REPOSITORY_AUDIT.md`](../REPOSITORY_AUDIT.md) | 5-repo audit matrix | BLOCKED |
-| 0 | [`../MIGRATION_PLAN.md`](../MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
+| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–10, Definition of Done | PLANNED |
+| 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix | BLOCKED |
+| 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
 | 1 | [`01-product/requirements.md`](01-product/requirements.md) | PRD: modules, graph, non-negotiables | PLANNED |
 | 2 | [`02-architecture/system.md`](02-architecture/system.md) | Modular monolith, free topology | PLANNED |
 | 2 | [`02-architecture/domain.md`](02-architecture/domain.md) | 60-entity domain model | PLANNED |
