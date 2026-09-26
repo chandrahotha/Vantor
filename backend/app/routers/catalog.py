@@ -20,6 +20,7 @@ from ..core.errors import envelope
 from ..core.security import Actor, get_actor
 from ..core.tenant import get_db
 from ..models.catalog import Budget, CatalogItem
+from ..models.supplier import Category
 from ..models.purchase import PurchaseOrder
 from ..services.audit import record_event
 
@@ -136,6 +137,41 @@ def set_budget(payload: BudgetIn, request: Request, actor: Actor = Depends(get_a
         raise HTTPException(status_code=409, detail="Budget already set for this category+period") from exc
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="BUDGET_SET", resource="budget",
                  resource_id=row.id, after={"ceiling": payload.ceiling_minor}, source="api", created_by=actor.sub)
+    db.commit()
+    db.refresh(row)
+    return envelope({"id": row.id}, None, getattr(request.state, "request_id", ""))
+
+
+class CategoryIn(BaseModel):
+    code: str = Field(min_length=2, max_length=32)
+    name: str = Field(min_length=2, max_length=200)
+    parent_id: str = ""
+
+
+@router.get("/catalog/categories")
+def list_categories(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    rows = list(db.execute(select(Category).where(Category.tenant_id == actor.tenant_id).order_by(Category.code)).scalars())
+    return envelope([{"id": r.id, "code": r.code, "name": r.name, "parentId": r.parent_id} for r in rows],
+                    {"count": len(rows)}, getattr(request.state, "request_id", ""))
+
+
+@router.post("/catalog/categories", status_code=201)
+def create_category(payload: CategoryIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    _write(actor)
+    if payload.parent_id:
+        parent = db.execute(select(Category).where(Category.tenant_id == actor.tenant_id, Category.id == payload.parent_id)).scalar_one_or_none()
+        if parent is None:
+            raise HTTPException(status_code=422, detail="Unknown parent category in this tenant")
+    row = Category(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
+                   code=payload.code.strip().upper(), name=payload.name.strip(), parent_id=payload.parent_id.strip())
+    db.add(row)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Category code exists") from exc
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CATEGORY_CREATED", resource="catalog",
+                 resource_id=row.id, source="api", created_by=actor.sub)
     db.commit()
     db.refresh(row)
     return envelope({"id": row.id}, None, getattr(request.state, "request_id", ""))

@@ -413,5 +413,10 @@ def decide_qual(supplier_id: str, payload: DecideIn, request: Request, actor: Ac
             sup.status = "active"
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="QUALIFICATION_DECIDED", resource="supplier",
                  resource_id=supplier_id, after={"decision": payload.decision}, source="api", created_by=actor.sub)
+    from ..services.notify import notify as _notify
+
+    _notify(db, tenant_id=actor.tenant_id, kind="QUALIFICATION_DECIDED",
+            title=f"Supplier qualification {payload.decision}", link="/suppliers",
+            user_sub=row.created_by, created_by=actor.sub)
     db.commit()
     return envelope({"status": row.status}, None, getattr(request.state, "request_id", ""))

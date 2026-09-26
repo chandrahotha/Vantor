@@ -280,6 +280,10 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
                              rfq_id=rfq_id, award_id=a.id, currency=r.currency, saved_minor=peak - server_total))
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AWARD_DECIDED", resource="award",
                  resource_id=a.id, after={"rfq": rfq_id, "quote": q.id, "total_minor": server_total, "reason": payload.reason}, source="api", created_by=actor.sub)
+    from ..services.notify import notify as _notify
+
+    _notify(db, tenant_id=actor.tenant_id, kind="AWARD_DECIDED", title=f"RFQ {r.code} awarded",
+            body=f"Winner total {server_total}.", link="/rfqs", created_by=actor.sub)
     db.commit()
     db.refresh(a)
     return envelope({"id": a.id, "quoteId": q.id, "awardedTotalMinor": server_total}, None, getattr(request.state, "request_id", ""))

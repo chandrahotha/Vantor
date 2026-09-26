@@ -6,7 +6,6 @@
 **Status: `IMPLEMENTED` — matches the shipped stack (compose services, real endpoints).**
 
 ## 1. Health & readiness (real endpoints, no fake green)
-
 | Probe | What it checks | Healthy when |
 |---|---|---|
 | `GET /api/v1/health` | process alive | always 200 when code runs |
@@ -55,5 +54,17 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
 
 - `python worker/enqueue.py roll_expiry` (needs `SERVICE_API_TOKEN` — Keycloak service account).
 - Queues: `default`, `documents`. Failed RQ jobs stay in the registry for inspection — never silently dropped.
+
+## 7. RLS proof (verified 2026-09-26 on genuine Postgres 18)
+
+Policy shape (all migrations): `USING/WITH CHECK (tenant_id = current_setting('app.tenant_id', true))`.
+Proven with a non-superuser app role: tenant A sees only A's rows, tenant B only
+B's, no context sees zero rows (fail-closed), cross-tenant INSERT blocked by policy.
+
+**Hard rule:** the runtime DB role must be NON-superuser and must NOT own the
+tables (owners and superusers bypass RLS by PostgreSQL design — verified: the
+same policy is unenforced for superusers). Provision via:
+`CREATE ROLE vantor_app NOSUPERUSER LOGIN; GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO vantor_app;`
+(migrations run as a separate owner role). Never point `DATABASE_URL` at a superuser in prod.
 
 See Brain → [`08-deployment/local.md`](../08-deployment/local.md), [`04-security/threat-model.md`](../04-security/threat-model.md).

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
+import { api } from "../lib/api";
 import { getSession, subscribeSession, type Session } from "../lib/auth";
 
 const NAV = [
@@ -14,7 +15,26 @@ const NAV = [
   ["Spend", "/spend"],
   ["Documents", "/documents"],
   ["Copilot", "/copilot"],
+  ["Alerts", "/notifications"],
 ];
+
+function Bell() {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    let stop = false;
+    async function poll() {
+      try {
+        const r = await api<{ unread: number }>("/api/v1/notifications/unread-count");
+        if (!stop) setUnread(r.data.unread);
+      } catch { /* unauthenticated or offline — bell stays quiet */ }
+    }
+    poll();
+    const id = setInterval(poll, 30000); // honest polling; push lands later
+    return () => { stop = true; clearInterval(id); };
+  }, []);
+  if (unread === 0) return null;
+  return <span className="badge bad" aria-label={`${unread} unread alerts`}>{unread}</span>;
+}
 
 export default function Shell({ children, user }: { children: ReactNode; user?: { name: string; tenant: string } }) {
   const path = usePathname();
@@ -28,7 +48,9 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
       <nav className="side" aria-label="Primary">
         <div className="brand">VANTOR <span style={{ fontWeight: 400, color: "#7d8aa3", fontSize: 12 }}>by Digi Tracks</span></div>
         {NAV.map(([label, href]) => (
-          <Link key={href} href={href} className={base === href || (href !== "/" && base.startsWith(href + "/")) ? "active" : ""}>{label}</Link>
+          <Link key={href} href={href} className={base === href || (href !== "/" && base.startsWith(href + "/")) ? "active" : ""}>
+            {label}{href === "/notifications" ? (<> <Bell /></>) : null}
+          </Link>
         ))}
         <div className="foot">
           {shown ? <div>{shown.name}<br />tenant: {shown.tenant}</div> : <div>Not signed in</div>}

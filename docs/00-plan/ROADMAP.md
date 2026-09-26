@@ -9,8 +9,9 @@ Nothing is `PRODUCTION READY` in V1 scaffold.
 ## Phase 0 — Discovery [VERIFIED 2026-09-26]
 `REPOSITORY_AUDIT.md` filled with evidence (5/5 repos, ~775 files, source SHAs recorded); stack decided (ADR-007: FastAPI). Audit clones deleted; no private code committed. Gate passed: architecture decisions now unblocked.
 
-## Phase 1 — Product architecture [IN DEVELOPMENT — docs drafted]
-`docs/01-product/requirements.md`, `docs/02-architecture/*`, `docs/03-ai/*`, `docs/04-security/*`, ADRs. Gate: docs review + stack decision ADR signed.
+## Phase 1 — Product architecture [SIGNED 2026-09-26]
+`docs/01-product/requirements.md`, `docs/02-architecture/*`, `docs/03-ai/*`, `docs/04-security/*`, ADRs.
+Keycloak OIDC + RQ/Redis confirmed against live audit evidence; stack ADR-007 stands. Gate passed.
 
 ## Phase 2 — Design system [IN DEVELOPMENT — tokens + logo drafted]
 `docs/05-frontend/design-system.md`, `docs/06-brand/logo.md`, `assets/brand/*.svg`. Gate: token + component inventory approved.

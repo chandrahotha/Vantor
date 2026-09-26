@@ -25,6 +25,8 @@ TOOL_ROLES: dict[str, set[str]] = {
                           "Finance Reviewer", "Approver", "Auditor"},
     "get_purchase_orders": {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer",
                             "Finance Reviewer", "Approver", "Auditor"},
+    "request_approval": {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer",
+                         "Category Manager", "Approver"},
 }
 
 TOOL_REQUIRED_ARGS: dict[str, set[str]] = {
@@ -33,6 +35,7 @@ TOOL_REQUIRED_ARGS: dict[str, set[str]] = {
     "compare_quotes": {"rfq_id"},
     "calculate_savings": set(),
     "get_purchase_orders": set(),
+    "request_approval": {"action", "resource", "resource_id"},
 }
 
 
@@ -98,10 +101,29 @@ def get_purchase_orders(db: Session, tenant_id: str, status: str = "", limit: in
     return {"orders": [{"id": p.id, "code": p.code, "status": p.status, "totalMinor": p.total_minor} for p in rows]}
 
 
+def request_approval(db: Session, tenant_id: str, action: str, resource: str, resource_id: str, reason: str = "", requested_by: str = "") -> dict:
+    """HITL gate: file an approval request for a proposed AI-driven action.
+
+    Nothing executes here — a human decides via POST /ai/approvals/{id}/decide
+    and the caller performs the action through the normal API afterwards.
+    """
+    from ..models.purchase import Approval
+
+    if action not in {"award_contract", "approve_purchase", "modify_financials", "contact_supplier", "other"}:
+        raise ToolError("TOOL_ARGS_INVALID", "action must be a known high-risk action")
+    row = Approval(tenant_id=tenant_id, created_by=requested_by, updated_by=requested_by,
+                   resource=f"ai:{resource}", resource_id=resource_id, status="requested",
+                   tier="manager", reason=f"{action}: {reason}"[:500])
+    db.add(row)
+    db.flush()
+    return {"approval_id": row.id, "status": "requested"}
+
+
 REGISTRY = {
     "search_suppliers": search_suppliers,
     "get_supplier": get_supplier,
     "compare_quotes": compare_quotes,
     "calculate_savings": calculate_savings,
     "get_purchase_orders": get_purchase_orders,
+    "request_approval": request_approval,
 }

@@ -125,6 +125,11 @@ def price_evaluate(po_id: str, request: Request, actor: Actor = Depends(get_acto
 
     _rec(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PRICE_EVALUATED", resource="purchase_order",
          resource_id=po_id, after={"opened": len(opened), "skipped": len(skipped)}, source="api", created_by=actor.sub)
+    if opened:
+        from ..services.notify import notify as _notify
+
+        _notify(db, tenant_id=actor.tenant_id, kind="PRICE_ANOMALY", title=f"{len(opened)} price anomaly(ies) on PO {po.code}",
+                body="Lines beyond like-for-like baseline. Review in Spend.", link="/spend", created_by=actor.sub)
     db.commit()
     return envelope({"opened": opened, "skipped": skipped}, None, getattr(request.state, "request_id", ""))
 

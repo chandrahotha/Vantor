@@ -143,4 +143,61 @@ def download(doc_id: str, request: Request, actor: Actor = Depends(get_actor), d
     return FileResponse(path, media_type=row.content_type, filename=safe, headers={"X-SHA256": row.sha256})
 
 
+@router.post("/documents/{doc_id}/extract", status_code=201)
+def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Extract text + chunk into DocumentChunk rows. Scanned/unreadable bytes
+    quarantine with an explicit reason (never fake-extracted). Idempotent per
+    document: re-extract replaces prior chunks."""
+    from pathlib import Path
+
+    from ..models.document import DocumentChunk
+    from ..services.extract import ExtractError, chunk_text, extract
+
+    row = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.id == doc_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = Path(row.storage_key)
+    if not path.exists() or not verify_bytes(path, row.sha256):
+        raise HTTPException(status_code=409, detail="Stored bytes failed integrity check")
+    try:
+        result = extract(row.filename, path.read_bytes())
+    except ExtractError as exc:
+        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
+    if result.scanned:
+        row.status = "quarantined"
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_QUARANTINED", resource="document",
+                     resource_id=row.id, after={"reason": f"no text layer ({result.kind})"}, source="system", created_by=actor.sub)
+        db.commit()
+        return envelope({"chunks": 0, "quarantined": True, "reason": "no text layer"}, None, getattr(request.state, "request_id", ""))
+    try:
+        chunks = chunk_text(result.text)
+    except ExtractError as exc:
+        raise HTTPException(status_code=500, detail={"code": exc.code, "message": exc.message}) from exc
+    for old in db.execute(select(DocumentChunk).where(DocumentChunk.tenant_id == actor.tenant_id, DocumentChunk.document_id == doc_id)).scalars():
+        db.delete(old)
+    for i, text in enumerate(chunks):
+        db.add(DocumentChunk(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
+                             document_id=doc_id, chunk_no=i, text=text, embedding={}))
+    row.status = "ready"
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_EXTRACTED", resource="document",
+                 resource_id=row.id, after={"chunks": len(chunks), "kind": result.kind}, source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"chunks": len(chunks), "quarantined": False, "kind": result.kind}, None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/documents/search")
+def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                q: str = Query(default="", min_length=2, max_length=200)) -> dict:
+    """Keyword search over extracted chunks (FTS-lite; pgvector semantic search lands later)."""
+    from ..models.document import DocumentChunk
+
+    like = f"%{q.strip()}%"
+    hits = list(db.execute(select(DocumentChunk).where(
+        DocumentChunk.tenant_id == actor.tenant_id, DocumentChunk.text.ilike(like))
+        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(25)).scalars())
+    return envelope([{"documentId": h.document_id, "chunkNo": h.chunk_no,
+                      "excerpt": h.text[:280]} for h in hits],
+                    {"count": len(hits)}, getattr(request.state, "request_id", ""))
+
+
 DOC_STATUSES_EXPORT = sorted(DOC_STATUSES)

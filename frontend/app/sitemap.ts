@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const routes = ["", "/suppliers", "/rfqs", "/contracts", "/orders", "/spend", "/documents", "/copilot"];
+const routes = ["", "/suppliers", "/rfqs", "/contracts", "/orders", "/spend", "/documents", "/copilot", "/notifications"];
 
 // Fixed date keeps builds byte-identical (cacheable, diffable).
 const LAST_MODIFIED = new Date("2026-09-26T00:00:00Z");

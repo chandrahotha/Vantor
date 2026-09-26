@@ -203,6 +203,11 @@ def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session
             record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_EXPIRING", resource="contract",
                          resource_id=c.id, after={"end_date": c.end_date}, source="system", created_by=actor.sub)
             moved.append(c.id)
+    if moved:
+        from ..services.notify import notify as _notify
+
+        _notify(db, tenant_id=actor.tenant_id, kind="CONTRACT_EXPIRING",
+                title=f"{len(moved)} contract(s) expiring within 90 days", link="/contracts", created_by=actor.sub)
     db.commit()
     return envelope({"moved": moved, "count": len(moved)}, None, getattr(request.state, "request_id", ""))
 

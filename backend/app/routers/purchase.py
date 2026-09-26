@@ -183,6 +183,10 @@ def approve_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db
     if all(a.status == "approved" for a in db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.resource == "purchase_order", Approval.resource_id == pid)).scalars()):
         po.status = "approved"
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_APPROVED", resource="purchase_order", resource_id=pid, after={"tier": pend[0].tier}, source="api", created_by=actor.sub)
+    from ..services.notify import notify as _notify
+
+    _notify(db, tenant_id=actor.tenant_id, kind="PO_APPROVED", title=f"PO {po.code} approved ({pend[0].tier})",
+            link="/orders", user_sub=po.created_by, created_by=actor.sub)
     db.commit()
     return envelope({"id": pid, "status": po.status}, None, getattr(request.state, "request_id", ""))
 
@@ -278,6 +282,10 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
                             currency=inv.currency, amount_minor=inv.total_minor))
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_APPROVED", resource="invoice",
                  resource_id=iid, after={"matched": detail}, source="api", created_by=actor.sub)
+    from ..services.notify import notify as _notify2
+
+    _notify2(db, tenant_id=actor.tenant_id, kind="INVOICE_APPROVED", title=f"Invoice {inv.code} approved (3-way matched)",
+             link="/orders", user_sub=inv.created_by, created_by=actor.sub)
     db.commit()
     return envelope({"id": iid, "status": "approved", "matched": detail}, None, getattr(request.state, "request_id", ""))
 

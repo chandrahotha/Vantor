@@ -11,7 +11,9 @@ from __future__ import annotations
 from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.errors import envelope
@@ -88,7 +90,11 @@ def run_tool(name: str, args: dict, request: Request, actor: Actor = Depends(get
         raise HTTPException(status_code=403 if exc.code == "TOOL_FORBIDDEN" else 404 if exc.code == "TOOL_UNKNOWN" else 422,
                             detail={"code": exc.code, "message": exc.message}) from exc
     try:
-        out = REGISTRY[name](db, actor.tenant_id, **{k: v for k, v in (args or {}).items() if k in ("q", "limit", "supplier_id", "rfq_id", "status")})
+        allowed = {"q", "limit", "supplier_id", "rfq_id", "status", "action", "resource", "resource_id", "reason"}
+        kwargs = {k: v for k, v in (args or {}).items() if k in allowed}
+        if name == "request_approval":
+            kwargs["requested_by"] = actor.sub
+        out = REGISTRY[name](db, actor.tenant_id, **kwargs)
     except ToolError as exc:
         raise HTTPException(status_code=404 if exc.code == "NOT_FOUND" else 422, detail={"code": exc.code, "message": exc.message}) from exc
     except TypeError as exc:
@@ -97,3 +103,77 @@ def run_tool(name: str, args: dict, request: Request, actor: Actor = Depends(get
                  resource_id=name, after={"args": args}, source="api", created_by=actor.sub)
     db.commit()
     return envelope({"tool": name, "result": out, "requiresHumanReview": True}, None, getattr(request.state, "request_id", ""))
+
+
+class DecideIn(BaseModel):
+    approve: bool = False
+    reason: str = ""
+
+
+@router.post("/ai/approvals/{approval_id}/decide", status_code=200)
+def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """HITL decision on an AI-filed approval. Approving here records consent;
+    the caller then performs the action through the normal API (nothing auto-executes)."""
+    from ..models.purchase import Approval
+    from ..services.purchase import check_sod
+
+    row = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == approval_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    if not row.resource.startswith("ai:"):
+        raise HTTPException(status_code=422, detail="Not an AI-filed approval")
+    if row.status != "requested":
+        raise HTTPException(status_code=422, detail="Already decided")
+    try:
+        check_sod(row.created_by, actor.sub)
+    except Exception as exc:
+        raise HTTPException(status_code=403, detail="Requester cannot decide their own filing") from exc
+    if not set(actor.roles or ()) & {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Approver"}:
+        raise HTTPException(status_code=403, detail="Approver role required")
+    row.status, row.decided_by, row.reason, row.updated_by = ("approved" if payload.approve else "rejected",
+                                                              actor.sub, payload.reason.strip(), actor.sub)
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_APPROVAL_DECIDED", resource="ai_tool",
+                 resource_id=approval_id, after={"approved": payload.approve}, source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": approval_id, "status": row.status}, None, getattr(request.state, "request_id", ""))
+
+
+@router.post("/ai/stream")
+def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor)) -> Response:
+    """SSE streaming completions: `data: <text>` chunks + terminal `data: [EVIDENCE] {...}`.
+    Disabled/unconfigured providers emit an honest error event (never fake tokens)."""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse as _SS
+
+    from ..services.ai_gateway import complete as _complete
+
+    rid = getattr(request.state, "request_id", "")
+    tenant, sub = actor.tenant_id, actor.sub
+
+    def _events():  # type: ignore[no-untyped-def]
+        from ..core.tenant import get_session_factory
+        from ..services.audit import record_event as _rec
+
+        try:
+            result = _complete(prompt=payload.prompt, system=payload.system, provider=payload.provider)
+        except AIGatewayError as exc:
+            yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider})}\n\n"
+            return
+        text = result.get("answer", "")
+        for i in range(0, max(len(text), 1), 120):
+            yield f"data: {_json.dumps({'delta': text[i:i + 120]})}\n\n"
+        yield f"data: [EVIDENCE] {_json.dumps({'confidence': result.get('confidence'), 'provider': result.get('provider'), 'requires_human_review': True, 'requestId': rid})}\n\n"
+        try:
+            db = get_session_factory()()
+            try:
+                _rec(db, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
+                     resource_id="stream", after={"provider": result.get("provider")}, source="api", created_by=sub)
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+    return _SS(_events(), media_type="text/event-stream",
+               headers={"X-Request-ID": rid, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

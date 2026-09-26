@@ -9,6 +9,7 @@ from ..routers.documents import router as documents_router
 from ..routers.health import router as health_router
 from ..routers.identity import router as identity_router
 from ..routers.integrations import router as integrations_router
+from ..routers.notifications import router as notifications_router
 from ..routers.sourcing import router as sourcing_router
 from ..routers.purchase import router as purchase_router
 from ..routers.spend import router as spend_router
@@ -18,6 +19,7 @@ v1 = APIRouter(prefix="/api/v1")
 v1.include_router(health_router)
 v1.include_router(identity_router)
 v1.include_router(integrations_router)
+v1.include_router(notifications_router)
 v1.include_router(audit_router)
 v1.include_router(catalog_router)
 v1.include_router(ai_router)
