@@ -21,16 +21,16 @@ VANTOR is a unified, production-grade procurement operating system merging **ten
 
 | # | Product | VANTOR module | Status |
 |---|---|---|---|
-| 01 | ProcurementOS Agent | AI gateway + typed tool registry + HITL approvals | `IN DEVELOPMENT` |
+| 01 | ProcurementOS Agent | AI gateway + typed tool registry + HITL approvals | `TESTED` |
 | 02 | RFQLens — RFQ → sourcing decision | `sourcing/` RFQ→quote→award + split optimizer | `TESTED` |
 | 03 | CostPilot — should-cost + negotiation intelligence | `spend/` should-cost engine + price intel | `TESTED` |
 | 04 | ContractGuard — contract → PO → invoice compliance | `contracts/` + 11-dim matching + e-sign | `TESTED` |
 | 05 | SupplierRadar — supplier risk intelligence | `suppliers/` + scorecards + qualification | `TESTED` |
-| 06 | Strategic Sourcing Optimization | `sourcing/` optimizer (share-capped allocation) | `IN DEVELOPMENT` |
-| 07 | Procurement Spend Intelligence | `spend/` cube, leakage, maverick, concentration | `IN DEVELOPMENT` |
-| 08 | Supplier Onboarding & Qualification | `suppliers/` certs→scorecard→SoD decision | `IN DEVELOPMENT` |
-| 09 | PO Price Intelligence | `spend/` median baseline + anomaly cases | `IN DEVELOPMENT` |
-| 10 | AI Supplier Negotiation Simulator | `ai/` concession ladder + walk-away floor | `IN DEVELOPMENT` |
+| 06 | Strategic Sourcing Optimization | `sourcing/` optimizer (share-capped allocation) | `TESTED` |
+| 07 | Procurement Spend Intelligence | `spend/` cube, leakage, maverick, concentration | `TESTED` |
+| 08 | Supplier Onboarding & Qualification | `suppliers/` certs→scorecard→SoD decision | `TESTED` |
+| 09 | PO Price Intelligence | `spend/` median baseline + anomaly cases | `TESTED` |
+| 10 | AI Supplier Negotiation Simulator | `ai/` concession ladder + walk-away floor | `TESTED` |
 
 Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/01-product/portfolio.md)**.
 
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status: `TESTED` backend (89 pytest green, 75 API operations) + working Next.js 16 app — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).****
+**Status: `TESTED` backend (113 pytest green, 78 API operations, all 10 products verified) + Next.js 16 app (35 vitest green) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).****
 
 ## Why VANTOR
 
@@ -56,13 +56,13 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-- [x] Backend API (FastAPI, 75 operations across 64 paths, 89 tests green): suppliers + scorecards + onboarding, RFQ→quote→award + optimizer, contracts + matching + e-sign, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases, catalogs, documents + extract + search, notifications, AI gateway + typed tools + HITL + nego sim, webhooks
-- [x] AuthN/Z: Keycloak OIDC + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
-- [x] Web app (Next.js 16 / React 19, typecheck + lint + build green): dashboard, suppliers grid, RFQs + comparison, contracts, orders, spend, documents, notifications, copilot, command palette (`Ctrl+K`)
-- [x] Worker (RQ + Redis), free-only local stack (`docker compose up`), weekly CI with `pip-audit` + `npm audit` gates, operations runbook
-- [ ] Write paths in the UI (RFQ create/award, PO approve/send/receipt/invoice, catalog, budgets, integrations, audit viewer), document OCR/embed/analyze, provider-side LLM streaming, realtime push, Android (Coming Soon — API-ready)
+- [x] Backend API (FastAPI, 78 operations, 113 pytest green): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
+- [x] AuthN/Z: Keycloak OIDC (check-sso boot, splash, loop breaker) + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
+- [x] Web app (Next.js 16 / React 19, 18 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
+- [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
+- [ ] Real-world providers live-checks: OCR engine not shipped, native pgvector index migration pending (cosine re-rank in-Python is the current honest path), full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
-Never claim functionality that is not implemented. Phase 0 audit `VERIFIED`, Phases 3–4 `TESTED`, 5–8 `IN DEVELOPMENT`, 11 `PLANNED` (see `docs/00-plan/ROADMAP.md` and `docs/01-product/portfolio.md`).
+Phase 0 audit `VERIFIED`. All 10 products `TESTED` on core paths. Phase 10 Production hardening is `IN DEVELOPMENT` (monitoring wired; restore drills and OTEL pending). Phase 9 Android is `PLANNED`/0 code. `docs/00-plan/PRODUCTION_READINESS.md` has the exact remaining work evidence table.
 
 ## Quickstart (local, 100% free)
 
