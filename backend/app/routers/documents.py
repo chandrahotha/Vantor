@@ -156,6 +156,7 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
     from pathlib import Path
 
     from ..models.document import DocumentChunk
+    from ..services.embeddings import EmbeddingError, embed
     from ..services.extract import ExtractError, chunk_text, extract
 
     _write(actor)
@@ -179,31 +180,53 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
         chunks = chunk_text(result.text)
     except ExtractError as exc:
         raise HTTPException(status_code=500, detail={"code": exc.code, "message": exc.message}) from exc
+
     for old in db.execute(select(DocumentChunk).where(DocumentChunk.tenant_id == actor.tenant_id, DocumentChunk.document_id == doc_id)).scalars():
         db.delete(old)
+
+    embedded = 0
+    provider_failed = False
     for i, text in enumerate(chunks):
-        db.add(DocumentChunk(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
-                             document_id=doc_id, chunk_no=i, text=text, embedding={}))
+        chunk = DocumentChunk(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
+                              document_id=doc_id, chunk_no=i, text=text, embedding={})
+        try:
+            vec = embed(text)
+            if vec is not None:
+                chunk.embedding = vec
+                embedded += 1
+        except EmbeddingError:
+            provider_failed = True
+        db.add(chunk)
     row.status = "ready"
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_EXTRACTED", resource="document",
-                 resource_id=row.id, after={"chunks": len(chunks), "kind": result.kind}, source="api", created_by=actor.sub)
+                 resource_id=row.id, after={"chunks": len(chunks), "embedded": embedded, "kind": result.kind}, source="api", created_by=actor.sub)
     db.commit()
-    return envelope({"chunks": len(chunks), "quarantined": False, "kind": result.kind}, None, getattr(request.state, "request_id", ""))
+    return envelope({"chunks": len(chunks), "embedded": embedded, "embeddingProviderFailed": provider_failed,
+                     "quarantined": False, "kind": result.kind}, None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/documents/search")
 def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
                 q: str = Query(default="", min_length=2, max_length=200)) -> dict:
-    """Keyword search over extracted chunks (FTS-lite; pgvector semantic search lands later)."""
+    """Keyword + optional semantic ranking over extracted chunks.
+
+    Keyword stage: ILIKE substring match (works on SQLite and Postgres). Ranking
+    stage: if the embedding provider has written vectors, cosine score re-orders
+    those candidates; otherwise the keyword order stands and `mode` says so.
+    Chunks without vectors are never ranked as if they matched."""
     from ..models.document import DocumentChunk
+    from ..services.embeddings import rank
 
     like = f"%{q.strip()}%"
-    hits = list(db.execute(select(DocumentChunk).where(
+    rows = list(db.execute(select(DocumentChunk).where(
         DocumentChunk.tenant_id == actor.tenant_id, DocumentChunk.text.ilike(like))
-        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(25)).scalars())
-    return envelope([{"documentId": h.document_id, "chunkNo": h.chunk_no,
-                      "excerpt": h.text[:280]} for h in hits],
-                    {"count": len(hits)}, getattr(request.state, "request_id", ""))
+        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(50)).scalars())
+
+    candidates = [{"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
+                   "text": h.text[:280], "embedding": h.embedding} for h in rows]
+    ranked, mode = rank(q, candidates)
+    out = [{"documentId": r["document_id"], "chunkNo": r["chunk_no"], "excerpt": r["text"]} for r in ranked[:25]]
+    return envelope(out, {"count": len(out), "mode": mode}, getattr(request.state, "request_id", ""))
 
 
 DOC_STATUSES_EXPORT = sorted(DOC_STATUSES)

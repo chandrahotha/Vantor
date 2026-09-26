@@ -54,28 +54,39 @@ def _pdf_unescape(raw: bytes) -> str:
 
 
 def _extract_pdf(data: bytes) -> ExtractedResult:
+    # Page count from the page tree (`/Type /Page`, not `/Pages`), not from
+    # Flate stream objects — a page's content, fonts and images are all streams,
+    # so counting streams was wildly wrong (a 1-page PDF with 2 font streams
+    # reported 2 pages).
+    pages = max(len(re.findall(rb"/Type\s*/Page\b(?!s)", data)), 1)
+
     texts: list[str] = []
-    streams = 0
     for m in _FLATE_RE.finditer(data):
         header, start = m.group(1), m.end()
         end = data.find(b"endstream", start)
         if end < 0:
             continue
-        streams += 1
         chunk = data[start:end].rstrip(b"\r\n")
         if b"/FlateDecode" in header:
             try:
                 chunk = zlib.decompress(chunk)
             except Exception:
                 continue
+        page_runs: list[str] = []
         for tj in _TJ_RE.finditer(chunk):
             for s in _STR_RE.findall(tj.group(0)):
-                texts.append(_pdf_unescape(s[1:-1]))
+                page_runs.append(_pdf_unescape(s[1:-1]))
         for arr in _TJ_ARR_RE.finditer(chunk):
             for s in _STR_RE.findall(arr.group(0)):
-                texts.append(_pdf_unescape(s[1:-1]))
-    text = "\n".join(t for t in texts if t.strip())
-    return ExtractedResult(text=text, pages=max(1, streams), scanned=not text.strip(), kind="pdf")
+                page_runs.append(_pdf_unescape(s[1:-1]))
+        # Runs are usually one word or fragment each: joining with "\n"
+        # shredded sentences and degraded search + chunking. Space-join runs,
+        # then collapse whitespace so one chunk = readable text.
+        stream_text = re.sub(r"\s+", " ", " ".join(page_runs)).strip()
+        if stream_text:
+            texts.append(stream_text)
+    text = "\n\n".join(texts)
+    return ExtractedResult(text=text, pages=pages, scanned=not text.strip(), kind="pdf")
 
 
 def _zip_xml_text(data: bytes, parts: list[str]) -> str:
@@ -97,8 +108,42 @@ def _zip_xml_text(data: bytes, parts: list[str]) -> str:
             tag = el.tag.split("}")[-1]
             if tag in {"t", "v", "inlineStr"} and el.text:
                 out.append(el.text.strip())
-    text = "\n".join(t for t in out if t)
-    return text
+    return "\n".join(t for t in out if t)
+
+
+def _xlsx_text(data: bytes) -> str:
+    """All sheets, not just sheet1: workbooks with data in later sheets used to
+    silently lose it. Shared strings are resolved per cell where possible."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except Exception as exc:
+        raise ExtractError("DOC_ZIP_INVALID", "Not a valid XLSX container") from exc
+    names = zf.namelist()
+    shared: list[str] = []
+    if "xl/sharedStrings.xml" in names:
+        try:
+            root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+            for el in root.iter():
+                if el.tag.endswith("}t") and el.text:
+                    shared.append(el.text)
+        except Exception:
+            pass
+    sheet_names = sorted(n for n in names if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
+    out: list[str] = []
+    for sheet in sheet_names:
+        try:
+            root = ET.fromstring(zf.read(sheet))
+        except Exception:
+            continue
+        for el in root.iter():
+            tag = el.tag.split("}")[-1]
+            if tag == "v" and el.text:
+                out.append(el.text.strip())
+            elif tag == "t" and el.text:
+                out.append(el.text.strip())
+    if not out and shared:
+        out = shared
+    return "\n".join(t for t in out if t)
 
 
 def extract(filename: str, data: bytes) -> ExtractedResult:
@@ -113,7 +158,7 @@ def extract(filename: str, data: bytes) -> ExtractedResult:
         text = _zip_xml_text(data, ["word/document.xml"])
         return ExtractedResult(text=text, pages=1, scanned=not text.strip(), kind="docx")
     if ext == "xlsx":
-        text = _zip_xml_text(data, ["xl/sharedStrings.xml", "xl/worksheets/sheet1.xml"])
+        text = _xlsx_text(data)
         return ExtractedResult(text=text, pages=1, scanned=not text.strip(), kind="xlsx")
     if ext in {"csv", "txt", "md"}:
         try:

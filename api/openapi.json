@@ -1037,7 +1037,7 @@
           "ai"
         ],
         "summary": "Run Stream",
-        "description": "SSE completions: `data: {delta}` frames + terminal `data: [EVIDENCE] {...}`.\n\nHonest about what it is: frames are cut from the *completed* provider\nresponse, so time-to-first-byte equals the blocking call. Provider-side\ntoken streaming is not wired (see `services/ai_gateway.py`).\nDisabled/unconfigured providers emit an honest error event, never fake tokens.",
+        "description": "Provider-side streaming: distinguishes real token streaming from the\ndisabled fallback, so the UI can show *live* text only when it is actually\nlive.",
         "operationId": "run_stream_api_v1_ai_stream_post",
         "requestBody": {
           "content": {
@@ -3015,7 +3015,7 @@
           "documents"
         ],
         "summary": "Search Docs",
-        "description": "Keyword search over extracted chunks (FTS-lite; pgvector semantic search lands later).",
+        "description": "Keyword + optional semantic ranking over extracted chunks.\n\nKeyword stage: ILIKE substring match (works on SQLite and Postgres). Ranking\nstage: if the embedding provider has written vectors, cosine score re-orders\nthose candidates; otherwise the keyword order stands and `mode` says so.\nChunks without vectors are never ranked as if they matched.",
         "operationId": "search_docs_api_v1_documents_search_get",
         "security": [
           {
@@ -3062,21 +3062,106 @@
       }
     },
     "/api/v1/requisitions": {
+      "get": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "List Reqs",
+        "description": "Requisition index. Status + title/code search, cursor-paginated.\n\nThe requisition feature was previously write-only \u2014 there was no way to\nlist what had been created, which made the UI walk and the acceptance of\n`REQUISITION_CREATED` unverifiable without SQL.",
+        "operationId": "list_reqs_api_v1_requisitions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Search"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Reqs Api V1 Requisitions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "purchase"
         ],
         "summary": "Create Req",
         "operationId": "create_req_api_v1_requisitions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReqIn"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -3100,12 +3185,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/requisitions/{rid}/submit": {
@@ -3866,7 +3946,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File"
           },
           "resource": {
@@ -4962,6 +5042,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

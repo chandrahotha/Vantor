@@ -64,7 +64,7 @@ describe("useBoot loop breaker", () => {
     // The loop path must NOT call kc.init again — that is the loop.
     expect(initSpy).not.toHaveBeenCalled();
 
-    vvi.mockRestore(Date, "now");
+    vi.restoreAllMocks();
     auth.clearBounces();
   });
 
@@ -82,5 +82,3 @@ describe("useBoot loop breaker", () => {
   });
 });
 
-// tiny helper so vi.mockRestore(Date, ...) reads clearly above
-const vvi = { mockRestore: (mod: Date, key: string) => vi.spyOn(mod, key as never) };

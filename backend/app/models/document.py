@@ -39,6 +39,9 @@ class DocumentChunk(Base, TenantMixin):
     document_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     chunk_no: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # A list of floats when a vector exists, {} when the provider was disabled
+    # or the document quarantined — chunks are excluded from ranking, never
+    # assigned a zero vector and reported as if they matched.
     embedding: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     __table_args__ = (Index("ix_chunk_tenant_doc", "tenant_id", "document_id"),)

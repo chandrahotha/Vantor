@@ -140,18 +140,14 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
 
 @router.post("/ai/stream")
 def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor)) -> Response:
-    """SSE completions: `data: {delta}` frames + terminal `data: [EVIDENCE] {...}`.
-
-    Honest about what it is: frames are cut from the *completed* provider
-    response, so time-to-first-byte equals the blocking call. Provider-side
-    token streaming is not wired (see `services/ai_gateway.py`).
-    Disabled/unconfigured providers emit an honest error event, never fake tokens.
-    """
+    """Provider-side streaming: distinguishes real token streaming from the
+    disabled fallback, so the UI can show *live* text only when it is actually
+    live."""
     import json as _json
 
     from fastapi.responses import StreamingResponse as _SS
 
-    from ..services.ai_gateway import complete as _complete
+    from ..services.ai_gateway import AIGatewayError, complete as _complete, stream as _stream
 
     rid = getattr(request.state, "request_id", "")
     tenant, sub = actor.tenant_id, actor.sub
@@ -160,22 +156,45 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
         from ..core.tenant import pinned_session
         from ..services.audit import record_event as _rec
 
+        requested = (payload.provider or "").strip().lower()
+        # A request is "live" only if it names a real configured provider. An
+        # unset/provider-empty request falls back to env — env `disabled` means
+        # deterministic, never live frames.
+        if requested:
+            live = requested not in {"disabled"}
+        else:
+            from ..core.config import get_settings
+            live = get_settings().ai_provider.strip().lower() != "disabled"
+
+        provider_name = requested or get_settings().ai_provider.strip().lower()
+        aggregated: list[str] = []
+
         try:
-            result = _complete(prompt=payload.prompt, system=payload.system, provider=payload.provider)
+            if live:
+                for delta in _stream(prompt=payload.prompt, system=payload.system, provider=payload.provider):
+                    aggregated.append(delta)
+                    yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
+                answer = "".join(aggregated)
+                evidence = {"confidence": 0.55, "provider": provider_name, "evidence": [],
+                            "requires_human_review": True, "requestId": rid, "streamed": True}
+            else:
+                result = _complete(prompt=payload.prompt, system=payload.system, provider=payload.provider)
+                answer = result.get("answer", "")
+                yield f"data: {_json.dumps({'delta': answer, 'streamed': False})}\n\n"
+                evidence = {"confidence": result.get("confidence"), "provider": result.get("provider"),
+                            "evidence": result.get("evidence", []), "requires_human_review": True,
+                            "requestId": rid, "streamed": False}
         except AIGatewayError as exc:
-            yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider})}\n\n"
+            yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider, 'streamed': live})}\n\n"
             return
-        text = result.get("answer", "")
-        for i in range(0, max(len(text), 1), 120):
-            yield f"data: {_json.dumps({'delta': text[i:i + 120], 'streamed': False})}\n\n"
-        yield f"data: [EVIDENCE] {_json.dumps({'confidence': result.get('confidence'), 'provider': result.get('provider'), 'evidence': result.get('evidence', []), 'requires_human_review': True, 'requestId': rid})}\n\n"
-        # Pinned session: an unpinned one is rejected by the audit_events RLS
-        # policy on Postgres, which would silently drop every streamed audit.
+
+        yield f"data: [EVIDENCE] {_json.dumps(evidence)}\n\n"
         db = None
         try:
             db = pinned_session(tenant)
             _rec(db, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
-                 resource_id="stream", after={"provider": result.get("provider")}, source="api", created_by=sub)
+                 resource_id="stream", after={"provider": provider_name, "chars": len(answer), "live": live},
+                 source="api", created_by=sub)
             db.commit()
         except Exception:
             if db is not None:

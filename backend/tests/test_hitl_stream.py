@@ -116,10 +116,55 @@ def test_stream_framing_disabled(client):
     assert "text/event-stream" in r.headers["content-type"]
     assert "[EVIDENCE]" in r.text
     assert "UNKNOWN" in r.text
-    # The stream is SSE-framed but NOT provider-streamed — it says so, so a
-    # client cannot mistake it for real token streaming.
-    assert '"streamed": false' in r.text.replace("'", '"') or '"streamed":false' in r.text
+    # The disabled path is one complete frame, flagged as not live-streamed so a
+    # client cannot mistake it for token streaming.
+    assert '"streamed": false' in r.text or '"streamed":false' in r.text
     # And the completion is audited: an unpinned session is rejected by the
     # audit_events RLS policy on Postgres, which used to drop the write silently.
     feed = c.get("/api/v1/audit-events?action=AI_COMPLETED", headers=_h(pem)).json()["data"]
     assert any(e["action"] == "AI_COMPLETED" for e in feed)
+
+
+def test_stream_framing_live_provider(monkeypatch, client):
+    """The endpoint must emit provider deltas as they arrive, not slice a finished
+    response. This is the regression that made `/ai/stream` theatre."""
+    c, pem = client
+
+    def fake_stream(*, prompt, system="", provider=""):
+        yield "hel"
+        yield "lo "
+        yield "supplier"
+        yield "s"
+
+    monkeypatch.setattr("app.services.ai_gateway.stream", fake_stream)
+    monkeypatch.setattr("app.services.ai_gateway.complete", lambda **kw: {"answer": ""})  # not reached
+
+    r = c.post("/api/v1/ai/stream", json={"prompt": "Hello", "provider": "ollama"}, headers=_h(pem))
+    assert r.status_code == 200
+    assert 'data: {"delta": "hel", "streamed": true}' in r.text
+    assert 'data: {"delta": "lo ", "streamed": true}' in r.text
+    assert 'data: {"delta": "supplier", "streamed": true}' in r.text
+    assert "[EVIDENCE]" in r.text
+    # the four frames arrive as distinct SSE events and their deltas concatenate
+    # to the full answer — proof they are emitted as received, not after the fact.
+    import json as _j
+    frames = [_j.loads(l[5:]) for l in r.text.split("\n\n") if l.startswith("data: ") and not l.startswith("data: [EVIDENCE]")]
+    assert "".join(f["delta"] for f in frames if "delta" in f) == "hello suppliers"
+    assert all(f["streamed"] for f in frames)
+
+
+def test_stream_provider_error_is_explicit(monkeypatch, client):
+    """A live provider failure must surface as an error event, not fake text."""
+    from app.services.ai_gateway import AIGatewayError
+
+    c, pem = client
+
+    def boom(*, prompt, system="", provider=""):
+        raise AIGatewayError("ollama", "stream failed: connection refused")
+        return
+        yield
+
+    monkeypatch.setattr("app.services.ai_gateway.stream", boom)
+    r = c.post("/api/v1/ai/stream", json={"prompt": "Hello", "provider": "ollama"}, headers=_h(pem))
+    assert r.status_code == 200  # SSE stays 200; failures are error *events*
+    assert '"error"' in r.text and "ollama" in r.text

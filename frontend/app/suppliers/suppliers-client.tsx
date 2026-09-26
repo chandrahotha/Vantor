@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Shell from "../../components/Shell";
 import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
@@ -82,13 +83,15 @@ export default function SuppliersClient() {
     {
       key: "code", header: "Code", sortable: true,
       render: (r) => (
-        <span className="mono" ref={(el) => { rowRefs.current[r.id] = el; }} tabIndex={r.id === highlight ? -1 : undefined}>
-          {r.code}
-          {r.id === highlight ? <span className="badge info">from palette</span> : null}
-        </span>
+        <Link href={`/suppliers/${r.id}`}>
+          <span className="mono" ref={(el) => { rowRefs.current[r.id] = el; }} tabIndex={r.id === highlight ? -1 : undefined}>
+            {r.code}
+            {r.id === highlight ? <span className="badge info">from palette</span> : null}
+          </span>
+        </Link>
       ),
     },
-    { key: "name", header: "Name", sortable: true, render: (r) => r.name },
+    { key: "name", header: "Name", sortable: true, render: (r) => <Link href={`/suppliers/${r.id}`}>{r.name}</Link> },
     {
       key: "status", header: "Status", sortable: true,
       render: (r) => <Badge tone={r.status === "active" ? "ok" : r.status === "blocked" ? "bad" : undefined}>{r.status}</Badge>,

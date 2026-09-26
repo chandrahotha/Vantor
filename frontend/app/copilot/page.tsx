@@ -66,9 +66,9 @@ export default function Copilot() {
           const payload = line.slice(5).trim();
           if (payload.startsWith("[EVIDENCE]")) {
             const ev = JSON.parse(payload.slice("[EVIDENCE]".length)) as {
-              provider?: string; confidence?: number | null; evidence?: unknown[]; requires_human_review?: boolean;
+              provider?: string; confidence?: number | null; evidence?: unknown[]; requires_human_review?: boolean; streamed?: boolean;
             };
-            setTurns((t) => t.map((x) => (x === assistant ? { ...x, provider: ev.provider, confidence: ev.confidence, evidence: ev.evidence, streamed: false } : x)));
+            setTurns((t) => t.map((x) => (x === assistant ? { ...x, provider: ev.provider, confidence: ev.confidence, evidence: ev.evidence, streamed: ev.streamed } : x)));
           } else {
             const d = JSON.parse(payload) as { delta?: string; error?: string };
             if (d.error) throw new Error(d.error);
@@ -121,7 +121,8 @@ export default function Copilot() {
               <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{t.text || (busy && t.role === "ai" ? "…" : "")}</div>
               {t.streamed === false && t.role === "ai" ? (
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  Provider-side token streaming is not wired; this response arrived complete.
+                  This environment is running in deterministic mode — the response is complete
+                  when it renders, not token-streamed.
                 </div>
               ) : null}
               {t.evidence && t.evidence.length > 0 ? (
