@@ -6,8 +6,8 @@
 Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
 Nothing is `PRODUCTION READY` in V1 scaffold.
 
-## Phase 0 — Discovery [BLOCKED → next]
-Fill `REPOSITORY_AUDIT.md` with evidence. Output: audit matrix + risk list. Gate: no architecture changes until matrix complete.
+## Phase 0 — Discovery [VERIFIED 2026-09-26]
+`REPOSITORY_AUDIT.md` filled with evidence (5/5 repos, ~775 files, source SHAs recorded); stack decided (ADR-007: FastAPI). Audit clones deleted; no private code committed. Gate passed: architecture decisions now unblocked.
 
 ## Phase 1 — Product architecture [IN DEVELOPMENT — docs drafted]
 `docs/01-product/requirements.md`, `docs/02-architecture/*`, `docs/03-ai/*`, `docs/04-security/*`, ADRs. Gate: docs review + stack decision ADR signed.

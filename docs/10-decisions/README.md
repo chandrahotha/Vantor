@@ -11,3 +11,4 @@
 | [ADR-004](ADR-004-typed-ai-tools.md) | Typed AI tools, no raw SQL/shell | Accepted |
 | [ADR-005](ADR-005-keycloak-oidc.md) | Keycloak OIDC + RLS tenancy | Accepted |
 | [ADR-006](ADR-006-nextjs-frontend.md) | Next.js frontend, API-first for Android | Accepted |
+| [ADR-007](ADR-007-fastapi-backend.md) | FastAPI backend (audit-decided 5/5) | Accepted |

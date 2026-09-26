@@ -34,7 +34,7 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 - [ ] Backend / frontend implementation — `PLANNED` (starts Phase 3, pending repository audit)
 - [ ] AI Copilot, document pipeline, Android — `PLANNED`
 
-Never claim functionality that is not implemented. See `docs/00-plan/REPOSITORY_AUDIT.md` (currently `BLOCKED` — private repos not yet accessible).
+Never claim functionality that is not implemented. Phase 0 audit `VERIFIED` (see `docs/00-plan/REPOSITORY_AUDIT.md`) — implementation starts Phase 3.
 
 ## Quickstart (local, 100% free)
 

@@ -1,11 +1,11 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../docs/BRAIN.md) · [Docs index](../docs/README.md)
 
-# Backend placeholder — VANTOR
+# Backend — VANTOR
 
-**Status: `PLANNED`.**
+**Status: `PLANNED` (stack DECIDED — see `../docs/10-decisions/ADR-007-fastapi-backend.md`).**
 
-Language/framework decided after `docs/00-plan/REPOSITORY_AUDIT.md` (hypothesis: NestJS core + Python ai-worker sidecar; single-stack if audit proves one ecosystem dominant).
+Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic** (audit-verified 5/5 convergence), Postgres + RLS primary, RQ + Redis queue, S3-compatible storage, Keycloak OIDC.
 
-Planned layout: `src/modules/{identity,supplier,sourcing,contract,spend,purchase,approval,workflow,document,ai,notification,integration,audit}/` + `src/common/` + `migrations/`.
-API: `/api/v1/...`, OpenAPI, typed schemas, idempotency, versioning.
+Planned layout: `app/{routers,services,models,core,tools,engine,migrations}/` converging the 5 source trees per `../docs/00-plan/MIGRATION_PLAN.md` (canonical audit+idempotency from SupplierRadar, quorum approvals from ProcurementOS, JWKS auth from ContractGuard).
+API: `/api/v1/...`, OpenAPI generated from code, typed schemas, idempotency keys, versioning.

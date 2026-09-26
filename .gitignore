@@ -1,3 +1,5 @@
+# Phase-0 audit clones — private source, NEVER commit
+_audit/
 # Vantor ignores — never commit secrets or local data
 .env
 .env.local
