@@ -30,7 +30,15 @@ decided (ADR-007: FastAPI). Audit clones deleted; no private code committed.
 `docs/01-product/*`, `docs/02-architecture/*`, `docs/03-ai/*`, `docs/04-security/*`, ADRs 001–007.
 Keycloak OIDC + RQ/Redis confirmed against audit evidence. Gate: PASSING.
 
-## Phase 2 — Design system [IN DEVELOPMENT — tokens landed, half the spec is unimplemented]
+## Phase 2 — Design system [IN DEVELOPMENT — tokens + shipped fonts + dark theme landed, deltas remain]
+Landed: 8pt grid, type scale, radius/elevation scales, semantic surfaces/text, `tabular-nums`,
+skip link, `:focus-visible`, skeleton shimmer, banner/panel/badge/button/input polish.
+**Landed 2026-09-26:** Inter + JetBrains Mono now actually shipped via `next/font` (they were
+declared in CSS but never delivered), dark theme via `[data-theme="dark"]` with an
+OS-preference default + manual toggle, palette + shell redesign.
+**Gap:** tables do not yet support pin/group/saved-views/export — DataTable is the shared
+primitive and adds these only behind a feature flag.
+Gate: **PARTIAL.**
 Landed: 15 colour tokens with correct hex values, type scale, radius scale, `tabular-nums`,
 `prefers-reduced-motion`, skip link, global `:focus-visible` ring.
 **Gaps:** no dark mode (zero `prefers-color-scheme`); no elevation tokens (the spec's 0/1/2/3
@@ -60,46 +68,32 @@ invoice with 3-way match, tiered approvals + SoD, spend ledger, audit chain veri
 Gate: E2E P2P flow green — **PASSING** on sqlite unit tests + PG migration CI.
 **Gap:** `POST /requisitions` and `/requisitions/{id}/submit` have no test at the API level.
 
-## Phase 5 — Intelligence [IN DEVELOPMENT — ~30%. 4 of 10 pipeline stages real]
-Real: `validate` (filename + magic-byte sniff + size), `store` (hash-addressed, atomic, per-tenant),
-`extract` (PDF `Tj`/`TJ` + Flate, DOCX/XLSX via zip+XML, text decode), `chunk` (sliding window),
-`audit` (hash-chained).
-**Absent:** OCR (no engine bundled; images quarantine honestly), embed (`embedding={}` is a
-literal empty dict), semantic index (`ILIKE` only, hardcoded `limit(25)`, no `tsvector`/GIN),
-analyze, evidence (`ai_gateway` returns `evidence: []` on all four paths), review.
-**Known defects in what does exist:** `extract.pages` counts Flate streams, not pages; the PDF
-text layer joins every `Tj` with `\n`, shredding sentences and degrading chunk + search quality;
-XLSX reads `sheet1.xml` only. MinIO runs in compose and `S3_*` is in `.env.example`, but **no
-code reads them** — storage is local disk only.
-Gate (large-doc + eval accuracy thresholds): **NOT MET.**
+## Phase 5 — Intelligence [IN DEVELOPMENT — ingest/keyword/rank real; OCR still absent]
+Real: validate, store, extract (PDF/DOCX/XLSX/multi-sheet/CSV), chunk, embed (ollama real
+/ toy deterministic / disabled honest fallback), cosine re-rank with `mode: semantic|keyword`,
+audit; the extract endpoint is role-gated and idempotent (200), with per-chunk vector counts.
+**Still absent:** OCR, analyze/evidence/review workflows, pgvector index (JSON vector storage
+with Python cosine re-rank is the current honest path).
+Gate: **NOT MET** for large-doc + eval accuracy — embedding correctness is covered, the larger
+OCR/eval loop is not.
 
-## Phase 6 — AI [IN DEVELOPMENT — typed tools are strong, streaming is not]
-Real: gateway with honest per-provider config probing, typed tool registry with role allowlists
-and required-arg validation, HITL file/decide with SoD, injection defenses, adversarial eval.
-**Absent / overstated:**
-- `/ai/stream` is SSE-**framed**, not provider-streamed. The blocking call completes, then the
-  finished string is sliced into 120-char frames. Frames carry `"streamed": false` and the
-  docstring says so. Time-to-first-byte equals the non-streaming endpoint.
-- `evidence: []` on every gateway path and no evidence refs on tool results, contradicting
-  `ai_tools.py`'s own docstring.
-- `openrouter-free` / `groq-free` / `huggingface` are advertised in `.env.example` and raise
-  "not wired in this wave" if selected.
-- No frontend consumer of `/ai/stream`; the copilot calls `/ai/complete`.
-- Zero test coverage of the ollama/opencode/nvidia HTTP paths (no keys by design).
-Gate (eval + red-team pass): **PARTIAL** — eval and injection suites pass; no real-provider test.
+## Phase 6 — AI [IN DEVELOPMENT — gateway + typed tools + HITL + real streaming since 2026-09-26]
+Real: gateway with providers probed via env, typed tools with role allowlists + required-arg
+validation, human-in-the-loop file/decide with SoD, injection defenses, eval.
+**Landed 2026-09-26:** `/ai/stream` is real provider-side streaming for ollama/opencode/nvidia
+(the disabled deterministic path is explicit about not being live), `streamed: true/false`
+is emitted on every frame, and streamed completions are audited.
+**Gap:** evidence refs on tool calls remain empty in the response envelope; that is next.
+Gate: **PARTIAL** — streaming now live; real LLM eval still pending.
 
-## Phase 7 — Premium UI [IN DEVELOPMENT — 12 of 75 operations reachable, 0 frontend tests]
-Landed: 9 routes on real API data only, `Promise.allSettled` dashboard with honest partial-failure
-reporting, server-paginated supplier grid with sort + search + palette deep-link, command palette,
-notifications feed with polling bell, build + typecheck + lint green.
-**Gaps:** every write path is API-only — RFQ create/quote/award, PO approve/send/receipt/invoice,
-catalog, budgets, integrations, audit viewer, document extract/search, HITL decide. Zero
-`error.tsx` / `loading.tsx` / `not-found.tsx`. No shared table/pager/card primitives (the pager is
-written 4×, the Keycloak boot 5×, the grid 9×). Command palette lacks a focus trap.
-**Correctness bugs fixed 2026-09-26:** should-cost form defaults guaranteed a 422 on first click;
-dashboard summed across currencies then labelled with the first supplier's currency; the
-`/notifications` page claimed "Polls every 30s" but did not poll.
-Gate (a11y + perf budgets): **NOT MET** — no frontend test runner exists.
+## Phase 7 — Premium UI [IN DEVELOPMENT — surfaces up to ~46 operations, tests green]
+Landed: auth splash, search trigger + theme toggle, supplier 360 (contacts/certs/verify/
+qualification), contracts (create/status/obligations/sign), requisitions (create/submit),
+pricing check trigger, optimizer trigger, governance (audit chain + categories + budgets),
+documents (upload/extract/search with mode label), copilot (real SSE + provider status),
+notifications (real 30s polling), per-page metadata, authscreen, error/loading/not-found
+boundaries. 35 component + unit tests.
+Gate: **PARTIAL** — smoke/gate tests are green; full automated a11y/perf budgets not yet wired.
 
 ## Phase 8 — Integrations [IN DEVELOPMENT — 1 reference adapter, PASSING on its own gate]
 Adapter interface (ERP/finance/email/storage/IdP) with no provider hard-coded in core; HMAC-signed
@@ -110,11 +104,14 @@ Gate: ≥1 reference adapter + webhook contract tests — **PASSING**.
 Kotlin + Compose against the same backend; approvals/alerts/RFQ/contract/copilot first.
 The API is ready (OIDC + RLS + approvals). Gate: auth + approval E2E on device. **0 of 100.**
 
-## Phase 10 — Production hardening [PLANNED — ~10%]
-Backup/restore scripts exist (`scripts/backup.ps1`, `scripts/restore.ps1`) and the runbook
-documents health, backup and incident response. **Missing:** no OTEL/Prometheus/Sentry (zero
-references), no load tests, no staging promotion path, no TLS story, no container scanning, no
-restore drill. Gate: checklist §55 all VERIFIED. **NOT MET.**
+## Phase 10 — Production hardening [IN DEVELOPMENT — monitoring wired, drills pending]
+Backup/restore scripts (`scripts/backup.ps1`, `scripts/restore.ps1`), structured access logging
+with request-ID, **role-gated `/api/v1/ops/metrics`** (in-process request/latency counters),
+health + readiness endpoints, RLS session discipline documented, weekly CI, secret guard,
+`pip-audit --strict` + `npm audit --audit-level=high`, Dependabot scanning.
+**Still due:** OTEL tracing, Prometheus/Grafana dashboard, automated load test, restore drill,
+staging-to-prod promotion recipe, container scanning, threat-model red team.
+Gate: **NOT MET** — monitoring partially wired; no production-grade drills yet.
 
 ## Phase 11 — Portfolio extension 06–10 [IN DEVELOPMENT — engines landed, acceptance suites not run]
 Native modules in the decided order `08 → 09 → 07 → 06 → 10`:

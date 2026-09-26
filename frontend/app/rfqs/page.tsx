@@ -114,6 +114,17 @@ export default function Rfqs() {
     });
   }
 
+  async function optimize() {
+    if (!sel) return;
+    await act("optimize", async () => {
+      const r = await api<{ allocations: { supplierId: string; shareBp: number }[]; note?: string }>(
+        `/api/v1/rfqs/${sel.rfq.id}/optimize`, { method: "POST", idemKey: newIdemKey(), body: "{}" },
+      );
+      const n = (r.data.allocations || []).length;
+      setNote(n ? `Optimizer suggested a ${n}-way split for ${sel.rfq.code}. Award still requires the Award action.` : `No allocation proposed for ${sel.rfq.code}.`);
+    });
+  }
+
   async function award(quoteId: string) {
     if (!sel) return;
     await act(`award-${quoteId}`, async () => {
@@ -207,6 +218,17 @@ export default function Rfqs() {
             ]}
             empty={<Empty title="No lines" />}
           />
+
+          {sel.rfq.status === "awardable" || sel.rfq.status === "evaluated" ? (
+            <div className="toolbar" style={{ marginTop: 12 }}>
+              <button className="ghost" onClick={optimize} disabled={busy !== ""}>
+                {busy === "optimize" ? "Computing…" : "Suggest allocation"}
+              </button>
+              <span style={{ color: "var(--faint)", fontSize: 12 }}>
+                Read-only. The optimizer proposes a share-capped split; a human still awards — never the model.
+              </span>
+            </div>
+          ) : null}
 
           <h3>Comparison</h3>
           <DataTable

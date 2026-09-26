@@ -27,6 +27,34 @@
         }
       }
     },
+    "/api/v1/ops/metrics": {
+      "get": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "Ops Metrics",
+        "description": "Perf counters for this process. Auditor/Super Admin only \u2014 a request-count\nby tenant is a real information-leak surface, so it is role-gated, not public.\nSums are per-process; a multi-replica deploy needs a collector (Phase 10).",
+        "operationId": "ops_metrics_api_v1_ops_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Ops Metrics Api V1 Ops Metrics Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/ready": {
       "get": {
         "tags": [

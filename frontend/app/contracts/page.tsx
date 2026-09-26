@@ -1,10 +1,9 @@
-import type { Metadata } from "next";
-import { ContractsPage } from "../shared/modules";
+﻿import type { Metadata } from "next";
+import ContractsPage from "./client";
 
 export const metadata: Metadata = {
   title: "Contracts",
-  description:
-    "Contract repository with obligations, lifecycle transitions, expiry rolling, e-signature records and deterministic 11-dimension PO matching.",
+  description: "Repository with obligations, lifecycle transitions, expiry rolling, e-sign records and deterministic PO matching.",
   alternates: { canonical: "/contracts" },
 };
 

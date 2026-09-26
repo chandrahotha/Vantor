@@ -3,14 +3,17 @@
 - GET /api/v1/health: process alive (always 200 when code runs).
 - GET /api/v1/ready: real dependency checks (DB reachable, migrations at head,
   Redis ping best-effort). 503 with per-check status when down — never fake green.
+- GET /api/v1/ops/metrics: in-process request/latency counters. Admin roles only.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from ..core.errors import envelope
+from ..core.observe import metrics_snapshot
+from ..core.security import Actor, get_actor
 from ..core.tenant import get_session_factory
 
 router = APIRouter(tags=["platform"])
@@ -19,6 +22,16 @@ router = APIRouter(tags=["platform"])
 @router.get("/health")
 def health(request: Request) -> dict:
     return envelope({"status": "ok", "service": "vantor-api"}, None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/ops/metrics")
+def ops_metrics(request: Request, actor: Actor = Depends(get_actor)) -> dict:
+    """Perf counters for this process. Auditor/Super Admin only — a request-count
+    by tenant is a real information-leak surface, so it is role-gated, not public.
+    Sums are per-process; a multi-replica deploy needs a collector (Phase 10)."""
+    if not set(actor.roles or ()) & {"Super Admin", "Auditor", "Organization Admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    return envelope(metrics_snapshot(), None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/ready")

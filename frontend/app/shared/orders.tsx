@@ -126,6 +126,19 @@ export function OrdersPage() {
     });
   }
 
+  async function evaluatePrice() {
+    if (!detail) return;
+    await act("price", async () => {
+      const r = await api<{ opened: string[]; skipped: { line: string; reason: string }[]; evaluated?: number }>(
+        `/api/v1/spend/price-evaluate/${detail.id}`, { method: "POST", idemKey: newIdemKey() },
+      );
+      const d = r.data;
+      setNote(d && (d.opened?.length ?? 0) > 0
+        ? `${detail.code}: ${d.opened.length} price anomaly case(s) opened. Resolve under Spend.`
+        : `${detail.code}: prices within baseline${d?.skipped?.length ? ` (${d.skipped.length} line(s) skipped: no history)` : ""}.`);
+    });
+  }
+
   async function approveInvoice(inv: Invoice) {
     if (!detail) return;
     await act(`inv-${inv.id}`, async () => {
@@ -229,6 +242,16 @@ export function OrdersPage() {
               </button>
             </div>
           ) : null}
+
+          <div className="toolbar" style={{ marginTop: 14 }}>
+            <button className="ghost" onClick={evaluatePrice} disabled={busy !== ""}>
+              {busy === "price" ? "Checking…" : "Price check"}
+            </button>
+            <span style={{ color: "var(--faint)", fontSize: 12 }}>
+              Compares every line to its median baseline; at 10%+ variance it opens a
+              case under Spend — anomalies are resolved there, never silently.
+            </span>
+          </div>
 
           <h3>Invoices</h3>
           <DataTable caption={`Invoices for ${detail.code}`} rows={detail.invoices} rowKey={(i) => i.id}
