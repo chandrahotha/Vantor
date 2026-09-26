@@ -48,6 +48,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
+  // Canonical marks: vantor-icon-source.png (glossy V+orbit squircle) is the one
+  // brand — rasterized into public/icons/. No generated letter-marks anywhere.
+  icons: {
+    icon: [
+      { url: "/icons/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/mark-64.png", sizes: "64x64", type: "image/png", rel: "shortcut icon" },
+    ],
+    shortcut: ["/icons/favicon-32.png"],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: {
     type: "website",
     siteName: "VANTOR",

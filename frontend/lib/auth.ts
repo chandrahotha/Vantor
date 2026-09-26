@@ -1,7 +1,11 @@
-/** Keycloak OIDC — real Authorization Code + PKCE, in-memory tokens only.
- * No stored passwords, no fake sessions, no localStorage tokens. Silent SSO refresh
- * keeps procurement approvals usable on long sessions. Failure => explicit error UI.
- */
+/** Keycloak OIDC — Authorization Code + PKCE, in-memory tokens only.
+ * No stored passwords, no fake sessions, no localStorage tokens. Silent SSO
+ * refresh keeps procurement approvals usable on long sessions.
+ *
+ * Boot is `check-sso`, not `login-required`: the splash paints first, and when
+ * the IdP has no session we show a sign-in card instead of bouncing the user
+ * into an unexplained redirect. That is also what kills the "page appears and
+ * immediately disappears" class of bug. */
 import Keycloak from "keycloak-js";
 
 let instance: Keycloak | null = null;
@@ -18,30 +22,50 @@ export function keycloak(): Keycloak {
 }
 
 export function login(): void {
-  keycloak().login();
+  const kc = keycloak();
+  try {
+    // login() before init() throws in keycloak 26 — bootstrap, then redirect.
+    if (!kc.didInitialize) {
+      kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
+        .then(() => { if (!kc.authenticated) kc.login(); })
+        .catch(() => { /* the error state in AuthScreen shows */ });
+      return;
+    }
+    if (!kc.authenticated) kc.login();
+  } catch {
+    // Adapter itself is unavailable in this bundle. The AuthScreen error state
+    // is the honest answer; never crash a click handler.
+    setSession(null);
+  }
 }
 
 export function logout(): void {
-  keycloak().logout();
+  try {
+    const kc = keycloak();
+    if (kc.didInitialize) kc.logout();
+  } catch { /* ignore */ }
 }
 
-/** Loop detector. `login-required` bounces to the IdP immediately; if the IdP
- *  or the client is misconfigured, the user would ping-pong forever with no
- *  explanation. We record bounce timestamps and, after rapid repeats, stop
- *  redirecting and surface a real error instead. */
+/** Loop detector. Every auth check is counted as (ok/unauth) pairs so the
+ *  detector can tell "IdP cancelled the login" (safe) from "the client keeps
+ *  getting bounced" (a misconfiguration), and never triggers on a normal
+ *  reload-while-signed-in. */
 const BOUNCE_KEY = "vantor.auth.bounces";
-export function noteBounce(): void {
+export function noteBounce(authenticated: boolean): void {
   try {
     const now = Date.now();
-    const prev: number[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
-    sessionStorage.setItem(BOUNCE_KEY, JSON.stringify([...prev, now].filter((t) => now - t < 10_000)));
+    const prev: { t: number; ok: boolean }[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
+    const kept = [...prev, { t: now, ok: authenticated }].filter((e) => now - e.t < 30_000);
+    sessionStorage.setItem(BOUNCE_KEY, JSON.stringify(kept.slice(-6)));
   } catch { /* sessionStorage unavailable (privacy mode) — proceed unguarded */ }
 }
 export function isLooping(): boolean {
   try {
+    const events: { t: number; ok: boolean }[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
     const now = Date.now();
-    const prev: number[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
-    return prev.filter((t) => now - t < 10_000).length >= 2;
+    const recent = events.filter((e) => now - e.t < 30_000);
+    // Only a loop if we keep failing AND have not had a success recently.
+    return recent.length >= 3 && recent.every((e) => !e.ok);
   } catch {
     return false;
   }

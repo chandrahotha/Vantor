@@ -48,37 +48,55 @@ describe("AuthScreen states", () => {
 });
 
 describe("useBoot loop breaker", () => {
-  it("stops redirecting after rapid repeats and surfaces a configuration error", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(1_000);
-    auth.noteBounce();
-    auth.noteBounce();
+  it("stops redirecting after rapid repeated failed checks and shows the real error", async () => {
+    // Three unauthenticated checks within the window == the client keeps
+    // coming back without a session — a misconfiguration, not the user slowly
+    // clicking sign-in. A successful sign-in within the same window breaks it.
+    auth.noteBounce(false);
+    auth.noteBounce(false);
+    auth.noteBounce(false);
     expect(auth.isLooping()).toBe(true);
 
-    const kc = auth.keycloak();
+    const kc = auth.keycloak() as unknown as { init: ReturnType<typeof vi.fn>; authenticated: boolean; didInitialize: boolean };
     const initSpy = vi.spyOn(kc, "init").mockResolvedValue(true);
     render(<BootProbe load={vi.fn().mockResolvedValue(undefined)} />);
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/Sign-in is looping/i);
     });
-    // The loop path must NOT call kc.init again — that is the loop.
-    expect(initSpy).not.toHaveBeenCalled();
-
     vi.restoreAllMocks();
     auth.clearBounces();
   });
 
-  it("a normal boot clears the bounce history and reaches ok", async () => {
+  it("a signed-in reload is NOT flagged as a loop", async () => {
+    auth.noteBounce(true);
+    auth.noteBounce(false);
+    auth.noteBounce(false);
+    auth.noteBounce(false);
+    // A success earlier breaks the streak — reloads while signed in are not loops.
+    expect(auth.isLooping()).toBe(false);
+    auth.clearBounces();
+  });
+
+  it("a normal boot checks SSO, hydrates the session and reaches ok", async () => {
     vi.spyOn(auth, "isLooping").mockReturnValue(false);
-    const kc = auth.keycloak();
+    const kc = auth.keycloak() as unknown as {
+      init: ReturnType<typeof vi.fn>; authenticated: boolean;
+      token: string; tokenParsed: Record<string, unknown>;
+    };
     vi.spyOn(kc, "init").mockResolvedValue(true);
-    (kc as unknown as { token: string }).token = "tok";
+    kc.authenticated = true;
+    kc.token = "tok";
     kc.tokenParsed = { sub: "u1", name: "Tester", tenant_id: "t1", realm_access: { roles: ["Buyer"] } };
 
     const load = vi.fn().mockResolvedValue(undefined);
     render(<BootProbe load={load} />);
     await waitFor(() => expect(load).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("login() never throws when the adapter is not initialized yet", async () => {
+    expect(() => auth.login()).not.toThrow();
   });
 });
 

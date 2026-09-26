@@ -55,6 +55,31 @@
         ]
       }
     },
+    "/api/v1/ops/metrics.prom": {
+      "get": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "Ops Metrics Prometheus",
+        "description": "Prometheus exposition format for the same process-level counters. Same\nrole gate as the JSON variant \u2014 scrapes still need a service principal.",
+        "operationId": "ops_metrics_prometheus_api_v1_ops_metrics_prom_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/ready": {
       "get": {
         "tags": [
@@ -1065,7 +1090,7 @@
           "ai"
         ],
         "summary": "Run Stream",
-        "description": "Provider-side streaming: distinguishes real token streaming from the\ndisabled fallback, so the UI can show *live* text only when it is actually\nlive.",
+        "description": "Provider-side streaming with optional tool grounding: distinguishes real\ntoken streaming from the disabled fallback, and cites tool rows as evidence.",
         "operationId": "run_stream_api_v1_ai_stream_post",
         "requestBody": {
           "content": {
@@ -4094,6 +4119,20 @@
             "type": "string",
             "title": "System",
             "default": ""
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ToolCallIn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
           }
         },
         "type": "object",
@@ -5046,6 +5085,23 @@
         },
         "type": "object",
         "title": "SupplierPatch"
+      },
+      "ToolCallIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "args": {
+            "type": "object",
+            "title": "Args"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ToolCallIn"
       },
       "ValidationError": {
         "properties": {

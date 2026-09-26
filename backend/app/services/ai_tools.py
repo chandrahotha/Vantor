@@ -66,14 +66,20 @@ def search_suppliers(db: Session, tenant_id: str, q: str, limit: int = 10) -> di
     like = f"%{q.strip()}%"
     rows = list(db.execute(select(Supplier).where(Supplier.tenant_id == tenant_id,
                   (Supplier.name.ilike(like)) | (Supplier.code.ilike(like))).limit(max(1, min(limit, 25)))).scalars())
-    return {"suppliers": [{"id": r.id, "code": r.code, "name": r.name, "status": r.status} for r in rows]}
+    return {
+        "suppliers": [{"id": r.id, "code": r.code, "name": r.name, "status": r.status} for r in rows],
+        # Every claim the copilot makes must trace to a row. The evidence list is
+        # how a human (or the eval suite) verifies that.
+        "evidence": [{"type": "supplier", "id": r.id, "ref": r.code} for r in rows],
+    }
 
 
 def get_supplier(db: Session, tenant_id: str, supplier_id: str) -> dict:
     r = db.execute(select(Supplier).where(Supplier.tenant_id == tenant_id, Supplier.id == supplier_id)).scalar_one_or_none()
     if r is None:
         raise ToolError("NOT_FOUND", "Supplier not found in this tenant")
-    return {"id": r.id, "code": r.code, "name": r.name, "status": r.status, "country": r.country, "currency": r.currency}
+    return {"id": r.id, "code": r.code, "name": r.name, "status": r.status, "country": r.country, "currency": r.currency,
+            "evidence": [{"type": "supplier", "id": r.id, "ref": r.code}]}
 
 
 def compare_quotes(db: Session, tenant_id: str, rfq_id: str) -> dict:
@@ -82,15 +88,17 @@ def compare_quotes(db: Session, tenant_id: str, rfq_id: str) -> dict:
         raise ToolError("NOT_FOUND", "RFQ not found in this tenant")
     quotes = list(db.execute(select(Quote).where(Quote.tenant_id == tenant_id, Quote.rfq_id == rfq_id).order_by(Quote.total_minor)).scalars())
     return {"rfq": r.code, "currency": r.currency,
-            "quotes": [{"supplierId": q.supplier_id, "status": q.status, "totalMinor": q.total_minor} for q in quotes]}
+            "quotes": [{"supplierId": q.supplier_id, "status": q.status, "totalMinor": q.total_minor} for q in quotes],
+            "evidence": [{"type": "rfq", "id": r.id, "ref": r.code}] + [{"type": "quote", "id": q.id, "ref": q.supplier_id} for q in quotes]}
 
 
 def calculate_savings(db: Session, tenant_id: str) -> dict:
     from ..models.spend import SavingsRecord
 
-    total = db.execute(select(func.sum(SavingsRecord.saved_minor)).where(SavingsRecord.tenant_id == tenant_id)).scalar() or 0
-    n = db.execute(select(func.count()).select_from(SavingsRecord).where(SavingsRecord.tenant_id == tenant_id)).scalar() or 0
-    return {"savedMinor": int(total), "awards": int(n)}
+    rows = list(db.execute(select(SavingsRecord).where(SavingsRecord.tenant_id == tenant_id)).scalars())
+    total = sum(r.saved_minor for r in rows)
+    return {"savedMinor": int(total), "awards": len(rows),
+            "evidence": [{"type": "savings_record", "id": r.id, "ref": r.award_id} for r in rows]}
 
 
 def get_purchase_orders(db: Session, tenant_id: str, status: str = "", limit: int = 10) -> dict:
@@ -98,7 +106,8 @@ def get_purchase_orders(db: Session, tenant_id: str, status: str = "", limit: in
     if status:
         stmt = stmt.where(PurchaseOrder.status == status)
     rows = list(db.execute(stmt.order_by(PurchaseOrder.created_at.desc()).limit(max(1, min(limit, 25)))).scalars())
-    return {"orders": [{"id": p.id, "code": p.code, "status": p.status, "totalMinor": p.total_minor} for p in rows]}
+    return {"orders": [{"id": p.id, "code": p.code, "status": p.status, "totalMinor": p.total_minor} for p in rows],
+            "evidence": [{"type": "purchase_order", "id": p.id, "ref": p.code} for p in rows]}
 
 
 def request_approval(db: Session, tenant_id: str, action: str, resource: str, resource_id: str, reason: str = "", requested_by: str = "") -> dict:

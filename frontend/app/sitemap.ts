@@ -8,6 +8,8 @@ const ROUTES: { path: string; priority: number; changeFrequency: "always" | "hou
   { path: "/orders", priority: 0.8, changeFrequency: "daily" },
   { path: "/contracts", priority: 0.7, changeFrequency: "weekly" },
   { path: "/spend", priority: 0.7, changeFrequency: "weekly" },
+  { path: "/integrations", priority: 0.6, changeFrequency: "weekly" },
+  { path: "/negosim", priority: 0.5, changeFrequency: "monthly" },
   { path: "/documents", priority: 0.6, changeFrequency: "weekly" },
   { path: "/governance", priority: 0.6, changeFrequency: "daily" },
   { path: "/notifications", priority: 0.4, changeFrequency: "hourly" },

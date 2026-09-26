@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -32,6 +32,31 @@ def ops_metrics(request: Request, actor: Actor = Depends(get_actor)) -> dict:
     if not set(actor.roles or ()) & {"Super Admin", "Auditor", "Organization Admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
     return envelope(metrics_snapshot(), None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/ops/metrics.prom")
+def ops_metrics_prometheus(actor: Actor = Depends(get_actor)) -> Response:
+    """Prometheus exposition format for the same process-level counters. Same
+    role gate as the JSON variant — scrapes still need a service principal."""
+    if not set(actor.roles or ()) & {"Super Admin", "Auditor", "Organization Admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    s = metrics_snapshot()
+    req = s["requests"]
+    lat = s["latency"]
+    lines = [
+        "# HELP vantor_http_requests_total Total requests by status class.",
+        "# TYPE vantor_http_requests_total counter",
+        f'vantor_http_requests_total {{class="5xx"}} {req.get("errors5xx", 0)}',
+        f'vantor_http_requests_total {{class="4xx"}} {req.get("errors4xx", 0)}',
+        f'vantor_http_requests_total {{class="total"}} {req.get("requests", 0)}',
+        "# HELP vantor_http_latency_ms Request latency percentile.",
+        "# TYPE vantor_http_latency_ms gauge",
+        f'vantor_http_latency_ms {{quantile="0.95"}} {lat["p95Ms"]}',
+        f'vantor_http_latency_ms {{quantile="max"}} {lat["maxMs"]}',
+        f'vantor_http_requests_sample_size {lat["count"]}',
+        f'vantor_process_uptime_seconds {s["process"]["uptimeSeconds"]}',
+    ]
+    return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @router.get("/ready")

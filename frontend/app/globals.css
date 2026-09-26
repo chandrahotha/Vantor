@@ -446,3 +446,4 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .skel { animation: none; }
 }
+.authscreen-mark-img { border-radius: 18px; box-shadow: 0 16px 48px rgba(34,211,238,.35); margin-bottom: 28px; }

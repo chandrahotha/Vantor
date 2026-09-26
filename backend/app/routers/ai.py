@@ -22,6 +22,7 @@ from ..core.tenant import get_db
 from ..services.ai_gateway import AIGatewayError, complete, providers_configured
 from ..services.ai_tools import REGISTRY, ToolError, check_tool_access, check_tool_args
 from ..services.audit import record_event
+import json
 
 router = APIRouter(tags=["ai"])
 
@@ -34,6 +35,56 @@ class CompleteIn(BaseModel):
     prompt: str = Field(min_length=2, max_length=8000)
     provider: str = ""
     system: str = ""
+    # {name, args} — the copilot asks for typed tools; the gateway runs them
+    # with the same role gates as the direct endpoint and cites their rows.
+    tools: list[ToolCallIn] | None = None
+
+
+class ToolCallIn(BaseModel):
+    name: str
+    args: dict = Field(default_factory=dict)
+
+
+# Read-only tools the copilot may invoke. request_approval stays OUT — the
+# copilot can never execute it, it must go through the HITL endpoint.
+COPILOT_TOOL_ARG_KEYS: dict[str, set[str]] = {
+    "search_suppliers": {"q", "limit"},
+    "get_supplier": {"supplier_id"},
+    "compare_quotes": {"rfq_id"},
+    "calculate_savings": set(),
+    "get_purchase_orders": {"status", "limit"},
+}
+
+
+def _run_copilot_tools(calls: list[ToolCallIn] | None, actor: Actor, db: Session, rid: str) -> tuple[list[str], list[dict], list[str]]:
+    """Run the tools the copilot asked for. Returns (context_blocks, evidence,
+    notes). Notes are explicit in the answer so a failed tool is admitted,
+    never hidden."""
+    if not calls:
+        return [], [], []
+    blocks: list[str] = []
+    evidence: list[dict] = []
+    notes: list[str] = []
+    for call in calls[:6]:
+        name, args = call.name, call.args or {}
+        try:
+            if name not in COPILOT_TOOL_ARG_KEYS:
+                raise ToolError("TOOL_FORBIDDEN", f"{name} is not available to the copilot")
+            check_tool_access(actor.roles, name)
+            check_tool_args(name, args)
+            kwargs = {k: v for k, v in args.items() if k in COPILOT_TOOL_ARG_KEYS[name]}
+            out = REGISTRY[name](db, actor.tenant_id, **kwargs)
+            refs = list(out.get("evidence") or [])
+            evidence.extend(refs)
+            blocks.append(f"[{name}] {json.dumps(out, default=str)}")
+            record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_TOOL_EXECUTED",
+                         resource="ai_tool", resource_id=name,
+                         after={"args": kwargs, "evidence": refs}, source="copilot", created_by=actor.sub)
+        except ToolError as exc:
+            notes.append(f"{name}: {exc.message}")
+        except TypeError as exc:
+            notes.append(f"{name}: bad args ({exc})")
+    return blocks, evidence, notes
 
 
 class NegoIn(BaseModel):
@@ -71,14 +122,26 @@ def providers(request: Request, actor: Actor = Depends(get_actor)) -> dict:
 
 @router.post("/ai/complete")
 def run_complete(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    rid = getattr(request.state, "request_id", "")
+    blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
+    system = payload.system
+    if blocks:
+        system = (system + "\n\n" if system else "") + (
+            "GROUNDING DATA (verified from the tenant's live tables just now). "
+            "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
+        )
     try:
-        result = complete(prompt=payload.prompt, system=payload.system, provider=payload.provider)
+        result = complete(prompt=payload.prompt, system=system, provider=payload.provider)
     except AIGatewayError as exc:
         raise HTTPException(status_code=502, detail={"code": "AI_PROVIDER_FAILED", "message": exc.message, "details": {"provider": exc.provider}}) from exc
+    result = dict(result)
+    result["evidence"] = evidence
+    if notes:
+        result["notes"] = notes
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_COMPLETED", resource="ai",
-                 resource_id="complete", after={"provider": result["provider"]}, source="api", created_by=actor.sub)
+                 resource_id="complete", after={"provider": result["provider"], "tools": [t.name for t in payload.tools or []]}, source="api", created_by=actor.sub)
     db.commit()
-    return envelope(result, None, getattr(request.state, "request_id", ""))
+    return envelope(result, None, rid)
 
 
 @router.post("/ai/tools/{name}")
@@ -139,10 +202,9 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
 
 
 @router.post("/ai/stream")
-def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor)) -> Response:
-    """Provider-side streaming: distinguishes real token streaming from the
-    disabled fallback, so the UI can show *live* text only when it is actually
-    live."""
+def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> Response:
+    """Provider-side streaming with optional tool grounding: distinguishes real
+    token streaming from the disabled fallback, and cites tool rows as evidence."""
     import json as _json
 
     from fastapi.responses import StreamingResponse as _SS
@@ -152,56 +214,57 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
     rid = getattr(request.state, "request_id", "")
     tenant, sub = actor.tenant_id, actor.sub
 
+    blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
+    system = payload.system
+    if blocks:
+        system = (system + "\n\n" if system else "") + (
+            "GROUNDING DATA (verified from the tenant's live tables just now). "
+            "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
+        )
+
+    from ..core.config import get_settings
+    requested = (payload.provider or "").strip().lower()
+    live = requested != "disabled" if requested else get_settings().ai_provider.strip().lower() != "disabled"
+    provider_name = requested or get_settings().ai_provider.strip().lower()
+
     def _events():  # type: ignore[no-untyped-def]
         from ..core.tenant import pinned_session
         from ..services.audit import record_event as _rec
 
-        requested = (payload.provider or "").strip().lower()
-        # A request is "live" only if it names a real configured provider. An
-        # unset/provider-empty request falls back to env — env `disabled` means
-        # deterministic, never live frames.
-        if requested:
-            live = requested not in {"disabled"}
-        else:
-            from ..core.config import get_settings
-            live = get_settings().ai_provider.strip().lower() != "disabled"
-
-        provider_name = requested or get_settings().ai_provider.strip().lower()
         aggregated: list[str] = []
-
         try:
             if live:
-                for delta in _stream(prompt=payload.prompt, system=payload.system, provider=payload.provider):
+                for delta in _stream(prompt=payload.prompt, system=system, provider=payload.provider):
                     aggregated.append(delta)
                     yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
                 answer = "".join(aggregated)
-                evidence = {"confidence": 0.55, "provider": provider_name, "evidence": [],
-                            "requires_human_review": True, "requestId": rid, "streamed": True}
+                evidence_payload = {"confidence": 0.55, "provider": provider_name, "evidence": evidence, "notes": notes,
+                                    "requires_human_review": True, "requestId": rid, "streamed": True}
             else:
-                result = _complete(prompt=payload.prompt, system=payload.system, provider=payload.provider)
+                result = _complete(prompt=payload.prompt, system=system, provider=payload.provider)
                 answer = result.get("answer", "")
                 yield f"data: {_json.dumps({'delta': answer, 'streamed': False})}\n\n"
-                evidence = {"confidence": result.get("confidence"), "provider": result.get("provider"),
-                            "evidence": result.get("evidence", []), "requires_human_review": True,
-                            "requestId": rid, "streamed": False}
+                evidence_payload = {"confidence": result.get("confidence"), "provider": result.get("provider"),
+                                    "evidence": evidence, "notes": notes, "requires_human_review": True,
+                                    "requestId": rid, "streamed": False}
         except AIGatewayError as exc:
             yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider, 'streamed': live})}\n\n"
             return
 
-        yield f"data: [EVIDENCE] {_json.dumps(evidence)}\n\n"
-        db = None
+        yield f"data: [EVIDENCE] {_json.dumps(evidence_payload)}\n\n"
+        sdb = None
         try:
-            db = pinned_session(tenant)
-            _rec(db, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
+            sdb = pinned_session(tenant)
+            _rec(sdb, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
                  resource_id="stream", after={"provider": provider_name, "chars": len(answer), "live": live},
                  source="api", created_by=sub)
-            db.commit()
+            sdb.commit()
         except Exception:
-            if db is not None:
-                db.rollback()
+            if sdb is not None:
+                sdb.rollback()
         finally:
-            if db is not None:
-                db.close()
+            if sdb is not None:
+                sdb.close()
 
     return _SS(_events(), media_type="text/event-stream",
                headers={"X-Request-ID": rid, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

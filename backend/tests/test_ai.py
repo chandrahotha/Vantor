@@ -96,3 +96,46 @@ def test_tools_tenant_scoped_and_audited(client):
                           pem, algorithm="RS256", headers={"kid": "ai-kid"})
     assert c.post("/api/v1/ai/tools/search_suppliers", json={"q": "x"},
                   headers={"Authorization": f"Bearer {roleless}"}).status_code == 403
+
+
+def test_complete_grounded_with_evidence(client):
+    """Copilot completion folded with typed tool results + evidence refs."""
+    c, pem = client
+    h = _h(pem, "ta")
+    c.post("/api/v1/suppliers", json={"code": "SUP-AI", "name": "AI Parts"}, headers=h)
+    r = c.post("/api/v1/ai/complete", json={
+        "prompt": "Who supplies AI parts?",
+        "tools": [{"name": "search_suppliers", "args": {"q": "AI"}}],
+    }, headers=h)
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["evidence"] and data["evidence"][0]["type"] == "supplier"
+    feed = c.get("/api/v1/audit-events?action=AI_TOOL_EXECUTED", headers=h).json()["data"]
+    assert any(e["action"] == "AI_TOOL_EXECUTED" and e["source"] == "copilot" for e in feed)
+
+
+def test_copilot_cannot_execute_hitl_tools(client):
+    """request_approval stays human-gated — the copilot is read-only."""
+    c, pem = client
+    h = _h(pem, "ta")
+    r = c.post("/api/v1/ai/complete", json={
+        "prompt": "Approve this for me",
+        "tools": [{"name": "request_approval", "args": {"action": "award_contract", "resource": "rfq", "resource_id": "rfq-1"}}],
+    }, headers=h)
+    assert r.status_code == 200
+    notes = r.json()["data"].get("notes") or []
+    assert any("not available to the copilot" in n for n in notes), notes
+
+
+def test_grounding_respects_role_gates(client):
+    """Role-less caller asking for savings gets a note, never the data."""
+    c, pem = client
+    body = {"prompt": "How much have we saved?", "tools": [{"name": "calculate_savings", "args": {}}]}
+    now = datetime.now(timezone.utc)
+    roleless = jwt.encode({"iss": ISS, "aud": AUD, "sub": "no-roles", "tenant_id": "ta",
+                           "realm_access": {"roles": []},
+                           "exp": now + timedelta(minutes=5), "iat": now},
+                          pem, algorithm="RS256", headers={"kid": "ai-kid"})
+    r = c.post("/api/v1/ai/complete", json=body, headers={"Authorization": f"Bearer {roleless}"})
+    assert r.status_code == 200
+    assert "No tool permission" in (r.json()["data"].get("notes") or [""])[0]

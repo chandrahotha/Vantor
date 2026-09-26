@@ -163,19 +163,24 @@ export function useBoot(load: () => Promise<void>) {
 
     (async () => {
       const kc = keycloak();
-      if (isLooping()) {
-        setError(
-          "Sign-in is looping. The identity provider is misconfigured or the realm is unreachable — check NEXT_PUBLIC_KEYCLOAK_URL and the client settings.",
-        );
-        setState("error");
-        return;
-      }
       try {
-        noteBounce();
-        const ok = await kc.init({ onLoad: "login-required", pkceMethod: "S256", checkLoginIframe: false });
+        // check-sso: never auto-redirect. When the IdP has a session we proceed
+        // silently; when it does not, AuthScreen shows the sign-in card.
+        await kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false });
         if (disposed) return;
+        noteBounce(!!kc.authenticated);
+        if (!kc.authenticated) {
+          if (isLooping()) {
+            setError(
+              "Sign-in is looping — the identity provider or client is misconfigured. Check NEXT_PUBLIC_KEYCLOAK_URL, the realm, and the redirect URI.",
+            );
+            setState("error");
+          } else {
+            setState("signin");
+          }
+          return;
+        }
         clearBounces();
-        if (!ok) { setState("signin"); return; }
         const s = parseSession(kc);
         if (!s?.tenant) {
           setError("Your session carries no tenant, so access is refused. Contact your administrator.");
@@ -186,9 +191,11 @@ export function useBoot(load: () => Promise<void>) {
         setTokenGetter(() => keycloak().token);
         setRefreshFn(async () => {
           try {
-            await keycloak().updateToken(60);
-            const ns = parseSession(keycloak());
-            if (ns) setSession(ns);
+            const fresh = await keycloak().updateToken(60);
+            if (fresh) {
+              const ns = parseSession(keycloak());
+              if (ns) setSession(ns);
+            }
             return true;
           } catch {
             return false;
@@ -198,13 +205,18 @@ export function useBoot(load: () => Promise<void>) {
         if (disposed) return;
         await loadRef.current();
         if (!disposed) setState("ok");
-        // Mark the page ready for the E2E smoke tests.
         document.documentElement.dataset.booted = "true";
       } catch (e: unknown) {
         if (disposed) return;
+        const msg = e instanceof Error ? e.message : "";
+        if (disposed || msg.toLowerCase().includes("active")) {
+          // "check-sso" on first paint means no session — show the card.
+          setState("signin");
+          return;
+        }
         setError(
-          e instanceof Error
-            ? `Identity provider unreachable — check NEXT_PUBLIC_KEYCLOAK_URL. (${e.message})`
+          msg
+            ? `Identity provider unreachable — check NEXT_PUBLIC_KEYCLOAK_URL. (${msg})`
             : "Sign-in failed.",
         );
         setState("error");
@@ -240,7 +252,7 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
   if (state === "loading") {
     return (
       <div className="authscreen" role="status" aria-live="polite">
-        <div className="authscreen-mark" aria-hidden="true">V</div>
+        <img src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
         <p className="authscreen-title">Opening VANTOR…</p>
         {error ? <p className="authscreen-sub">{error}</p> : null}
       </div>
@@ -248,7 +260,7 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
   }
   return (
     <div className="authscreen" role={state === "error" ? "alert" : "status"}>
-      <div className="authscreen-mark" aria-hidden="true">V</div>
+      <img src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
       <p className="authscreen-title">
         {state === "signin" ? "Sign in to VANTOR" : "Could not start VANTOR"}
       </p>
