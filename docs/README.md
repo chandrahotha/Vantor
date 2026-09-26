@@ -31,7 +31,7 @@ docs/
 |---|---|---|---|
 | 🧠 | Brain | IMPLEMENTED | [BRAIN.md](BRAIN.md) |
 | X | Glossary | IMPLEMENTED | [glossary.md](glossary.md) |
-| 0 | Roadmap (Phases 0–10) | PLANNED | [00-plan/ROADMAP.md](00-plan/ROADMAP.md) |
+| 0 | Roadmap (Phases 0–11) | TESTED 3–4, IN DEV 5–8, 11 planned | [00-plan/ROADMAP.md](00-plan/ROADMAP.md) |
 | 0 | Repository audit | BLOCKED | [00-plan/REPOSITORY_AUDIT.md](00-plan/REPOSITORY_AUDIT.md) |
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
 | 0 | Original brief (masterdoc) | Reference | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
@@ -48,9 +48,10 @@ docs/
 | 4 | Threat model | PLANNED | [04-security/threat-model.md](04-security/threat-model.md) |
 | 5 | Design system | PLANNED | [05-frontend/design-system.md](05-frontend/design-system.md) |
 | 6 | Brand / logo | IMPLEMENTED art | [06-brand/logo.md](06-brand/logo.md) |
-| 7 | Android strategy | PLANNED | [07-android/strategy.md](07-android/strategy.md) |
+| 7 | Android strategy | COMING SOON (API-ready) | [07-android/strategy.md](07-android/strategy.md) |
 | 8 | Local deployment | IMPLEMENTED compose | [08-deployment/local.md](08-deployment/local.md) |
 | 9 | Operations runbook | PLANNED | [09-operations/runbook.md](09-operations/runbook.md) |
 | 10 | Decisions (ADRs) | Accepted | [10-decisions/README.md](10-decisions/README.md) |
+| 11 | Product specs 06–10 (vendored build-brain index) | REFERENCE | [11-specs-06-10/README.md](11-specs-06-10/README.md) |
 
 Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) · [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)

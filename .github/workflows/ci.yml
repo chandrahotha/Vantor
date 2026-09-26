@@ -1,12 +1,26 @@
 name: ci
 
+# Weekly-only by owner request (2000 min budget across many repos).
+# Runs 1x/week ≈ 4x/month + manual dispatch only. No push/PR triggers.
+# Segregate repos by giving each a different cron slot.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC (~4 runs/month)
+  workflow_dispatch: {} # manual: gh workflow run ci
 
 jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce weekly-only cadence
+        run: |
+          echo "event=${{ github.event_name }}"
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) echo "cadence OK";;
+            *) echo "push/PR triggers disabled by design (weekly budget)"; exit 1;;
+          esac
   guard:
+    needs: policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +30,10 @@ jobs:
       - name: Validate compose + env example
         run: |
           test -f .env.example
-          docker compose config >/dev/null || echo "compose validates once backend Dockerfiles land (Phase 3)"
+          grep -q SERVICE_API_TOKEN .env.example
+          docker compose config
   docs:
+    needs: policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +43,73 @@ jobs:
           echo "docs gate OK"
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - name: Brain-link check (every doc links to BRAIN.md)
         run: python scripts/verify_brain_links.py
-  # Phase 3+ jobs (uncomment as modules land): format, lint, typecheck,
-  # unit, integration, api-contract, migration-check, dep-scan, container-scan, build.
+  backend:
+    needs: policy
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vantor
+          POSTGRES_PASSWORD: vantor-test
+          POSTGRES_DB: vantor_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vantor"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install backend deps
+        run: pip install -r backend/requirements.txt
+      - name: Unit gates (tenant-isolation + auth + audit chain)
+        env:
+          APP_ENV: test
+          DATABASE_URL: sqlite://
+          OIDC_ISSUER: https://issuer.test/realms/vantor
+          JWT_AUDIENCE: vantor-web
+        run: python -m pytest backend/tests -q
+      - name: Alembic baseline check (PG)
+        env:
+          DATABASE_URL: postgresql://vantor:vantor-test@localhost:5432/vantor_test
+        run: |
+          cd backend
+          alembic upgrade head
+          alembic check
+          alembic downgrade -1
+          alembic upgrade head
+      - name: API contract export (OpenAPI must generate)
+        run: |
+          cd backend
+          APP_ENV=test DATABASE_URL=sqlite:// python -c "from app.main import app; import json; json.dump(app.openapi(), open('../api/openapi.json','w'), indent=2)"
+          test -f ../api/openapi.json
+  frontend:
+    needs: policy
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
+      NEXT_PUBLIC_KEYCLOAK_REALM: vantor
+      NEXT_PUBLIC_KEYCLOAK_CLIENT: vantor-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install + typecheck + build (Next.js, real data only)
+        run: |
+          cd frontend
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Frontend container builds
+        run: docker build ./frontend
+  # Phase 8+ jobs: lint, dep-scan, container-scan.

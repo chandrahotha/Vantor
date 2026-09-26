@@ -47,7 +47,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "mc --version >/dev/null 2>&1 && mc ready local || curl -sf http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -61,9 +61,10 @@ services:
       KC_DB_URL_HOST: postgres
       KC_DB_USERNAME: ${POSTGRES_USER:-vantor}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-env}
-      KC_DB_SCHEMA: keycloak
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin-change-me
+      # Note: default schema is public; set KC_DB_SCHEMA only after creating it.
+      # KC_DB_SCHEMA: keycloak
     ports:
       - "8080:8080"
     depends_on:
@@ -79,20 +80,35 @@ services:
       - ollama-data:/root/.ollama
     # Pull models after first start: docker exec vantor-ollama-1 ollama pull llama3.1:8b
 
-  # Implemented in Phase 3+. Placeholders keep compose stable.
-  # backend:
-  #   build: ./backend
-  #   env_file: .env
-  #   ports: ["8000:8000"]
-  #   depends_on: [postgres, redis, minio, keycloak]
-  # frontend:
-  #   build: ./frontend
-  #   env_file: .env
-  #   ports: ["3000:3000"]
-  # worker:
-  #   build: ./worker
-  #   env_file: .env
-  #   depends_on: [postgres, redis, minio, ollama]
+  # Phase 3 Foundation live. Frontend/worker land in Phase 4/7.
+  backend:
+    build: ./backend
+    env_file: .env
+    ports: ["8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+  frontend:
+    build: ./frontend
+    env_file: .env
+    ports: ["3000:3000"]
+    depends_on: [backend, keycloak]
+  worker:
+    build: ./worker
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:

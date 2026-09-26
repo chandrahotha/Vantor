@@ -1,0 +1,17 @@
+{
+  "product_id": "07",
+  "product_name": "Procurement Spend Intelligence Agent",
+  "schema_version": "1.0.0",
+  "producers_or_consumers": "Feeds classified spend, price baselines and opportunity records to CostPilot, RFQLens and SupplierRadar; can create missions for ProcurementOS.",
+  "events": [
+    "spend.category.detected",
+    "spend.opportunity.created"
+  ],
+  "rules": [
+    "tenant-scoped",
+    "typed-schema",
+    "idempotent-consumption",
+    "major-version-strict",
+    "no-direct-db-coupling"
+  ]
+}

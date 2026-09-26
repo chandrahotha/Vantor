@@ -47,7 +47,7 @@ flowchart TD
 | # | Document | Answers | Status |
 |---|---|---|---|
 | 0 | [`../README.md`](../README.md) | What is VANTOR, quickstart, layout | PLANNED scaffold |
-| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–10, Definition of Done | PLANNED |
+| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–11, Definition of Done | TESTED 3–4 |
 | 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix | VERIFIED |
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
 | 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
@@ -63,10 +63,11 @@ flowchart TD
 | 4 | [`04-security/threat-model.md`](04-security/threat-model.md) | STRIDE threats | PLANNED |
 | 5 | [`05-frontend/design-system.md`](05-frontend/design-system.md) | Tokens + components | PLANNED |
 | 6 | [`06-brand/logo.md`](06-brand/logo.md) + [`../assets/brand/`](../assets/brand/) | Vantor identity | IMPLEMENTED art |
-| 7 | [`07-android/strategy.md`](07-android/strategy.md) | Kotlin/Compose plan | PLANNED |
+| 7 | [`07-android/strategy.md`](07-android/strategy.md) | Kotlin/Compose plan | COMING SOON (API-ready) |
 | 8 | [`08-deployment/local.md`](08-deployment/local.md) + [`../docker-compose.yml`](../docker-compose.yml) | Free local stack | IMPLEMENTED compose |
 | 9 | [`09-operations/runbook.md`](09-operations/runbook.md) | Health/backup/incidents | PLANNED |
 | 10 | [`10-decisions/README.md`](10-decisions/README.md) | ADR index (001–006) | Accepted |
+| 11 | [`11-specs-06-10/README.md`](11-specs-06-10/README.md) | Products 06–10 build-brain index (sourcing optimizer, spend intel, onboarding, price intel, nego sim) | REFERENCE |
 | X | [`glossary.md`](glossary.md) | Ubiquitous language | IMPLEMENTED |
 
 ## Concept trails (follow the brain, not folders)
@@ -79,4 +80,4 @@ flowchart TD
 
 ## Brain maintenance rule
 
-Any new `.md` added anywhere MUST: (1) add a row above, (2) prepend the standard breadcrumb header (verified by `python scripts/verify_brain_links.py`), (3) appear in `docs/README.md` + `mkdocs.yml` nav. CI docs gate enforces this.
+Any new `.md` added anywhere MUST: (1) add a row above, (2) prepend the standard breadcrumb header (verified by `python scripts/verify_brain_links.py`), (3) appear in `docs/README.md` + `mkdocs.yml` nav. CI docs gate enforces this. Exception: `docs/11-specs-06-10/` is a verbatim third-party bundle (indexed only, never edited).

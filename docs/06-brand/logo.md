@@ -1,9 +1,13 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Brand — VANTOR
+# Brand — VANTOR by Digi Tracks
 
 **Status: `IMPLEMENTED` (source art) / `PLANNED` (final SVG polish in Phase 2).**
+
+- Product: **VANTOR**. Tagline: **Value. Intelligence. Control.**
+- Company: **Digi Tracks** — enquiries: **digi.tracks@outlook.com**.
+- Company mark (source: `DigiTracks/DT-Portal/public/`): `../../assets/brand/digi-tracks-logo.svg` (D + digital blocks + growth bars + swoosh, navy/teal), `../../assets/brand/digi-tracks-brand-logo.png` (full lockup), `../../assets/brand/digi-tracks-brand-mark.webp` (mark only).
 
 - Name: **VANTOR**. Tagline: **Value. Intelligence. Control.**
 - Source art: `../../assets/brand/vantor-logo-source.png` (owner-supplied logo — hexagonal V + circuit nodes, navy/cyan/emerald) and `../../assets/brand/vantor-icon-source.png` (owner-supplied icon).

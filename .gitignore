@@ -8,6 +8,7 @@ node_modules/
 dist/
 build/
 .next/
+*.tsbuildinfo
 __pycache__/
 *.pyc
 .venv/
@@ -29,3 +30,4 @@ Thumbs.db
 coverage/
 playwright-report/
 test-results/
+.pytest_cache/

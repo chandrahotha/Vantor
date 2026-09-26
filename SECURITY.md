@@ -15,7 +15,7 @@
 ## Reporting a vulnerability
 
 - **Do not open a public issue for vulnerabilities.**
-- Email the maintainers privately (add `SECURITY_CONTACT` before public launch).
+- Email privately: **digi.tracks@outlook.com** (Digi Tracks).
 - Include: affected version/commit, reproduction steps, impact, suggested mitigation.
 - Expect acknowledgement within 72h, triage within 7 days once `1.0` ships.
 

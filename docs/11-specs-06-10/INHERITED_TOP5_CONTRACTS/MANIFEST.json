@@ -1,0 +1,16 @@
+{
+  "package": "ProcurementAI MAX Build Brain",
+  "version": "3.0-max",
+  "products": [
+    "RFQLens",
+    "SupplierRadar",
+    "CostPilot",
+    "ContractGuard",
+    "ProcurementOS Agent"
+  ],
+  "shared_primary_screens": 20,
+  "product_primary_screens": 70,
+  "total_primary_screens": 90,
+  "markdown_files": 179,
+  "total_lines": 6064
+}

@@ -4,8 +4,11 @@ import pathlib, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKIP = {"masterdoc.txt"}
+SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache",
+             # Vendored third-party spec bundle (verbatim, read-only input) — indexed by docs/11-specs-06-10/README.md instead.
+             "11-specs-06-10"}
 failures = []
-mds = sorted(p for p in ROOT.rglob("*.md") if p.name not in SKIP and ".git" not in p.parts)
+mds = sorted(p for p in ROOT.rglob("*.md") if p.name not in SKIP and not (SKIP_DIRS & set(p.parts)))
 for p in mds:
     if p.name in ("BRAIN.md",):
         continue

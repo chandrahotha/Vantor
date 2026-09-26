@@ -1,0 +1,16 @@
+{
+  "product_id": "09",
+  "product_name": "PO Price Intelligence Engine",
+  "schema_version": "1.0.0",
+  "producers_or_consumers": "Consumes ContractGuard contract/PO facts and CostPilot history/baselines. Feeds anomalies to ProcurementOS missions and CostPilot negotiation preparation.",
+  "events": [
+    "po.price.anomaly.detected"
+  ],
+  "rules": [
+    "tenant-scoped",
+    "typed-schema",
+    "idempotent-consumption",
+    "major-version-strict",
+    "no-direct-db-coupling"
+  ]
+}
