@@ -10,6 +10,15 @@ type Invoice = { id: string; code: string; status: string };
 type PODetail = { id: string; code: string; status: string; totalMinor: number; currency: string; lines: POLine[]; invoices: Invoice[] };
 type Supplier = { id: string; code: string; name: string };
 
+/** Why a PO line was not evaluated, from `spend/price-evaluate`. */
+const SKIP_REASON: Record<string, string> = {
+  PRICE_CASE_OPEN: "already has an open case",
+  PRICE_NO_HISTORY: "no approved invoice history for the supplier",
+  PRICE_THIN_HISTORY: "too few like-for-like price points",
+  PRICE_ITEM_INVALID: "item description too short to baseline",
+  PRICE_BASELINE_INVALID: "baseline was not positive",
+};
+
 /** Server-enforced lifecycle. The UI mirrors it so it never offers an action the
  *  API will reject; the server stays the authority. */
 const PO_ACTIONS: Record<string, { key: string; label: string; path?: string; method?: string }[]> = {
@@ -129,13 +138,20 @@ export function OrdersPage() {
   async function evaluatePrice() {
     if (!detail) return;
     await act("price", async () => {
-      const r = await api<{ opened: string[]; skipped: { line: string; reason: string }[]; evaluated?: number }>(
-        `/api/v1/spend/price-evaluate/${detail.id}`, { method: "POST", idemKey: newIdemKey() },
-      );
-      const d = r.data;
-      setNote(d && (d.opened?.length ?? 0) > 0
-        ? `${detail.code}: ${d.opened.length} price anomaly case(s) opened. Resolve under Spend.`
-        : `${detail.code}: prices within baseline${d?.skipped?.length ? ` (${d.skipped.length} line(s) skipped: no history)` : ""}.`);
+        const r = await api<{ opened: string[]; skipped: { line: number; reason: string }[] }>(
+          `/api/v1/spend/price-evaluate/${detail.id}`, { method: "POST", idemKey: newIdemKey() },
+        );
+        const d = r.data;
+        const opened = d?.opened?.length ?? 0;
+        // Report the reasons the server actually gave. It used to claim
+        // "no history" for every skipped line, which is wrong for a line that
+        // already has an open case or simply has thin history.
+        const reasons = Array.from(new Set((d?.skipped ?? []).map((s) => SKIP_REASON[s.reason] ?? s.reason)));
+        setNote(
+          opened > 0
+            ? `${detail.code}: ${opened} price anomaly case(s) opened. Resolve under Spend.`
+            : `${detail.code}: prices within baseline${reasons.length ? ` (${d?.skipped?.length} line(s) skipped: ${reasons.join(", ")})` : ""}.`,
+        );
     });
   }
 

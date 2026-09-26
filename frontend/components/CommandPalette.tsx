@@ -21,7 +21,7 @@ const PAGES: Hit[] = [
   { kind: "Go", id: "nav-ai", label: "Go to Copilot", hint: "Evidence-cited AI answers", href: "/copilot" },
 ];
 
-/** Command palette â€” Ctrl/âŒ˜+K. Real navigation + live supplier search. */
+/** Command palette — Ctrl/⌘+K. Real navigation + live supplier search. */
 export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -69,7 +69,7 @@ export default function CommandPalette() {
       try {
         const r = await api<{ id: string; code: string; name: string }[]>(`/api/v1/suppliers?limit=5&search=${encodeURIComponent(q)}`);
         if (queryId.current !== my) return;
-        setSupHits((r.data || []).map((s) => ({ kind: "Supplier", id: s.id, label: `${s.code} â€” ${s.name}` })));
+        setSupHits((r.data || []).map((s) => ({ kind: "Supplier", id: s.id, label: `${s.code} — ${s.name}` })));
       } catch {
         if (queryId.current !== my) return;
         setSupHits([]);
@@ -111,7 +111,7 @@ export default function CommandPalette() {
             else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
             else if (e.key === "Enter" && hits[activeIdx]) { go(hits[activeIdx]); }
           }}
-          placeholder="Search suppliers or jump to a workspaceâ€¦"
+          placeholder="Search suppliers or jump to a workspace…"
         />
         <div id="palette-listbox" className="palette-list" role="listbox">
           {hits.length === 0 ? (

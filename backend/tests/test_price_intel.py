@@ -81,7 +81,7 @@ def _full_p2p(c, pem, tenant, sub, code, price, qty=10, supplier_id=None):
 
 
 def test_baseline_and_anomaly_flow(client):
-    from app.services.price_intel import baseline_for, normalize_item, variance_bp
+    from app.services.price_intel import normalize_item, variance_bp
 
     assert normalize_item("  Bolt   M10 ") == "bolt m10"
     c, pem = client

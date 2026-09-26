@@ -14,7 +14,7 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -378,10 +378,16 @@ def receive(pid: str, payload: ReceiptIn, request: Request, actor: Actor = Depen
         raise HTTPException(status_code=422, detail="PO must be sent before receiving")
     po_line_ids = {l.id: l for l in db.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == pid)).scalars()}
     # Cumulative received per PO line (all prior receipts) — over-receipt is 422.
+    # One grouped query for the whole PO; this used to issue a query per prior
+    # receipt, so a PO with many deliveries cost O(receipts) round trips.
     prior: dict[str, int] = {}
-    for rid in [r.id for r in db.execute(select(Receipt).where(Receipt.tenant_id == actor.tenant_id, Receipt.po_id == pid)).scalars()]:
-        for rl in db.execute(select(ReceiptLine).where(ReceiptLine.tenant_id == actor.tenant_id, ReceiptLine.receipt_id == rid)).scalars():
-            prior[rl.po_line_id] = prior.get(rl.po_line_id, 0) + rl.quantity
+    receipt_ids = [r for r in db.execute(select(Receipt.id).where(Receipt.tenant_id == actor.tenant_id, Receipt.po_id == pid)).scalars()]
+    if receipt_ids:
+        for line_id, qty in db.execute(
+                select(ReceiptLine.po_line_id, func.coalesce(func.sum(ReceiptLine.quantity), 0))
+                .where(ReceiptLine.tenant_id == actor.tenant_id, ReceiptLine.receipt_id.in_(receipt_ids))
+                .group_by(ReceiptLine.po_line_id)).all():
+            prior[line_id] = int(qty)
     r = Receipt(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, po_id=pid, received_by=actor.sub, notes=payload.notes)
     db.add(r)
     db.flush()

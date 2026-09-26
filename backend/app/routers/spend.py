@@ -10,7 +10,7 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.errors import envelope
@@ -175,14 +175,33 @@ def price_evaluate(po_id: str, request: Request, actor: Actor = Depends(get_acto
 
 @router.get("/spend/price-cases")
 def price_cases(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
-                status_: str = Query(default="", alias="status")) -> dict:
+                status_: str = Query(default="", alias="status"),
+                limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default="")) -> dict:
+    """Price anomaly cases, keyset paginated like every other list endpoint.
+
+    This one was hard-limited to 100 with no cursor and no stable ordering, so a
+    tenant with more than 100 cases could see only the newest slice and had no
+    way to reach anything older — the review queue silently truncated.
+    """
     stmt = select(PriceCase).where(PriceCase.tenant_id == actor.tenant_id)
     if status_:
         stmt = stmt.where(PriceCase.status == status_)
-    rows = list(db.execute(stmt.order_by(PriceCase.created_at.desc()).limit(100)).scalars())
-    return envelope([{"id": r.id, "item": r.item, "baselineMinor": r.baseline_minor, "quotedMinor": r.quoted_minor,
-                      "varianceBp": r.variance_bp, "samples": r.samples, "status": r.status} for r in rows],
-                    {"count": len(rows)}, getattr(request.state, "request_id", ""))
+    if cursor:
+        cur = db.execute(select(PriceCase).where(PriceCase.tenant_id == actor.tenant_id, PriceCase.id == cursor)).scalar_one_or_none()
+        if cur is None:
+            raise HTTPException(status_code=422, detail="Invalid cursor")
+        stmt = stmt.where(or_(PriceCase.created_at < cur.created_at,
+                              ((PriceCase.created_at == cur.created_at) & (PriceCase.id < cursor))))
+    stmt = stmt.order_by(desc(PriceCase.created_at), desc(PriceCase.id)).limit(limit + 1)
+    rows = list(db.execute(stmt).scalars())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    data = [{"id": r.id, "poId": r.po_id, "supplierId": r.supplier_id, "item": r.item,
+             "baselineMinor": r.baseline_minor, "quotedMinor": r.quoted_minor,
+             "varianceBp": r.variance_bp, "samples": r.samples, "status": r.status,
+             "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
+    return envelope(data, {"limit": limit, "nextCursor": data[-1]["id"] if has_more and data else "",
+                           "hasMore": has_more, "count": len(data)}, getattr(request.state, "request_id", ""))
 
 
 class ResolveIn(BaseModel):

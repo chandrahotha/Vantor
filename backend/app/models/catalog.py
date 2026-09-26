@@ -15,7 +15,7 @@ dedicated esign adapter); the record stores provider + envelope id for audit.
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint, JSON
+from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin

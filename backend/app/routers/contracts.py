@@ -271,16 +271,24 @@ def run_match(contract_id: str, payload: MatchIn, request: Request, actor: Actor
         raise HTTPException(status_code=422, detail="Invoice does not belong to this PO")
     po_lines = list(db.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == po.id).order_by(PurchaseOrderLine.line_no)).scalars())
     inv_lines = list(db.execute(select(InvoiceLine).where(InvoiceLine.tenant_id == actor.tenant_id, InvoiceLine.invoice_id == inv.id)).scalars())
-    prior = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.po_id == po.id, Invoice.id != inv.id)).scalars()
-    prior_count = len(list(prior))
+    # Only the columns the duplicate check needs, from every OTHER invoice on this
+    # PO. Counting invoices instead (the old behaviour) failed the second
+    # invoice of any partially-paid PO, holding legitimate money for ever.
+    prior_rows = db.execute(
+        select(InvoiceLine.po_line_id, InvoiceLine.quantity, InvoiceLine.unit_price_minor)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+        .where(InvoiceLine.tenant_id == actor.tenant_id, Invoice.po_id == po.id,
+               Invoice.id != inv.id)).all()
+    prior_lines = [{"po_line_id": r[0], "quantity": r[1], "unit_price_minor": r[2]} for r in prior_rows]
     try:
         result = evaluate(
             contract={"supplier_id": c.supplier_id, "currency": c.currency, "value_minor": c.value_minor, "start_date": c.start_date, "end_date": c.end_date},
             po={"supplier_id": po.supplier_id, "currency": po.currency,
-                "lines": [{"unit_price_minor": l.unit_price_minor, "quantity": l.quantity, "line_total_minor": l.line_total_minor} for l in po_lines]},
+                "lines": [{"po_line_id": l.id, "unit_price_minor": l.unit_price_minor, "quantity": l.quantity, "line_total_minor": l.line_total_minor} for l in po_lines]},
             invoice={"supplier_id": inv.supplier_id, "currency": inv.currency,
-                     "lines": [{"unit_price_minor": l.unit_price_minor, "quantity": l.quantity, "line_total_minor": l.line_total_minor} for l in inv_lines]},
-            prior_invoice_count=prior_count)
+                     "lines": [{"po_line_id": l.po_line_id, "unit_price_minor": l.unit_price_minor, "quantity": l.quantity, "line_total_minor": l.line_total_minor} for l in inv_lines]},
+            prior_invoice_lines=prior_lines,
+            po_line_quantities={l.id: l.quantity for l in po_lines})
     except MatchError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
     run = MatchRun(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, contract_id=contract_id,

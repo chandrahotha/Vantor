@@ -4024,6 +4024,7 @@
           "spend"
         ],
         "summary": "Price Cases",
+        "description": "Price anomaly cases, keyset paginated like every other list endpoint.\n\nThis one was hard-limited to 100 with no cursor and no stable ordering, so a\ntenant with more than 100 cases could see only the newest slice and had no\nway to reach anything older \u2014 the review queue silently truncated.",
         "operationId": "price_cases_api_v1_spend_price_cases_get",
         "security": [
           {
@@ -4039,6 +4040,28 @@
               "type": "string",
               "default": "",
               "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Cursor"
             }
           }
         ],

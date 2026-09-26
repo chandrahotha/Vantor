@@ -19,11 +19,19 @@ const NAV: { section?: string; items: [icon: string, label: string, href: string
     ],
   },
   {
+    section: "Request & negotiate",
+    items: [
+      ["◬", "Requisitions", "/requisitions"],
+      ["⇄", "Negotiation simulator", "/negosim"],
+    ],
+  },
+  {
     section: "Intelligence",
     items: [
-      ["◬", "Spend", "/spend"],
-      ["▤", "Documents", "/documents"],
+      ["▤", "Spend", "/spend"],
+      ["▥", "Documents", "/documents"],
       ["✳", "Governance", "/governance"],
+      ["◊", "Integrations", "/integrations"],
       ["◐", "Copilot", "/copilot"],
     ],
   },

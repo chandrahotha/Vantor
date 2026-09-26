@@ -223,7 +223,8 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
                 "APPROVAL_REASON_REQUIRED": 422}.get(exc.code, 422)
         raise HTTPException(status_code=code, detail={"code": exc.code, "message": exc.message}) from exc
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_APPROVAL_DECIDED", resource="ai_tool",
-                 resource_id=approval_id, after={"approved": payload.approve}, source="api", created_by=actor.sub)
+                 resource_id=approval_id, after={"approved": payload.approve}, reason=payload.reason.strip(),
+                 approval=approval_id, source="api", created_by=actor.sub)
     db.commit()
     return envelope({"id": approval_id, "status": status}, None, getattr(request.state, "request_id", ""))
 

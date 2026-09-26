@@ -1,6 +1,7 @@
 # Link verifier — every markdown doc must connect to the Brain.
 # Run: python scripts/verify_brain_links.py
-import pathlib, sys
+import pathlib
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKIP = {"masterdoc.txt"}

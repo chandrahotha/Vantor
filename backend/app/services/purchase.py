@@ -108,9 +108,14 @@ def decide_approval(db: Session, *, tenant_id: str, approver_sub: str, approver_
     setattr(approval, "decided_by", approver_sub)
     setattr(approval, "reason", reason.strip())
     setattr(approval, "updated_by", approver_sub)
+    # `approval=` is part of the hashed payload, so this is what makes the audit
+    # trail answer "which approval authorised this change?". It was plumbed all
+    # the way from the model to the writer and never populated by any caller.
     record_event(db, tenant_id=tenant_id, actor=approver_sub, action="APPROVAL_DECIDED",
                  resource=getattr(approval, "resource", "") or "approval",
-                 resource_id=getattr(approval, "id", ""), after={"approved": approve, "tier": getattr(approval, "tier", "")},
+                 resource_id=getattr(approval, "id", ""),
+                 after={"approved": approve, "tier": getattr(approval, "tier", "")},
+                 reason=reason.strip(), approval=str(getattr(approval, "id", "")),
                  source="api", created_by=approver_sub)
     return new_status
 

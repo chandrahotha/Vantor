@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import List
 
-from sqlalchemy import JSON, DateTime, Index, String, Text
+from sqlalchemy import JSON, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin

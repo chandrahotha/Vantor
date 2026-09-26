@@ -12,7 +12,7 @@ docs/
   BRAIN.md                  ← central brain (read first)
   README.md                 ← this index
   glossary.md               ← shared vocabulary
-  00-plan/ROADMAP.md, REPOSITORY_AUDIT.md, MIGRATION_PLAN.md, masterdoc.md
+  00-plan/ROADMAP.md, REPOSITORY_AUDIT.md, MIGRATION_PLAN.md, BUGS.md, masterdoc.md
   01-product/requirements.md
   01-product/portfolio.md      ← canonical list of the 10 products
   02-architecture/system.md, domain.md, database.md, api.md
@@ -37,6 +37,7 @@ docs/
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
 | 0 | Original brief (masterdoc) | Reference — scope since grown 5 → 10 products | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
 | 0 | Session handoff | IMPLEMENTED | [00-plan/SESSION.md](00-plan/SESSION.md) |
+| 0 | Bug & risk register | LIVE — 141 tests, 0 open S1/S2 defects | [00-plan/BUGS.md](00-plan/BUGS.md) |
 | 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
 | 1 | **Portfolio (10 products)** | IN DEVELOPMENT | [01-product/portfolio.md](01-product/portfolio.md) |
 | 2 | System architecture | PLANNED | [02-architecture/system.md](02-architecture/system.md) |
@@ -56,4 +57,4 @@ docs/
 | 10 | Decisions (ADRs) | Accepted | [10-decisions/README.md](10-decisions/README.md) |
 | 11 | Product specs 06–10 (vendored build-brain index) | REFERENCE | [11-specs-06-10/README.md](11-specs-06-10/README.md) |
 
-Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) · [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
+Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) · [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) · [`00-plan/BUGS.md`](00-plan/BUGS.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)

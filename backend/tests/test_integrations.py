@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
+from sqlalchemy import select
 
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"
@@ -60,7 +61,7 @@ def test_types_and_registration_guards(client):
     assert "logging" in c.get("/api/v1/integrations/types", headers=h).json()["data"]["adapters"]
     assert c.post("/api/v1/integrations", json={"name": "X", "itype": "teleport"}, headers=h).status_code == 422
     # raw secrets refused — vault refs only
-    bad = c.post("/api/v1/integrations", json={"name": "Mail", "itype": "email", "secret_ref": "sk-live-123"}, headers=h)
+    bad = c.post("/api/v1/integrations", json={"name": "Mail", "itype": "email", "secret_ref": "notavaultref-must-be-refused-1"}, headers=h)
     assert bad.status_code == 422
     ok = c.post("/api/v1/integrations", json={"name": "Mail", "itype": "email", "secret_ref": "env:MAIL_KEY"}, headers=h)
     assert ok.status_code == 201
@@ -77,18 +78,101 @@ def test_types_and_registration_guards(client):
 
 
 def test_hmac_sign_verify():
-    from app.services.integration import canonical, resolve_secret, sign
+    from app.services.integration import Adapter, canonical, resolve_secret, sign
 
     body = canonical({"event": "ping", "n": 1})
     assert sign("s3cret", body) == sign("s3cret", body)
     assert sign("a", body) != sign("b", body)
     assert resolve_secret("env:DEFINITELY_NOT_SET_XYZ") == ""
-    assert resolve_secret("sk-live-raw") == ""
-    import pytest as _pt
-
-    from app.services.integration import LoggingAdapter
-
-    with _pt.raises(NotImplementedError):
-        from app.services.integration import Adapter
-
+    assert resolve_secret("notavaultref-must-be-refused-2") == ""
+    with pytest.raises(NotImplementedError):
         Adapter().send("x", {})
+
+
+def _seed_endpoints(tenant_id: str, urls: list[str]) -> None:
+    from app.core.tenant import pinned_session
+    from app.models.integration import WebhookEndpoint
+
+    db = pinned_session(tenant_id)
+    try:
+        for url in urls:
+            db.add(WebhookEndpoint(tenant_id=tenant_id, created_by="", updated_by="",
+                                   url=url, events=["ping"], status="active",
+                                   secret_ref="env:HOOK_KEY"))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _fanout(tenant_id: str):
+    """`fanout` only flushes — the caller owns the commit, exactly as the router does."""
+    from app.core.tenant import pinned_session
+    from app.services.integration import fanout
+
+    db = pinned_session(tenant_id)
+    try:
+        out = fanout(db, tenant_id=tenant_id, event="ping", payload={"x": 1})
+        db.commit()
+        return out
+    finally:
+        db.close()
+
+
+def test_duplicate_endpoint_urls_are_delivered_once(client, monkeypatch):
+    """Two registrations of the same URL must not double-fire the consumer.
+
+    `webhook_endpoints.url` carries no unique constraint (adding one is a schema
+    change that could fail on existing rows), so a tenant could register the same
+    endpoint twice and receive the same signed payload twice — a duplicate side
+    effect for any consumer that is not idempotent. The extra registration is
+    reported as `skipped_duplicate` rather than delivered.
+    """
+    from app.services import integration
+
+    sent: list[str] = []
+
+    class R:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(integration.httpx, "post", lambda url, **kw: (sent.append(url), R())[1])
+    monkeypatch.setenv("HOOK_KEY", "s3cret")
+    _seed_endpoints("t1", ["https://consumer.test/hook", "https://consumer.test/hook",
+                           "https://other.test/hook"])
+
+    out = _fanout("t1")
+    assert sent.count("https://consumer.test/hook") == 1, sent
+    assert sent.count("https://other.test/hook") == 1
+    statuses = [o["status"] for o in out]
+    assert statuses.count("skipped_duplicate") == 1
+    assert statuses.count("delivered") == 2
+
+
+def test_fanout_budget_defers_rather_than_holding_the_request(client, monkeypatch):
+    """A slow endpoint must not pin the caller for the full per-endpoint timeout.
+
+    Each delivery is a synchronous call with its own 10s timeout, so N dead
+    endpoints held the request for 10s x N. Endpoints past the budget are
+    recorded as `deferred` rather than silently dropped — a deferred attempt is
+    a fact about this fanout and belongs in the audit trail.
+    """
+    from app.core.tenant import pinned_session
+    from app.models.integration import WebhookDelivery
+    from app.services import integration
+
+    monkeypatch.setenv("HOOK_KEY", "s3cret")
+    _seed_endpoints("t1", ["https://slow.test/hook"])
+    # Zero budget: every endpoint is past its window. Patching the module
+    # constant rather than `time.monotonic` — patching the clock would also
+    # reach SQLAlchemy and the test framework.
+    monkeypatch.setattr(integration, "FANOUT_BUDGET_S", 0.0)
+    out = _fanout("t1")
+    assert out[0]["status"] == "deferred"
+    assert "budget" in out[0]["detail"]
+    db = pinned_session("t1")
+    try:
+        rows = list(db.execute(select(WebhookDelivery)).scalars())
+        assert [r.status for r in rows] == ["deferred"]
+        assert "budget" in rows[0].last_error
+    finally:
+        db.close()

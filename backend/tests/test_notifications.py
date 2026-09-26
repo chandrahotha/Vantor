@@ -150,3 +150,70 @@ def test_cursor_must_be_visible_to_caller(client):
     other_tenant = _h(pem, "alice", "t2")
     assert c.get(f"/api/v1/notifications?cursor={nid}", headers=other_tenant).status_code == 422
     assert c.get(f"/api/v1/notifications?cursor={nid}", headers=_h(pem, "bob", "t1")).status_code == 200
+
+
+def _seed_broadcasts(c, pem, tenant, count):
+    """Insert `count` broadcast rows already read by both readers."""
+    from app.core.tenant import pinned_session
+    from app.models.notification import Notification
+
+    db = pinned_session(tenant)
+    try:
+        for i in range(count):
+            db.add(Notification(tenant_id=tenant, created_by="seed", updated_by="seed",
+                                user_sub="", kind="SEED", title=f"seed {i}", body="",
+                                link="", read_at="", read_by=["alice", "bob"]))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_unread_page_never_reports_hasmore_false_while_rows_remain(client):
+    """A short unread page must not hide the rest behind `hasMore: false`.
+
+    The feed over-fetches (4x) and then filters read-state in Python, because
+    `read_by` is a JSON array with no portable "does not contain". Two bugs met
+    here: when the over-fetch filled up, the rows it discarded may well have
+    contained unread items and `hasMore` still said false; and when that filter
+    emptied the page there was no returned row left to anchor a cursor to, so
+    `hasMore: true` came with no `nextCursor` and the UI could not page out of
+    it at all.
+    """
+    c, pem = client
+    _award(c, pem, "alice", "t1")
+    # 120 read broadcasts (limit 25 => 100-row over-fetch) plus one unread
+    # award at the very bottom. The award is outside the over-fetch window, so
+    # the first page is legitimately empty — but it must advertise a next page
+    # and hand back a usable cursor.
+    _seed_broadcasts(c, pem, "t1", 120)
+    alice = _h(pem, "alice", "t1")
+    page = c.get("/api/v1/notifications?unread=true&limit=25", headers=alice).json()
+    assert page["data"] == []
+    assert page["pagination"]["hasMore"] is True
+    assert page["pagination"]["nextCursor"], "hasMore without a cursor is a dead end"
+    # and following the cursor actually reaches the unread award
+    page2 = c.get(f"/api/v1/notifications?unread=true&limit=25&cursor={page['pagination']['nextCursor']}",
+                  headers=alice).json()
+    assert any(n["kind"] == "AWARD_DECIDED" for n in page2["data"]), page2
+
+
+def test_badge_does_not_grow_without_bound(client):
+    """The badge scans broadcast read-state in Python, so it is capped.
+
+    Past the cap the count is reported with `unreadCapped` rather than being
+    silently truncated, so the UI can say "50+" instead of showing a wrong
+    number.
+    """
+    from app.routers.notifications import BROADCAST_SCAN_CAP
+
+    c, pem = client
+    _award(c, pem, "alice", "t1")
+    alice = _h(pem, "alice", "t1")
+    d = c.get("/api/v1/notifications/unread-count", headers=alice).json()["data"]
+    assert d["unread"] == 1 and d["unreadCapped"] is False
+
+    _seed_broadcasts(c, pem, "t1", BROADCAST_SCAN_CAP)
+    d2 = c.get("/api/v1/notifications/unread-count", headers=alice).json()["data"]
+    assert d2["unreadCapped"] is True
+    # bob has read all of those, so his count is not inflated by them
+    assert c.get("/api/v1/notifications/unread-count", headers=_h(pem, "bob", "t1")).json()["data"]["unreadCapped"] is True

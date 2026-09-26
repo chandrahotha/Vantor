@@ -13,7 +13,7 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import asc, desc, or_, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -238,12 +238,22 @@ def comparison(rfq_id: str, request: Request, actor: Actor = Depends(get_actor),
     if r is None:
         raise HTTPException(status_code=404, detail="RFQ not found")
     quotes = list(db.execute(select(Quote).where(Quote.tenant_id == actor.tenant_id, Quote.rfq_id == rfq_id).order_by(Quote.total_minor)).scalars())
-    rows = []
-    for q in quotes:
-        sup = db.execute(select(Supplier).where(Supplier.tenant_id == actor.tenant_id, Supplier.id == q.supplier_id)).scalar_one_or_none()
-        nlines = len(list(db.execute(select(QuoteLine.id).where(QuoteLine.tenant_id == actor.tenant_id, QuoteLine.quote_id == q.id)).scalars()))
-        rows.append({"quoteId": q.id, "supplierId": q.supplier_id, "supplierName": sup.name if sup else "?",
-                     "status": q.status, "currency": q.currency, "totalMinor": q.total_minor, "lineCount": nlines})
+    # Two grouped queries instead of two per quote. This endpoint backs the
+    # award decision, so its latency is on the critical path of a real spend.
+    names: dict[str, str] = {}
+    if quotes:
+        names = {r[0]: r[1] for r in db.execute(
+            select(Supplier.id, Supplier.name).where(Supplier.tenant_id == actor.tenant_id,
+                                                      Supplier.id.in_([q.supplier_id for q in quotes]))).all()}
+    line_counts: dict[str, int] = {}
+    if quotes:
+        line_counts = {r[0]: int(r[1]) for r in db.execute(
+            select(QuoteLine.quote_id, func.count()).where(QuoteLine.tenant_id == actor.tenant_id,
+                                                           QuoteLine.quote_id.in_([q.id for q in quotes]))
+            .group_by(QuoteLine.quote_id)).all()}
+    rows = [{"quoteId": q.id, "supplierId": q.supplier_id, "supplierName": names.get(q.supplier_id, "?"),
+             "status": q.status, "currency": q.currency, "totalMinor": q.total_minor,
+             "lineCount": int(line_counts.get(q.id, 0))} for q in quotes]
     return envelope(rows, {"count": len(rows), "currency": r.currency}, getattr(request.state, "request_id", ""))
 
 
@@ -266,6 +276,20 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
     # Server-computed total from lines (never trust client).
     lines = list(db.execute(select(QuoteLine).where(QuoteLine.tenant_id == actor.tenant_id, QuoteLine.quote_id == q.id)).scalars())
     server_total = sum(l.line_total_minor for l in lines)
+    # Savings baseline, captured BEFORE any status is flipped below, in one
+    # grouped query. It used to be computed after rejecting the losers and by
+    # re-selecting each quote's lines, so the comparison set was always just the
+    # winner — every award recorded zero savings — and it cost one query per
+    # competing quote on top of that.
+    competing = {o.id for o in db.execute(select(Quote).where(
+        Quote.tenant_id == actor.tenant_id, Quote.rfq_id == rfq_id,
+        Quote.status.in_(["submitted", "evaluated"]))).scalars()}
+    line_totals: dict[str, int] = {}
+    if competing:
+        line_totals = {r[0]: int(r[1] or 0) for r in db.execute(
+            select(QuoteLine.quote_id, func.coalesce(func.sum(QuoteLine.line_total_minor), 0))
+            .where(QuoteLine.tenant_id == actor.tenant_id, QuoteLine.quote_id.in_(competing))
+            .group_by(QuoteLine.quote_id)).all()}
     try:
         check_quote_transition(q.status, "awarded")
     except SourcingError as exc:
@@ -277,18 +301,14 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
     q.status = "awarded"
     r.status = "awarded"
     # Reject all other submitted/evaluated quotes on this RFQ.
-    others = list(db.execute(select(Quote).where(Quote.tenant_id == actor.tenant_id, Quote.rfq_id == rfq_id, Quote.id != q.id)).scalars())
-    for o in others:
-        if o.status in {"submitted", "evaluated"}:
-            o.status = "rejected"
-    # Savings = highest evaluated total − awarded total, all recomputed from lines.
-    def _quote_total(qid: str) -> int:
-        return sum(l.line_total_minor for l in db.execute(
-            select(QuoteLine).where(QuoteLine.tenant_id == actor.tenant_id, QuoteLine.quote_id == qid)).scalars())
-    peak = server_total
-    for o in list(db.execute(select(Quote).where(Quote.tenant_id == actor.tenant_id, Quote.rfq_id == rfq_id,
-                                                 Quote.status.in_(["evaluated", "awarded"]))).scalars()):
-        peak = max(peak, _quote_total(o.id))
+    for qid in competing:
+        if qid == q.id:
+            continue
+        other = db.get(Quote, qid)
+        if other is not None and other.status in {"submitted", "evaluated"}:
+            other.status = "rejected"
+    # Savings = highest competing total − awarded total, all recomputed from lines.
+    peak = max([server_total, *line_totals.values()]) if line_totals else server_total
     if peak > server_total:
         db.add(SavingsRecord(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                              rfq_id=rfq_id, award_id=a.id, currency=r.currency, saved_minor=peak - server_total))

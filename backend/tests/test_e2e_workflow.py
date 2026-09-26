@@ -2,7 +2,6 @@
 contract, purchase, spend, and notification layers, then audit-chain verify.
 
 The product claims a graph; this test walks the graph and asserts the joins."""
-import io
 from datetime import datetime, timedelta, timezone
 
 import jwt

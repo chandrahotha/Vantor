@@ -70,7 +70,6 @@ def test_p2p_flow_with_match_and_sod(client):
     assert c.post(f"/api/v1/purchase-orders/{pid}/approve", headers=mgr).status_code == 200
     assert c.post(f"/api/v1/purchase-orders/{pid}/send", headers=h).status_code == 200
     # receipt full qty
-    from sqlalchemy import select as _sel
     # fetch PO line ids via invoice attempt? use receipt with real ids:
     r_detail = c.post(f"/api/v1/purchase-orders/{pid}/receipts", json={"notes": "full", "lines": []}, headers=h)
     assert r_detail.status_code == 422  # empty lines rejected

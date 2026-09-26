@@ -96,6 +96,41 @@ def test_rfq_quote_award_flow(client):
     assert got["status"] == "awarded"
 
 
+def test_award_records_real_savings(client):
+    """Awarding the cheaper quote must record the gap as savings.
+
+    The savings baseline used to be computed *after* the losers were flipped to
+    `rejected`, and the re-query only asked for `evaluated|awarded` — so the
+    comparison set was the winner alone and every award recorded zero savings.
+    This is the number the savings engine and the copilot both report on.
+    """
+    c, pem = client
+    h = _h(pem, "acme")
+    s1 = _supplier(c, pem, "acme", "SUP-HI", "Pricy Metals")
+    s2 = _supplier(c, pem, "acme", "SUP-LO", "Cheap Metals")
+    rfq = c.post("/api/v1/rfqs", json={"code": "RFQ-SAV", "title": "Savings", "currency": "INR",
+                                      "lines": [{"description": "Bolt", "quantity": 10}]}, headers=h).json()["data"]["id"]
+    c.patch(f"/api/v1/rfqs/{rfq}/status", json={"status": "sent"}, headers=h)
+    hi = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": s1,
+                 "lines": [{"unit_price_minor": 10_000, "quantity": 10}]}, headers=h).json()["data"]["id"]
+    lo = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": s2,
+                 "lines": [{"unit_price_minor": 7_000, "quantity": 10}]}, headers=h).json()["data"]["id"]
+    c.patch(f"/api/v1/rfqs/{rfq}/status", json={"status": "evaluated"}, headers=h)
+    r = c.post(f"/api/v1/rfqs/{rfq}/award", json={"quote_id": lo, "reason": "cheaper"}, headers=h)
+    assert r.status_code == 201, r.text
+    assert r.json()["data"]["awardedTotalMinor"] == 70_000
+
+    saved = c.post("/api/v1/ai/tools/calculate_savings", json={}, headers=h).json()["data"]["result"]
+    assert saved["savedMinor"] == 30_000, saved
+    assert saved["awards"] == 1
+    # the loser is rejected and the winner awarded, and the comparison view
+    # (which the award decision is made from) is still coherent
+    comp = {row["quoteId"]: row for row in c.get(f"/api/v1/rfqs/{rfq}/comparison", headers=h).json()["data"]}
+    assert comp[hi]["status"] == "rejected" and comp[lo]["status"] == "awarded"
+    assert comp[hi]["lineCount"] == 1 and comp[lo]["lineCount"] == 1
+    assert comp[hi]["supplierName"] == "Pricy Metals"
+
+
 def test_sourcing_tenant_isolation_and_money_guards(client):
     c, pem = client
     s = _supplier(c, pem, "ta", "SUP-1", "Solo")

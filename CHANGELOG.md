@@ -5,6 +5,91 @@
 
 All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
 
+## [Unreleased] — 2026-09-27
+
+### Added
+
+- **`docs/00-plan/BUGS.md` — the bug & risk register.** One live document for every known
+  defect, risk and deliberate omission, graded S1 (money, tenant isolation, or a silently
+  disabled control) / S2 (wrong answer or stranded user) / S3 (performance, maintainability),
+  each with the reason it matters, the fix, and the regression test that fails without it.
+  Gated in CI alongside the other required docs.
+- **`GET /approvals` and `POST /approvals/{id}/decide`.** Approvals were write-only, so a
+  submitted requisition's approvals could never be decided and the requisition could never
+  leave `submitted`. Keyset-paginated, approver-role gated, tenant-scoped, and the decision
+  syncs the parent document. `ai:*` filings still go through the copilot's own HITL route.
+- **`backend/app/services/refs.py`.** One home for tenant-scoped parent checks
+  (`require_ref`, `require_refs`, `require_no_cycle`) now that nine `*_id` columns validate
+  a parent at write time.
+- **`frontend/lib/ai.ts`.** The single SSE implementation: guarded frame parsing, abort on
+  unmount, evidence-frame enforcement, and `X-Vantor-Provider-Key` as a header so a BYOK key
+  never rides in the JSON body.
+- **Copilot approvals panel and provider picker.** The HITL loop the copilot page's own copy
+  promises is now reachable, and a caller can choose a provider.
+- **`scripts/check_secrets.py`,** now CI-gated and self-testing (16 cases).
+- **`scripts/check_mojibake.py`,** now CI-gated and self-testing (19 cases).
+- **Migration `0016_idempotency_key_width`.** Widening only: `VARCHAR(128)` to `VARCHAR(512)`,
+  metadata-only on Postgres, no data touched.
+
+### Fixed
+
+- **Three match-engine dimensions made partial invoicing impossible.** `duplicates` was
+  `prior_invoice_count > 0`, so the second invoice of any partially-paid PO was a duplicate;
+  `totals` demanded `po_total == inv_total`; `quantities`/`prices` paired lines by index, so a
+  reordered invoice compared the wrong lines. `duplicates` is now a genuine double-billing
+  test, `totals` is `0 < inv <= po` (over-billing still fails hard), and lines pair by id.
+- **Every award recorded zero savings.** The baseline was computed after the losers were
+  rejected, so the comparison set was the winner alone. Captured before the flips, in one query.
+- **Approval tiers were cleared in arbitrary order.** `pend[0]` off an unordered result let a
+  finance approver consume the manager's slot while the comment claimed the tier list enforced
+  order.
+- **Idempotency was silently disabled on Postgres** for any write whose fingerprint exceeded
+  128 characters; the `DataError` was swallowed by the fail-open handler.
+- **The AI gateway could never use a key.** `_provider_key` existed but was never called, so
+  every non-ollama provider failed while `/ai/providers` advertised it as configured.
+- **The budget gate charged the wrong month**, reading `created_at` (raised) rather than the
+  ledger's commitment at send time.
+- **The spend cube silently under-reported**, inner-joining without a tenant predicate and
+  dropping ledger rows whose PO was missing.
+- **Quarantined documents stayed searchable**, and `documents.resource_id` was silently
+  truncated to a pointer matching no record.
+- **The unread feed truncated itself and could dead-end**, reporting `hasMore: false` with rows
+  remaining, and shipping `hasMore: true` with no cursor.
+- **The notification badge was unbounded** — every broadcast row as a full entity, no limit, on
+  a 30s poll. Capped, and `unreadCapped` is reported rather than quietly truncating.
+- **The same webhook could fire twice** (no unique constraint on `url`), and N dead endpoints
+  pinned the request for 10s × N. Duplicates collapse to `skipped_duplicate`; a 20s budget
+  records the rest as `deferred`.
+- **The optimizer's explainability was discarded** — the UI read only `.length`, so a share-cap
+  violation was invisible on a page whose copy promises a capped split. Reasons, costs and
+  violations are now rendered.
+- **Price-evaluate reported a reason it never received** (always "no history"), and declared an
+  `evaluated` field the server never returns.
+- **`/ai/providers` shape did not match its own UI**, so every provider rendered as
+  `undefined (not configured)`.
+- **The copilot was the only page with no auth gate**, and one malformed SSE frame destroyed an
+  otherwise complete answer.
+- **`robots.ts` contradicted itself**, claiming nothing was indexable while allowing all and
+  publishing thirteen login-walled routes.
+- **Mojibake across the product**: every sidebar icon, the theme toggle, the bell, the search
+  trigger, the command palette hints and a sitemap comment.
+- **The CI secret guard could never pass.** Its pattern appeared literally in the workflow's own
+  command line, so it matched itself and exited 1 on every run; it also scanned a stale worktree
+  copy under `.kilo/`. Replaced by `scripts/check_secrets.py`, which scans tracked files only and
+  self-tests.
+- **`mypy` 12 errors to 0**; ruff unused imports cleared; 113 → 141 backend tests, 37 → 48
+  frontend tests.
+
+### Changed
+
+- `.env.example` ships `AI_PROVIDER=disabled` and `EMBEDDING_PROVIDER=disabled` to match the
+  compose profiles, so a fresh clone is honest (UNKNOWN) rather than failing to connect.
+- Sidebar now lists all 13 workspaces; Requisitions, the Negotiation simulator and Integrations
+  were previously reachable only via the command palette.
+- `GET /spend/price-cases` is keyset-paginated like every other list endpoint.
+
+---
+
 ## [Unreleased] — 2026-09-26
 
 ### Fixed — a green badge that was not green

@@ -47,6 +47,14 @@ def _unread_clause(actor: Actor):
     return (Notification.user_sub != "") & (Notification.read_at == "")
 
 
+#: How many broadcast rows the badge will scan. `read_by` is a JSON array, so
+#: broadcast read-state cannot be filtered in SQL portably, and the feed is
+#: otherwise unbounded: a tenant with a chatty integration could grow this to
+#: every row in the table on a 30s poll. Past the cap the count is reported as
+#: `unreadCapped` rather than silently truncated, so the UI can say "50+".
+BROADCAST_SCAN_CAP = 500
+
+
 @router.get("/notifications")
 def list_notifs(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
                 limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default=""),
@@ -60,16 +68,27 @@ def list_notifs(request: Request, actor: Actor = Depends(get_actor), db: Session
             raise HTTPException(status_code=422, detail="Invalid cursor")
         stmt = stmt.where(or_(Notification.created_at < cur.created_at,
                               ((Notification.created_at == cur.created_at) & (Notification.id < cursor))))
-    stmt = stmt.order_by(desc(Notification.created_at), desc(Notification.id)).limit(limit * 4 if unread else limit + 1)
+    overfetch = limit * 4 if unread else limit + 1
+    stmt = stmt.order_by(desc(Notification.created_at), desc(Notification.id)).limit(overfetch)
     rows = list(db.execute(stmt).scalars())
+    # `saturated` means the over-fetch filled up, so rows were discarded. With
+    # `unread=true` the discarded rows may well have contained unread items, so
+    # reporting hasMore=false there would hide real alerts behind a short page.
+    saturated = len(rows) == overfetch
+    # The cursor must come from the last row *scanned*, not the last row
+    # returned. When read-state filtering empties the page — the exact case
+    # `saturated` signals — there is no returned row to anchor to, and a
+    # hasMore=true with no cursor is a dead end the UI cannot page out of.
+    scanned_last = rows[-1].id if rows else ""
     if unread:
         # Broadcast read-state is per-user in a JSON array, so it is filtered here.
-        # Over-fetch by 4x so a page of unread rows is still a full page.
         rows = [r for r in rows if not r.is_read_for(actor.sub)]
-    has_more, rows = len(rows) > limit, rows[:limit]
+    has_more = (len(rows) > limit) or (unread and saturated)
+    rows = rows[:limit]
     data = [{"id": r.id, "kind": r.kind, "title": r.title, "body": r.body, "link": r.link,
               "read": r.is_read_for(actor.sub), "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
-    return envelope(data, {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
+    return envelope(data, {"limit": limit, "nextCursor": scanned_last if has_more else "",
+                           "hasMore": has_more}, getattr(request.state, "request_id", ""))
 
 
 @router.get("/notifications/unread-count")
@@ -78,9 +97,15 @@ def unread_count(request: Request, actor: Actor = Depends(get_actor), db: Sessio
 
     directed = db.execute(select(func.count()).select_from(Notification)
                           .where(_visible(actor), _unread_clause(actor))).scalar() or 0
-    broadcasts = db.execute(select(Notification).where(_visible(actor), Notification.user_sub == "")).scalars().all()
-    n = int(directed) + sum(1 for b in broadcasts if not b.is_read_for(actor.sub))
-    return envelope({"unread": n}, None, getattr(request.state, "request_id", ""))
+    # Only the two columns the test needs, capped — this runs on a 30s poll from
+    # every open tab. Loading whole entities here was the single most expensive
+    # query in the product.
+    broadcast_unread = db.execute(
+        select(Notification.read_by).where(
+            _visible(actor), Notification.user_sub == "").limit(BROADCAST_SCAN_CAP)).scalars().all()
+    n = int(directed) + sum(1 for rb in broadcast_unread if actor.sub not in (rb or []))
+    capped = len(broadcast_unread) == BROADCAST_SCAN_CAP
+    return envelope({"unread": n, "unreadCapped": capped}, None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/notifications/{nid}/read", status_code=200)

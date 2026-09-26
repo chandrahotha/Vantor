@@ -8,6 +8,14 @@ type Rfq = { id: string; code: string; title: string; status: string; currency: 
 type Comp = { quoteId: string; supplierId: string; supplierName: string; status: string; currency: string; totalMinor: number; lineCount: number };
 type Supplier = { id: string; code: string; name: string };
 type RfqLine = { id: string; lineNo: number; description: string; quantity: number; uom: string };
+/** One explainable allocation from the optimizer, in the server's own shape. */
+type Allocation = { supplier_id: string; quote_id: string; share_bp: number; cost_minor: number; reason: string };
+type OptimizerResult = {
+  allocations: Allocation[];
+  total_minor: number;
+  share_sum_bp: number;
+  violations: string[];
+};
 
 /** Legal status transitions, mirrored from the server so the UI never offers
  *  an action the API will reject. The server remains the authority. */
@@ -35,6 +43,7 @@ export default function Rfqs() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
+  const [plan, setPlan] = useState<OptimizerResult | null>(null);
 
   // --- create form -----------------------------------------------------------
   const [form, setForm] = useState({ code: "", title: "", currency: "INR", description: "", quantity: "1", uom: "each" });
@@ -82,8 +91,11 @@ export default function Rfqs() {
         api<Comp[]>(`/api/v1/rfqs/${r.id}/comparison`),
         api<Rfq & { lines: RfqLine[] }>(`/api/v1/rfqs/${r.id}`),
       ]);
-      setSel({ rfq: r, comp: c.data || [], lines: d.data?.lines || [], currency: d.data?.currency || r.currency || "" });
-      setQuote({ supplierId: "", unitPrice: "", quantity: String(d.data?.lines?.[0]?.quantity ?? 1) });
+        setSel({ rfq: r, comp: c.data || [], lines: d.data?.lines || [], currency: d.data?.currency || r.currency || "" });
+        setQuote({ supplierId: "", unitPrice: "", quantity: String(d.data?.lines?.[0]?.quantity ?? 1) });
+        // Drop any previous proposal: a plan computed for another RFQ must never
+        // be shown against this one.
+        setPlan(null);
     });
   }
 
@@ -117,11 +129,24 @@ export default function Rfqs() {
   async function optimize() {
     if (!sel) return;
     await act("optimize", async () => {
-      const r = await api<{ allocations: { supplierId: string; shareBp: number }[]; note?: string }>(
+      // The server returns per-supplier reason, pro-rated cost, the share sum
+      // and any cap violations. Only reading `.length` discarded all of it, so
+      // a share-cap breach was invisible on a page that promises explainable
+      // allocations.
+      const r = await api<OptimizerResult>(
         `/api/v1/rfqs/${sel.rfq.id}/optimize`, { method: "POST", idemKey: newIdemKey(), body: "{}" },
       );
-      const n = (r.data.allocations || []).length;
-      setNote(n ? `Optimizer suggested a ${n}-way split for ${sel.rfq.code}. Award still requires the Award action.` : `No allocation proposed for ${sel.rfq.code}.`);
+      setPlan(r.data);
+      const allocs = r.data.allocations || [];
+      const n = allocs.length;
+      const v = r.data.violations?.length ?? 0;
+      setNote(
+        !n
+          ? `No allocation proposed for ${sel.rfq.code}.`
+          : v
+            ? `Optimizer proposed a ${n}-way split for ${sel.rfq.code} with ${v} policy violation${v === 1 ? "" : "s"} — review before awarding.`
+            : `Optimizer proposed a ${n}-way split for ${sel.rfq.code}. Award still requires the Award action.`,
+      );
     });
   }
 
@@ -228,6 +253,36 @@ export default function Rfqs() {
                 Read-only. The optimizer proposes a share-capped split; a human still awards — never the model.
               </span>
             </div>
+          ) : null}
+
+          {plan && plan.allocations?.length ? (
+            <>
+              <h3>Suggested allocation</h3>
+              {plan.violations?.length ? (
+                <div className="error" role="alert">
+                  <div>Share-cap violations — resolve these before awarding:</div>
+                  <ul>{plan.violations.map((v, i) => <li key={i}>{v}</li>)}</ul>
+                </div>
+              ) : null}
+              <DataTable
+                caption={`Optimizer proposal for ${sel.rfq.code}`}
+                rows={plan.allocations}
+                rowKey={(a) => a.quote_id || a.supplier_id}
+                columns={[
+                  { key: "sup", header: "Supplier", render: (a) => a.supplier_id },
+                  { key: "share", header: "Share", numeric: true, render: (a) => `${(a.share_bp / 100).toFixed(2)}%` },
+                  { key: "bp", header: "bp", numeric: true, render: (a) => a.share_bp },
+                  { key: "cost", header: "Cost", numeric: true, render: (a) => fmtMinor(a.cost_minor, sel.currency) },
+                  { key: "why", header: "Why", render: (a) => a.reason },
+                ]}
+                empty={<Empty title="No allocation" />}
+              />
+              <p style={{ color: "var(--muted)", fontSize: 12 }}>
+                <span className="mono">{fmtMinor(plan.total_minor, sel.currency)}</span> total · shares sum to{" "}
+                <span className="mono">{plan.share_sum_bp}bp</span>
+                {plan.share_sum_bp === 10000 ? " (fully allocated)" : " (not fully allocated — treat with care)"}
+              </p>
+            </>
           ) : null}
 
           <h3>Comparison</h3>

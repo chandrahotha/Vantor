@@ -71,20 +71,49 @@ def resolve_secret(ref: str) -> str:
     return ""
 
 
+#: Wall-clock budget for one fanout, across all endpoints. Each delivery is a
+#: synchronous HTTP call with its own 10s timeout, so a tenant with several dead
+#: endpoints held the caller's request open for 10s * n. The remainder is
+#: reported as `deferred` rather than silently dropped.
+FANOUT_BUDGET_S = 20.0
+
+
 def fanout(db: Session, *, tenant_id: str, event: str, payload: dict) -> list[dict]:
-    """Deliver `event` to all active subscribed endpoints; returns per-endpoint results."""
+    """Deliver `event` to all active subscribed endpoints; returns per-endpoint results.
+
+    One delivery per distinct URL. `webhook_endpoints.url` carries no unique
+    constraint (adding one is a schema change that could fail on existing rows),
+    so a tenant that registered the same URL twice previously received the same
+    signed payload twice — a duplicate side effect for any consumer that is not
+    idempotent. Duplicates are collapsed here and the extra registration is
+    reported as `skipped_duplicate` instead of being delivered.
+    """
     out: list[dict] = []
     endpoints = list(db.execute(select(WebhookEndpoint).where(
         WebhookEndpoint.tenant_id == tenant_id, WebhookEndpoint.status == "active")).scalars())
     body = canonical({"event": event, "tenant_id": tenant_id, "at": int(time.time()), "data": payload})
+    deadline = time.monotonic() + FANOUT_BUDGET_S
+    seen_urls: set[str] = set()
     for ep in endpoints:
         if ep.events and event not in ep.events:
             continue
+        if ep.url in seen_urls:
+            out.append({"endpoint": ep.id, "status": "skipped_duplicate", "url": ep.url})
+            continue
+        seen_urls.add(ep.url)
+        out_of_budget = time.monotonic() >= deadline
         secret = resolve_secret(ep.secret_ref)
         delivery = WebhookDelivery(tenant_id=tenant_id, created_by="", updated_by="", endpoint_id=ep.id,
                                    event=event, payload=payload, status="queued", attempts=0)
         db.add(delivery)
         db.flush()
+        if out_of_budget:
+            # Recorded rather than dropped: a deferred attempt is a fact about
+            # this fanout, and the audit trail should carry it.
+            delivery.status = "deferred"
+            delivery.last_error = f"fanout budget of {FANOUT_BUDGET_S:.0f}s exhausted before this endpoint"
+            out.append({"endpoint": ep.id, "status": "deferred", "url": ep.url, "detail": delivery.last_error})
+            continue
         if not secret or not ep.url.startswith("https://"):
             delivery.status, delivery.last_error = "failed", "no secret or non-https url — refused"
             out.append({"endpoint": ep.id, "status": "failed"})

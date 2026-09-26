@@ -52,21 +52,37 @@ def cube(db: Session, tenant_id: str) -> list[dict]:
 
 
 def leakage(db: Session, tenant_id: str) -> list[dict]:
-    """Approved invoice amounts from suppliers with no active/expiring contract."""
-    covered = {c.supplier_id for c in db.execute(select(Contract).where(
-        Contract.tenant_id == tenant_id, Contract.status.in_(["active", "expiring"]))).scalars() if c.supplier_id}
-    out = []
-    for inv in db.execute(select(Invoice).where(
-            Invoice.tenant_id == tenant_id, Invoice.status.in_(["approved", "paid"]))).scalars():
-        if inv.supplier_id not in covered:
-            out.append({"invoiceId": inv.id, "code": inv.code, "supplierId": inv.supplier_id,
-                        "totalMinor": inv.total_minor, "currency": inv.currency})
-    return out
+    """Approved invoice amounts from suppliers with no active/expiring contract.
+
+    Done entirely in the database. The previous version loaded every
+    approved/paid `Invoice` entity in the tenant into memory and filtered in
+    Python, so this report cost total history rather than the (much smaller)
+    set of uncovered invoices.
+    """
+    uncovered = ~Invoice.supplier_id.in_(select(Contract.supplier_id).where(
+        Contract.tenant_id == tenant_id,
+        Contract.status.in_(["active", "expiring"]),
+        Contract.supplier_id != ""))
+    rows = db.execute(
+        select(Invoice.id, Invoice.code, Invoice.supplier_id, Invoice.total_minor, Invoice.currency)
+        .where(Invoice.tenant_id == tenant_id,
+               Invoice.status.in_(["approved", "paid"]),
+               uncovered).order_by(Invoice.total_minor.desc())).all()
+    return [{"invoiceId": r[0], "code": r[1], "supplierId": r[2],
+             "totalMinor": r[3], "currency": r[4]} for r in rows]
 
 
 def maverick(db: Session, tenant_id: str) -> list[dict]:
-    """POs with no category and no requisition lineage — off-policy spend."""
-    return [{"id": p.id, "code": p.code, "totalMinor": p.total_minor, "reason": "uncategorized-no-requisition"}
+    """POs with no category — off-policy spend.
+
+    The `reason` used to read "uncategorized-no-requisition", which claimed a
+    requisition check that does not exist: `purchase_orders` has no
+    `requisition_id`, so nothing here can see requisition lineage. The label now
+    states exactly what was tested. Adding the lineage is real work (a migration
+    plus every write path) and is listed as remaining, not faked in a string.
+    """
+    return [{"id": p.id, "code": p.code, "totalMinor": p.total_minor,
+             "reason": "uncategorized", "note": "no category set; requisition lineage is not tracked"}
             for p in db.execute(select(PurchaseOrder).where(
                 PurchaseOrder.tenant_id == tenant_id,
                 PurchaseOrder.status.in_(["approved", "sent", "received", "invoiced"]),

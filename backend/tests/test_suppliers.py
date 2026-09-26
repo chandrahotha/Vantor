@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 ISS = "https://issuer.test/realms/vantor"
@@ -121,7 +121,7 @@ def test_write_role_enforced_and_contacts(app_client):
 
 
 def test_service_dedupe_hint():
-    from app.core.tenant import get_engine, reset_engine_cache
+    from app.core.tenant import reset_engine_cache
     from app.models.registry import Base
     from app.services.supplier import find_possible_duplicate
     from app.services.audit import record_event

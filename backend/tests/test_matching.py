@@ -5,14 +5,15 @@ from app.services.matching import DIMS, evaluate, verdict_hash
 def _docs(**kw):
     base_c = {"supplier_id": "s1", "currency": "INR", "value_minor": 1_000_000, "start_date": "2026-01-01", "end_date": "2026-12-31"}
     base_po = {"supplier_id": "s1", "currency": "INR",
-               "lines": [{"unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}
+               "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}
     base_inv = {"supplier_id": "s1", "currency": "INR",
-                "lines": [{"unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}
+                "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}
     return {
         "contract": {**base_c, **kw.get("contract", {})},
         "po": {**base_po, **kw.get("po", {})},
         "invoice": {**base_inv, **kw.get("invoice", {})},
-        "prior_invoice_count": kw.get("prior_invoice_count", 0),
+        "prior_invoice_lines": kw.get("prior_invoice_lines", []),
+        "po_line_quantities": kw.get("po_line_quantities", {"L1": 10}),
     }
 
 
@@ -36,11 +37,79 @@ def test_price_drift_holds():
 
 def test_supplier_currency_duplicate_flags():
     r = evaluate(**_docs(po={"supplier_id": "s2", "currency": "INR",
-        "lines": [{"unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}))
+        "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 10, "line_total_minor": 500_000}]}))
     assert {c["dim"]: c["status"] for c in r["cells"]}["parties"] == "fail"
-    r2 = evaluate(**_docs(prior_invoice_count=2))
-    assert {c["dim"]: c["status"] for c in r2["cells"]}["duplicates"] == "fail"
-    assert r2["overall"] == "HOLD"
+
+
+def test_partial_invoicing_stays_clean():
+    """The second invoice of a partially-paid PO must NOT be held.
+
+    The dimension used to be `prior_invoice_count > 0`, so any PO with a prior
+    invoice failed the duplicate check and every partial payment after the first
+    was held for ever. It is a real double-billing question, not a count.
+    """
+    # first invoice of 10: nothing prior
+    assert {c["dim"]: c["status"] for c in evaluate(**_docs())["cells"]}["duplicates"] == "pass"
+    # second invoice of the remaining 4, against a prior 6 on the same line
+    partial = evaluate(**_docs(
+        invoice={"supplier_id": "s1", "currency": "INR",
+                 "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 4, "line_total_minor": 200_000}]},
+        prior_invoice_lines=[{"po_line_id": "L1", "quantity": 6, "unit_price_minor": 50000}]))
+    assert {c["dim"]: c["status"] for c in partial["cells"]}["duplicates"] == "pass"
+    assert partial["overall"] == "CLEAN"
+
+
+def test_duplicate_billing_is_still_caught():
+    """The fix must not blunt the control it was meant to sharpen."""
+    # over-ordered: prior 6 + this 8 > 10 ordered
+    over = evaluate(**_docs(
+        invoice={"supplier_id": "s1", "currency": "INR",
+                 "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 8, "line_total_minor": 400_000}]},
+        prior_invoice_lines=[{"po_line_id": "L1", "quantity": 6, "unit_price_minor": 50000}]))
+    by_dim = {c["dim"]: c["status"] for c in over["cells"]}
+    assert by_dim["duplicates"] == "fail" and over["overall"] == "HOLD"
+
+    # exact re-bill: same line, same qty, same price already invoiced
+    repeat = evaluate(**_docs(
+        prior_invoice_lines=[{"po_line_id": "L1", "quantity": 10, "unit_price_minor": 50000}]))
+    assert {c["dim"]: c["status"] for c in repeat["cells"]}["duplicates"] == "fail"
+    assert repeat["overall"] == "HOLD"
+
+
+def test_over_billing_is_caught_by_totals():
+    """Weakening `totals` to `<=` must not let a supplier bill above the order."""
+    over = evaluate(**_docs(invoice={"supplier_id": "s1", "currency": "INR",
+        "lines": [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 20, "line_total_minor": 1_000_000}]}))
+    by_dim = {c["dim"]: c["status"] for c in over["cells"]}
+    assert by_dim["totals"] == "fail" and over["overall"] == "HOLD"
+
+
+def test_lines_pair_by_id_not_by_position():
+    """An invoice may list its lines in any order; the PO order is not canonical.
+
+    Index pairing compared the wrong lines, so a reordered invoice produced
+    spurious `prices` and `quantities` failures.
+    """
+    two = [{"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 2, "line_total_minor": 100_000},
+           {"po_line_id": "L2", "unit_price_minor": 30000, "quantity": 4, "line_total_minor": 120_000}]
+    reordered = [{"po_line_id": "L2", "unit_price_minor": 30000, "quantity": 4, "line_total_minor": 120_000},
+                 {"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 2, "line_total_minor": 100_000}]
+    r = evaluate(contract=_docs()["contract"],
+                 po={"supplier_id": "s1", "currency": "INR", "lines": two},
+                 invoice={"supplier_id": "s1", "currency": "INR", "lines": reordered},
+                 po_line_quantities={"L1": 2, "L2": 4})
+    by_dim = {c["dim"]: c["status"] for c in r["cells"]}
+    assert by_dim["prices"] == "pass" and by_dim["quantities"] == "pass"
+    assert r["overall"] == "CLEAN"
+
+    # but a genuine price drift on the *other* line is still caught after reorder
+    drifted = evaluate(contract=_docs()["contract"],
+                       po={"supplier_id": "s1", "currency": "INR", "lines": two},
+                       invoice={"supplier_id": "s1", "currency": "INR",
+                                "lines": [{"po_line_id": "L2", "unit_price_minor": 31000, "quantity": 4, "line_total_minor": 124_000},
+                                          {"po_line_id": "L1", "unit_price_minor": 50000, "quantity": 2, "line_total_minor": 100_000}]},
+                       po_line_quantities={"L1": 2, "L2": 4})
+    assert {c["dim"]: c["status"] for c in drifted["cells"]}["prices"] == "fail"
 
 
 def test_api_run_stored_and_scoped():

@@ -58,22 +58,43 @@ def current_period() -> str:
 
 
 def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: int, currency: str = "") -> dict:
-    """Hard budget check (currency-scoped, DB-aggregated). Raises 422 when over ceiling."""
+    """Hard budget check (currency-scoped, DB-aggregated). Raises 422 when over ceiling.
+
+    Committed spend is measured from the LEDGER (`spend_transactions`, kind
+    `commitment`), which is written when a PO is *sent*, not from
+    `purchase_orders.created_at`. Charging a PO to the month it was raised
+    instead of the month it was committed moved spend across period boundaries —
+    a PO raised 31 Jan and sent 2 Feb was counted against January's ceiling while
+    the money never committed until February. The ledger is the same single
+    source of truth the spend cube reads, so budget and actuals cannot diverge.
+    """
     if not category_id:
         return {"checked": False}
     period = current_period()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period):
+        # Unreachable: `period` is derived from the clock, not from input. If it
+        # ever did fire it must not surface as a 500 on a money path.
+        raise HTTPException(status_code=422, detail={"code": "BUDGET_PERIOD_INVALID",
+                                                     "message": f"cannot evaluate budget period {period!r}"})
     b = db.execute(select(Budget).where(Budget.tenant_id == tenant_id, Budget.category_id == category_id, Budget.period == period)).scalar_one_or_none()
     if b is None:
         return {"checked": False}
-    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period):
-        raise HTTPException(status_code=500, detail="Invalid budget period")
     start = datetime(int(period[:4]), int(period[5:7]), 1, tzinfo=timezone.utc)
     end = datetime(start.year + (start.month == 12), start.month % 12 + 1, 1, tzinfo=timezone.utc)
-    committed = db.execute(select(func.sum(PurchaseOrder.total_minor)).where(
+    po_ids = [p.id for p in db.execute(select(PurchaseOrder).where(
         PurchaseOrder.tenant_id == tenant_id, PurchaseOrder.category_id == category_id,
-        PurchaseOrder.status.in_(["approved", "sent", "received", "invoiced"]),
-        PurchaseOrder.created_at >= start, PurchaseOrder.created_at < end,
-        *([PurchaseOrder.currency == currency] if currency else []))).scalar() or 0
+        PurchaseOrder.status.in_(["approved", "sent", "received", "invoiced"]))).scalars()]
+    committed = 0
+    if po_ids:
+        from ..models.spend import SpendTransaction
+
+        # The ledger row is written at send time, so its own created_at is the
+        # commitment timestamp.
+        committed = db.execute(select(func.coalesce(func.sum(SpendTransaction.amount_minor), 0)).where(
+            SpendTransaction.tenant_id == tenant_id, SpendTransaction.kind == "commitment",
+            SpendTransaction.po_id.in_(po_ids),
+            SpendTransaction.created_at >= start, SpendTransaction.created_at < end,
+            *([SpendTransaction.currency == currency] if currency else []))).scalar() or 0
     if committed + this_total > b.ceiling_minor:
         raise HTTPException(status_code=422, detail={"code": "BUDGET_EXCEEDED",
             "message": f"Budget exceeded: committed {committed} + this {this_total} > ceiling {b.ceiling_minor} for {period}"})

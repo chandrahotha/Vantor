@@ -7,7 +7,7 @@ scorecard with grade C or better (evidence-backed, never self-declared).
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint, JSON
+from sqlalchemy import Index, String, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
