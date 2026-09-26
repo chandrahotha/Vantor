@@ -9,16 +9,18 @@
 ## How to read VANTOR in 5 minutes
 
 1. Vision + status → [`../README.md`](../README.md)
-2. What we found → [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) (VERIFIED 2026-09-26: 5/5 repos, ~775 files)
-3. How 5 repos become 1 → [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md)
-4. Build order → [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
-5. Shared language → [`glossary.md`](glossary.md)
+2. **The 10 products** → [`01-product/portfolio.md`](01-product/portfolio.md) (canonical list)
+3. What we found → [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) (VERIFIED 2026-09-26: 5/5 repos, ~775 files — audit scope, not product count)
+4. How 5 repos become 1 platform → [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md)
+5. Build order → [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
+6. Shared language → [`glossary.md`](glossary.md)
 
 ## Knowledge graph
 
 ```mermaid
 flowchart TD
     BRAIN[VANTOR Brain] --> PRD[01-product/requirements]
+    BRAIN --> PORT[01-product/portfolio]
     BRAIN --> SYS[02-architecture/system]
     BRAIN --> DOM[02-architecture/domain]
     BRAIN --> DB[02-architecture/database]
@@ -35,6 +37,8 @@ flowchart TD
     BRAIN --> OPS[09-operations/runbook]
     BRAIN --> ADR[10-decisions]
     PRD --> DOM --> DB --> API --> AI
+    PORT --> PRD
+    PORT --> ROADMAP[00-plan/ROADMAP]
     API --> ANDROID
     AI --> SAFE --> EVAL
     SEC --> THREAT
@@ -46,12 +50,14 @@ flowchart TD
 
 | # | Document | Answers | Status |
 |---|---|---|---|
-| 0 | [`../README.md`](../README.md) | What is VANTOR, quickstart, layout | PLANNED scaffold |
-| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–11, Definition of Done | TESTED 3–4 |
-| 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix | VERIFIED |
+| 0 | [`../README.md`](../README.md) | What is VANTOR, quickstart, layout | IN DEVELOPMENT |
+| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–11 with per-phase gaps + reporting rules | TESTED 3–4 |
+| 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix (audit scope, not product count) | VERIFIED |
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
+| 0 | [`00-plan/masterdoc.md`](00-plan/masterdoc.md) | Original brief, verbatim (superseded: 5 repos → 10 products) | Reference |
 | 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
 | 1 | [`01-product/requirements.md`](01-product/requirements.md) | PRD: modules, graph, non-negotiables | PLANNED |
+| 1 | [`01-product/portfolio.md`](01-product/portfolio.md) | **Canonical list of the 10 products** + per-product status | IN DEVELOPMENT |
 | 2 | [`02-architecture/system.md`](02-architecture/system.md) | Modular monolith, free topology | PLANNED |
 | 2 | [`02-architecture/domain.md`](02-architecture/domain.md) | 60-entity domain model | PLANNED |
 | 2 | [`02-architecture/database.md`](02-architecture/database.md) | Postgres+pgvector, RLS | PLANNED |
@@ -61,21 +67,21 @@ flowchart TD
 | 3 | [`03-ai/evaluation.md`](03-ai/evaluation.md) | Eval gates | PLANNED |
 | 4 | [`04-security/architecture.md`](04-security/architecture.md) | OIDC/RBAC/RLS/audit | PLANNED |
 | 4 | [`04-security/threat-model.md`](04-security/threat-model.md) | STRIDE threats | PLANNED |
-| 5 | [`05-frontend/design-system.md`](05-frontend/design-system.md) | Tokens + components | PLANNED |
+| 5 | [`05-frontend/design-system.md`](05-frontend/design-system.md) | Tokens + components (dark mode + fonts still due) | IN DEVELOPMENT |
 | 6 | [`06-brand/logo.md`](06-brand/logo.md) + [`../assets/brand/`](../assets/brand/) | Vantor identity | IMPLEMENTED art |
 | 7 | [`07-android/strategy.md`](07-android/strategy.md) | Kotlin/Compose plan | COMING SOON (API-ready) |
 | 8 | [`08-deployment/local.md`](08-deployment/local.md) + [`../docker-compose.yml`](../docker-compose.yml) | Free local stack | IMPLEMENTED compose |
-| 9 | [`09-operations/runbook.md`](09-operations/runbook.md) | Health/backup/incidents | PLANNED |
+| 9 | [`09-operations/runbook.md`](09-operations/runbook.md) | Health/backup/incidents + RLS session discipline | IMPLEMENTED |
 | 10 | [`10-decisions/README.md`](10-decisions/README.md) | ADR index (001–006) | Accepted |
 | 11 | [`11-specs-06-10/README.md`](11-specs-06-10/README.md) | Products 06–10 build-brain index (sourcing optimizer, spend intel, onboarding, price intel, nego sim) | REFERENCE |
 | X | [`glossary.md`](glossary.md) | Ubiquitous language | IMPLEMENTED |
 
 ## Concept trails (follow the brain, not folders)
 
-- **New developer:** Brain → glossary → system → database → api → local → runbook.
+- **New developer:** Brain → portfolio → glossary → system → database → api → local → runbook.
 - **New auditor:** Brain → threat-model → security/architecture → audit events (domain) → runbook incidents.
-- **New AI engineer:** Brain → ai/architecture → safety → evaluation → api (tools) → domain (AIEvidence).
-- **New designer:** Brain → brand/logo → design-system → android/strategy.
+- **New AI engineer:** Brain → portfolio (01, 10) → ai/architecture → safety → evaluation → api (tools) → domain (AIEvidence).
+- **New designer:** Brain → portfolio → brand/logo → design-system → android/strategy.
 - **New DevOps:** Brain → system → local → runbook → decisions/ADR-001,002,005.
 
 ## Brain maintenance rule

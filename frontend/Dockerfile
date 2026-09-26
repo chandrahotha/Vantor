@@ -1,7 +1,8 @@
 FROM node:22-alpine AS build
 WORKDIR /web
-COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+# Lockfile is authoritative: no `|| npm install` fallback, or CI and prod diverge silently.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 RUN npm run build
 

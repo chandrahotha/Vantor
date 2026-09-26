@@ -14,6 +14,7 @@ docs/
   glossary.md               ← shared vocabulary
   00-plan/ROADMAP.md, REPOSITORY_AUDIT.md, MIGRATION_PLAN.md, masterdoc.md
   01-product/requirements.md
+  01-product/portfolio.md      ← canonical list of the 10 products
   02-architecture/system.md, domain.md, database.md, api.md
   03-ai/architecture.md, safety.md, evaluation.md
   04-security/architecture.md, threat-model.md
@@ -32,11 +33,12 @@ docs/
 | 🧠 | Brain | IMPLEMENTED | [BRAIN.md](BRAIN.md) |
 | X | Glossary | IMPLEMENTED | [glossary.md](glossary.md) |
 | 0 | Roadmap (Phases 0–11) | TESTED 3–4, IN DEV 5–8, 11 planned | [00-plan/ROADMAP.md](00-plan/ROADMAP.md) |
-| 0 | Repository audit | BLOCKED | [00-plan/REPOSITORY_AUDIT.md](00-plan/REPOSITORY_AUDIT.md) |
+| 0 | Repository audit | VERIFIED | [00-plan/REPOSITORY_AUDIT.md](00-plan/REPOSITORY_AUDIT.md) |
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
-| 0 | Original brief (masterdoc) | Reference | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
+| 0 | Original brief (masterdoc) | Reference — scope since grown 5 → 10 products | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
 | 0 | Session handoff | IMPLEMENTED | [00-plan/SESSION.md](00-plan/SESSION.md) |
 | 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
+| 1 | **Portfolio (10 products)** | IN DEVELOPMENT | [01-product/portfolio.md](01-product/portfolio.md) |
 | 2 | System architecture | PLANNED | [02-architecture/system.md](02-architecture/system.md) |
 | 2 | Domain model | PLANNED | [02-architecture/domain.md](02-architecture/domain.md) |
 | 2 | Database architecture | PLANNED | [02-architecture/database.md](02-architecture/database.md) |

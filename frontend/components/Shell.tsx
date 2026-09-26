@@ -14,6 +14,7 @@ const NAV = [
   ["Purchase orders", "/orders"],
   ["Spend", "/spend"],
   ["Documents", "/documents"],
+  ["Governance", "/governance"],
   ["Copilot", "/copilot"],
   ["Alerts", "/notifications"],
 ];

@@ -140,8 +140,13 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
 
 @router.post("/ai/stream")
 def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor)) -> Response:
-    """SSE streaming completions: `data: <text>` chunks + terminal `data: [EVIDENCE] {...}`.
-    Disabled/unconfigured providers emit an honest error event (never fake tokens)."""
+    """SSE completions: `data: {delta}` frames + terminal `data: [EVIDENCE] {...}`.
+
+    Honest about what it is: frames are cut from the *completed* provider
+    response, so time-to-first-byte equals the blocking call. Provider-side
+    token streaming is not wired (see `services/ai_gateway.py`).
+    Disabled/unconfigured providers emit an honest error event, never fake tokens.
+    """
     import json as _json
 
     from fastapi.responses import StreamingResponse as _SS
@@ -152,7 +157,7 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
     tenant, sub = actor.tenant_id, actor.sub
 
     def _events():  # type: ignore[no-untyped-def]
-        from ..core.tenant import get_session_factory
+        from ..core.tenant import pinned_session
         from ..services.audit import record_event as _rec
 
         try:
@@ -162,18 +167,22 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
             return
         text = result.get("answer", "")
         for i in range(0, max(len(text), 1), 120):
-            yield f"data: {_json.dumps({'delta': text[i:i + 120]})}\n\n"
-        yield f"data: [EVIDENCE] {_json.dumps({'confidence': result.get('confidence'), 'provider': result.get('provider'), 'requires_human_review': True, 'requestId': rid})}\n\n"
+            yield f"data: {_json.dumps({'delta': text[i:i + 120], 'streamed': False})}\n\n"
+        yield f"data: [EVIDENCE] {_json.dumps({'confidence': result.get('confidence'), 'provider': result.get('provider'), 'evidence': result.get('evidence', []), 'requires_human_review': True, 'requestId': rid})}\n\n"
+        # Pinned session: an unpinned one is rejected by the audit_events RLS
+        # policy on Postgres, which would silently drop every streamed audit.
+        db = None
         try:
-            db = get_session_factory()()
-            try:
-                _rec(db, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
-                     resource_id="stream", after={"provider": result.get("provider")}, source="api", created_by=sub)
-                db.commit()
-            finally:
-                db.close()
+            db = pinned_session(tenant)
+            _rec(db, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
+                 resource_id="stream", after={"provider": result.get("provider")}, source="api", created_by=sub)
+            db.commit()
         except Exception:
-            pass
+            if db is not None:
+                db.rollback()
+        finally:
+            if db is not None:
+                db.close()
 
     return _SS(_events(), media_type="text/event-stream",
                headers={"X-Request-ID": rid, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

@@ -111,12 +111,21 @@ def request_approval(db: Session, tenant_id: str, action: str, resource: str, re
 
     if action not in {"award_contract", "approve_purchase", "modify_financials", "contact_supplier", "other"}:
         raise ToolError("TOOL_ARGS_INVALID", "action must be a known high-risk action")
+    # `resource` is caller-supplied and Approval.resource is a bounded column.
+    # Validate instead of truncating: a silently clipped resource_id would file
+    # an approval against the wrong record, which is worse than a 422.
+    resource = (resource or "").strip()
+    resource_id = (resource_id or "").strip()
+    if not resource or len(resource) > 61:
+        raise ToolError("TOOL_ARGS_INVALID", "resource must be 1-61 characters")
+    if not resource_id or len(resource_id) > 36:
+        raise ToolError("TOOL_ARGS_INVALID", "resource_id must be 1-36 characters")
     row = Approval(tenant_id=tenant_id, created_by=requested_by, updated_by=requested_by,
                    resource=f"ai:{resource}", resource_id=resource_id, status="requested",
                    tier="manager", reason=f"{action}: {reason}"[:500])
     db.add(row)
     db.flush()
-    return {"approval_id": row.id, "status": "requested"}
+    return {"approval_id": row.id, "status": "requested", "resource": f"ai:{resource}"}
 
 
 REGISTRY = {

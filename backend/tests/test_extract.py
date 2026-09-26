@@ -90,10 +90,10 @@ def client(monkeypatch, tmp_path):
     get_settings.cache_clear()
 
 
-def _h(pem: bytes, tenant="t1"):
+def _h(pem: bytes, tenant="t1", roles=("Buyer",)):
     now = datetime.now(timezone.utc)
     tok = jwt.encode({"iss": ISS, "aud": AUD, "sub": "u1", "tenant_id": tenant,
-                      "realm_access": {"roles": ["Buyer"]},
+                      "realm_access": {"roles": list(roles)},
                       "exp": now + timedelta(minutes=5), "iat": now},
                      pem, algorithm="RS256", headers={"kid": "ex-kid"})
     return {"Authorization": f"Bearer {tok}"}
@@ -105,7 +105,9 @@ def test_extract_search_flow(client):
     up = c.post("/api/v1/documents", files={"file": ("quote.pdf", io.BytesIO(_pdf_hello()), "application/pdf")}, headers=h)
     did = up.json()["data"]["id"]
     ex = c.post(f"/api/v1/documents/{did}/extract", headers=h)
-    assert ex.status_code == 201, ex.text
+    # 200, not 201: extraction is idempotent per document (re-extract replaces
+    # chunks) and a quarantine is a real 200 outcome, not a created resource.
+    assert ex.status_code == 200, ex.text
     assert ex.json()["data"]["chunks"] >= 1
     hits = c.get("/api/v1/documents/search?q=Vantor", headers=h).json()["data"]
     assert len(hits) == 1 and hits[0]["documentId"] == did
@@ -113,4 +115,21 @@ def test_extract_search_flow(client):
     # scanned image quarantines honestly
     up2 = c.post("/api/v1/documents", files={"file": ("scan.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64), "image/png")}, headers=h)
     ex2 = c.post(f"/api/v1/documents/{up2.json()['data']['id']}/extract", headers=h)
+    assert ex2.status_code == 200
     assert ex2.json()["data"]["quarantined"] is True
+
+
+def test_extract_requires_write_role(client):
+    """Extraction mutates status + rewrites chunks — Read-Only must be refused."""
+    c, pem = client
+    up = c.post("/api/v1/documents", files={"file": ("quote.pdf", io.BytesIO(_pdf_hello()), "application/pdf")},
+                headers=_h(pem, "acme"))
+    did = up.json()["data"]["id"]
+    ro = _h(pem, "acme", roles=("Read Only", "Auditor"))
+    r = c.post(f"/api/v1/documents/{did}/extract", headers=ro)
+    assert r.status_code == 403, r.text
+    # ...and upload is refused for the same role, so the gate is not extract-only
+    assert c.post("/api/v1/documents", files={"file": ("x.pdf", io.BytesIO(_pdf_hello()), "application/pdf")},
+                  headers=ro).status_code == 403
+    # a real write role still works
+    assert c.post(f"/api/v1/documents/{did}/extract", headers=_h(pem, "acme", roles=("Category Manager",))).status_code == 200

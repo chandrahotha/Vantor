@@ -1,237 +1,357 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, Empty, ErrorBox } from "../../components/ui";
-import { api, fmtMinor } from "../../lib/api";
-import { keycloak, parseSession, keepFresh } from "../../lib/auth";
-import { setTokenGetter } from "../../lib/api";
-import { setRefreshFn } from "../../lib/api";
-import { setSession } from "../../lib/auth";
+import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, StatCard, useBoot, type Column } from "../../components/ui";
+import { API_URL, api, fmtMinor, newIdemKey } from "../../lib/api";
+import { keycloak } from "../../lib/auth";
 
 type Contract = { id: string; code: string; title: string; status: string; endDate: string; valueMinor: number; currency: string };
-type PO = { id: string; code: string; status: string; totalMinor: number };
 type Doc = { id: string; filename: string; sizeBytes: number; status: string };
-
-async function boot(setErr: (m: string) => void, fn: () => Promise<void>): Promise<() => void> {
-  const kc = keycloak();
-  try {
-    const ok = await kc.init({ onLoad: "login-required", pkceMethod: "S256", checkLoginIframe: false });
-    if (!ok) { setErr("Sign-in required."); return () => {}; }
-    const s = parseSession(kc);
-    if (!s?.tenant) { setErr("Token carries no tenant."); return () => {}; }
-    setSession({ token: s.token, name: s.name, tenant: s.tenant, roles: s.roles });
-    setTokenGetter(() => keycloak().token);
-    setRefreshFn(async () => {
-      try {
-        await keycloak().updateToken(60);
-        const ns = parseSession(keycloak());
-        if (ns) setSession(ns);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    const stop = keepFresh(kc, () => setErr("Session expired — please sign in again."));
-    await fn();
-    return stop;
-  } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Load failed"); return () => {}; }
-}
+type Hit = { documentId: string; chunkNo: number; excerpt: string };
 
 export function ContractsPage() {
   const [rows, setRows] = useState<Contract[]>([]);
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState("");
   const [nextCursor, setNextCursor] = useState("");
-  const [more, setMore] = useState(false);
   const [stack, setStack] = useState<string[]>([]);
-  async function load(cur: string) {
-    setLoading(true);
-    try {
-      const r = await api<Contract[]>(`/api/v1/contracts?limit=15&cursor=${encodeURIComponent(cur)}`);
-      setRows(r.data || []);
-      setMore(!!r.pagination?.hasMore);
-      setNextCursor(r.pagination?.nextCursor || "");
-      setCursor(cur);
-    } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Load failed"); }
-    setLoading(false);
-  }
-  useEffect(() => {
-    let stop = () => {};
-    boot(setErr, () => load("")).then((s) => (stop = s));
-    return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const [more, setMore] = useState(false);
+
+  const load = useCallback(async (cur: string) => {
+    const r = await api<Contract[]>(`/api/v1/contracts?limit=15&cursor=${encodeURIComponent(cur)}`);
+    setRows(r.data || []);
+    setMore(!!r.pagination?.hasMore);
+    setNextCursor(r.pagination?.nextCursor || "");
+    setCursor(cur);
   }, []);
+
+  const { state, error } = useBoot(() => load(""));
+
+  const columns: Column<Contract>[] = [
+    { key: "code", header: "Code", render: (c) => <span className="mono">{c.code}</span> },
+    { key: "title", header: "Title", render: (c) => c.title },
+    { key: "status", header: "Status", render: (c) => <Badge tone={c.status === "active" ? "ok" : c.status === "expiring" ? "warn" : undefined}>{c.status}</Badge> },
+    { key: "end", header: "Ends", render: (c) => c.endDate || "—" },
+    { key: "value", header: "Value", numeric: true, render: (c) => fmtMinor(c.valueMinor, c.currency) },
+  ];
+
   return (
-    <Shell><div className="pagehead"><div><h1>Contracts</h1><p>Repository with obligations and expiry roll.</p></div></div>
-      {err ? <ErrorBox message={err} /> : null}
-      {loading ? <div className="skel" /> : rows.length === 0 ? <Empty title="No contracts yet" /> : (<>
-        <table className="grid"><thead><tr><th>Code</th><th>Title</th><th>Status</th><th>Ends</th><th>Value</th></tr></thead>
-          <tbody>{rows.map((c) => (<tr key={c.id}><td className="mono">{c.code}</td><td>{c.title}</td>
-            <td><Badge tone={c.status === "active" ? "ok" : c.status === "expiring" ? "warn" : undefined}>{c.status}</Badge></td>
-            <td className="mono">{c.endDate || "—"}</td><td className="num">{fmtMinor(c.valueMinor, c.currency)}</td></tr>))}</tbody></table>
-        <div className="pager">
-          <button className="ghost" disabled={stack.length === 0} onClick={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}>← Prev</button>
-          <button className="ghost" disabled={!more} onClick={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }}>Next →</button>
-        </div></>)}
+    <Shell>
+      <div className="pagehead"><div><h1>Contracts</h1><p>Repository with obligations, lifecycle and expiry roll.</p></div></div>
+      {error ? <ErrorBox message={error} /> : null}
+      {state === "loading" ? <Skeleton rows={4} label="Loading contracts" />
+        : state === "signin" ? <Empty title="Sign-in required" />
+        : (
+        <>
+          <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
+            empty={<Empty title="No contracts yet" hint="Create one via POST /api/v1/contracts." />} />
+          <Pager stack={stack} hasMore={more}
+            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
+        </>
+      )}
     </Shell>
   );
 }
 
-export function OrdersPage() {
-  const [rows, setRows] = useState<PO[]>([]);
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [cursor, setCursor] = useState("");
-  const [nextCursor, setNextCursor] = useState("");
-  const [more, setMore] = useState(false);
-  const [stack, setStack] = useState<string[]>([]);
-  async function load(cur: string) {
-    setLoading(true);
-    try {
-      const r = await api<PO[]>(`/api/v1/purchase-orders?limit=15&cursor=${encodeURIComponent(cur)}`);
-      setRows(r.data || []);
-      setMore(!!r.pagination?.hasMore);
-      setNextCursor(r.pagination?.nextCursor || "");
-      setCursor(cur);
-    } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Load failed"); }
-    setLoading(false);
-  }
-  useEffect(() => {
-    let stop = () => {};
-    boot(setErr, () => load("")).then((s) => (stop = s));
-    return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return (
-    <Shell><div className="pagehead"><div><h1>Purchase orders</h1><p>Lifecycle with tiered approvals and 3-way match.</p></div></div>
-      {err ? <ErrorBox message={err} /> : null}
-      {loading ? <div className="skel" /> : rows.length === 0 ? <Empty title="No purchase orders yet" /> : (<>
-        <table className="grid"><thead><tr><th>Code</th><th>Status</th><th>Total</th></tr></thead>
-          <tbody>{rows.map((o) => (<tr key={o.id}><td className="mono">{o.code}</td><td><Badge>{o.status}</Badge></td><td className="num">{fmtMinor(o.totalMinor)}</td></tr>))}</tbody></table>
-        <div className="pager">
-          <button className="ghost" disabled={stack.length === 0} onClick={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}>← Prev</button>
-          <button className="ghost" disabled={!more} onClick={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }}>Next →</button>
-        </div></>)}
-    </Shell>
-  );
-}
+/** Money is never summed across currencies. When a tenant transacts in more than
+ *  one, the dashboard renders one card per currency instead of a meaningless
+ *  combined figure labelled with an arbitrary currency. */
+type Summary = {
+  poTotalMinor: number; invoicedTotalMinor: number; savedMinor: number;
+  byCurrency: { committed: Record<string, number>; invoiced: Record<string, number>; saved: Record<string, number> };
+  currencyCount: number;
+  bySupplier: { supplierId: string; currency: string; poTotalMinor: number; poCount: number }[];
+};
+
+type Intel = {
+  cube: { supplierId: string; categoryId: string; currency: string; totalMinor: number; poCount: number }[];
+  leakageTotalMinor: number;
+  concentration: { topShareBp: number; topSupplier: string; singleSourceRisk: boolean };
+};
+type Case = { id: string; item: string; baselineMinor: number; quotedMinor: number; varianceBp: number; samples: number; status: string };
 
 export function SpendPage() {
-  const [s, setS] = useState<{ poTotalMinor: number; invoicedTotalMinor: number; savedMinor: number; bySupplier: { supplierId: string; poTotalMinor: number; poCount: number }[] } | null>(null);
-  const [intel, setIntel] = useState<{ cube: { supplierId: string; categoryId: string; currency: string; totalMinor: number; poCount: number }[]; leakage: { id: string; code: string; totalMinor: number }[]; leakageTotalMinor: number; maverick: { id: string; code: string; totalMinor: number }[]; maverickTotalMinor: number; concentration: { topShareBp: number; topSupplier: string; singleSourceRisk: boolean } } | null>(null);
-  const [cases, setCases] = useState<{ id: string; item: string; baselineMinor: number; quotedMinor: number; varianceBp: number; samples: number; status: string }[]>([]);
+  const [s, setS] = useState<Summary | null>(null);
+  const [intel, setIntel] = useState<Intel | null>(null);
+  const [cases, setCases] = useState<Case[]>([]);
   const [err, setErr] = useState("");
-  const [calc, setCalc] = useState({ material: "10000", labor: "2500", overhead: "1500", logistics: "500", margin: "1000", quoted: "" });
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+
+  // Money fields are major units; overhead and margin are PERCENT (12 = 12%).
+  // The previous defaults were 1500/1000, which the API rejects with a 422 on
+  // the first click — the form could not succeed without being edited first.
+  const [calc, setCalc] = useState({ material: "100.00", labor: "25.00", overhead: "12", logistics: "5.00", margin: "15", quoted: "" });
   const [calcOut, setCalcOut] = useState<string>("");
-  useEffect(() => {
-    let stop = () => {};
-    boot(setErr, async () => {
-      setS((await api<typeof s>("/api/v1/spend/summary")).data);
-      setIntel((await api<typeof intel>("/api/v1/spend/intelligence")).data);
-      setCases((await api<typeof cases>("/api/v1/spend/price-cases?status=open")).data || []);
-    }).then((s) => (stop = s));
-    return () => stop();
+
+  const load = useCallback(async () => {
+    setS((await api<Summary>("/api/v1/spend/summary")).data);
+    setIntel((await api<Intel>("/api/v1/spend/intelligence")).data);
+    setCases((await api<Case[]>("/api/v1/spend/price-cases?status=open")).data || []);
   }, []);
+
+  const { state, error } = useBoot(load);
+  const shownErr = err || error;
+
+  /** Client-side guard mirroring the server's `le=10000` basis-point bound, so
+   *  an out-of-range value is explained instead of surfacing a bare 422. */
   async function runCalc() {
+    const num = (v: string) => { const n = Number.parseFloat(v); return Number.isFinite(n) ? n : 0; };
+    const pctOf = (v: string) => num(v) * 100;
+    for (const [k, label] of [["overhead", "Overhead"], ["margin", "Margin"]] as const) {
+      if (pctOf(calc[k]) < 0 || pctOf(calc[k]) > 10000) {
+        setCalcOut(`${label} must be between 0% and 100%.`);
+        return;
+      }
+    }
+    setBusy("calc");
     try {
-      const pct = (v: string) => Math.round(parseFloat(v || "0") * 100); // % -> basis points
       const r = await api<{ breakdown: { should_minor: number }; gap?: { gap_minor: number; verdict: string } }>("/api/v1/spend/should-cost", {
         method: "POST",
         body: JSON.stringify({
-          material_minor: Math.round(parseFloat(calc.material || "0") * 100),
-          labor_minor: Math.round(parseFloat(calc.labor || "0") * 100),
-          overhead_bp: pct(calc.overhead), logistics_minor: Math.round(parseFloat(calc.logistics || "0") * 100),
-          margin_bp: pct(calc.margin),
-          ...(calc.quoted ? { quoted_minor: Math.round(parseFloat(calc.quoted) * 100) } : {}),
+          material_minor: Math.round(num(calc.material) * 100),
+          labor_minor: Math.round(num(calc.labor) * 100),
+          overhead_bp: Math.round(pctOf(calc.overhead)),
+          logistics_minor: Math.round(num(calc.logistics) * 100),
+          margin_bp: Math.round(pctOf(calc.margin)),
+          ...(calc.quoted ? { quoted_minor: Math.round(num(calc.quoted) * 100) } : {}),
         }),
       });
-      setCalcOut(`should-cost ${fmtMinor(r.data.breakdown.should_minor)}${r.data.gap ? ` — gap ${fmtMinor(r.data.gap.gap_minor)} (${r.data.gap.verdict})` : ""}`);
-    } catch (e: unknown) { setCalcOut(e instanceof Error ? e.message : "Calc failed"); }
+      setCalcOut(
+        `should-cost ${fmtMinor(r.data.breakdown.should_minor)}` +
+        (r.data.gap ? ` — gap ${fmtMinor(r.data.gap.gap_minor)} (${r.data.gap.verdict})` : ""),
+      );
+    } catch (e: unknown) {
+      setCalcOut(e instanceof Error ? e.message : "Calculation failed");
+    } finally {
+      setBusy("");
+    }
   }
+
   async function resolve(id: string, st: string) {
+    setBusy(`case-${id}`); setErr("");
     try {
-      const key = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${id}`;
-      await api(`/api/v1/spend/price-cases/${id}/resolve`, { method: "POST", body: JSON.stringify({ status: st }), idemKey: key });
-      setCases((await api<typeof cases>("/api/v1/spend/price-cases?status=open")).data || []);
-    } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Resolve failed"); }
+      await api(`/api/v1/spend/price-cases/${id}/resolve`, { method: "POST", body: JSON.stringify({ status: st }), idemKey: newIdemKey() });
+      setNote(`Price case ${st.replace("_", " ")}.`);
+      setCases((await api<Case[]>("/api/v1/spend/price-cases?status=open")).data || []);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Resolve failed");
+    } finally {
+      setBusy("");
+    }
   }
+
+  const ccys = s?.byCurrency ? Object.keys(s.byCurrency.committed) : [];
+  const mixed = (s?.currencyCount ?? 0) > 1;
+
   return (
-    <Shell><div className="pagehead"><div><h1>Spend intelligence</h1><p>Ledger aggregates, leakage, maverick, should-cost.</p></div></div>
-      {err ? <ErrorBox message={err} /> : null}
-      {!s ? <Empty title="No spend posted" hint="Approved POs and invoices will aggregate here." /> : (<>
-        <div className="cards">
-          <div className="card"><div className="k">Committed</div><div className="v mono">{fmtMinor(s.poTotalMinor)}</div></div>
-          <div className="card"><div className="k">Invoiced</div><div className="v mono">{fmtMinor(s.invoicedTotalMinor)}</div></div>
-          <div className="card"><div className="k">Saved (awards)</div><div className="v mono good">{fmtMinor(s.savedMinor)}</div></div>
-          <div className="card"><div className="k">Leakage</div><div className={`v mono ${(intel?.leakageTotalMinor || 0) > 0 ? "bad" : "good"}`}>{fmtMinor(intel?.leakageTotalMinor || 0)}</div></div>
-        </div>
-        {intel && intel.concentration.singleSourceRisk ? <ErrorBox message={`Single-source risk: ${intel.concentration.topSupplier} holds ${(intel.concentration.topShareBp / 100).toFixed(1)}% of spend.`} /> : null}
-        <h2>Price anomalies {cases.length ? <Badge tone="warn">{cases.length} open</Badge> : null}</h2>
-        {cases.length === 0 ? <Empty title="No open price cases" /> : (
-          <table className="grid"><thead><tr><th>Item</th><th>Baseline</th><th>Quoted</th><th>Variance</th><th></th></tr></thead>
-            <tbody>{cases.map((p) => (<tr key={p.id}><td>{p.item}</td><td className="num">{fmtMinor(p.baselineMinor)}</td>
-              <td className="num">{fmtMinor(p.quotedMinor)}</td><td className="num">{p.varianceBp < 0 ? "−" : "+"}{(Math.abs(p.varianceBp) / 100).toFixed(1)}%</td>
-              <td><button className="ghost" onClick={() => resolve(p.id, "handed_off")}>Hand off</button> <button className="ghost" onClick={() => resolve(p.id, "dismissed")}>Dismiss</button></td></tr>))}</tbody></table>)}
-        <h2 style={{ marginTop: 20 }}>Should-cost calculator</h2>
-        <p style={{ color: "var(--muted)", fontSize: 12 }}>Money in major units (e.g. 100.00); overhead/margin in <strong>percent</strong> (10 = 10%). Integer minor units on the wire.</p>
-        <div className="toolbar">
-          {[["material", "Material"], ["labor", "Labor"], ["overhead", "Overhead %"], ["logistics", "Logistics"], ["margin", "Margin %"], ["quoted", "Quote?"]].map(([k, label]) => (
-            <label key={k} style={{ display: "flex", flexDirection: "column", fontSize: 12 }}>{label}
-              <input type="text" style={{ width: 110 }} value={calc[k as keyof typeof calc]} onChange={(e) => setCalc({ ...calc, [k]: e.target.value })} aria-label={label} />
-            </label>
-          ))}
-          <button onClick={runCalc}>Calculate</button>
-        </div>
-        {calcOut ? <div className="card mono">{calcOut}</div> : null}
-        <h2 style={{ marginTop: 20 }}>Spend cube</h2>
-        {!intel || intel.cube.length === 0 ? <Empty title="Cube is empty" /> : (
-          <table className="grid"><thead><tr><th>Supplier</th><th>Category</th><th>POs</th><th>Total</th></tr></thead>
-            <tbody>{intel.cube.map((r, i) => (<tr key={i}><td className="mono">{r.supplierId.slice(0, 8)}</td><td>{r.categoryId}</td><td className="num">{r.poCount}</td><td className="num">{fmtMinor(r.totalMinor, r.currency)}</td></tr>))}</tbody></table>)}
-      </>)}
+    <Shell>
+      <div className="pagehead"><div><h1>Spend intelligence</h1><p>Ledger aggregates, leakage, concentration and a deterministic should-cost model.</p></div></div>
+      <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
+
+      {state === "loading" ? <Skeleton rows={3} label="Loading spend data" />
+        : state === "signin" ? <Empty title="Sign-in required" />
+        : !s ? <Empty title="No spend posted" hint="Approved POs and invoices aggregate here." />
+        : (
+        <>
+          <div className="cards">
+            {mixed ? (
+              <>
+                {ccys.map((c) => (
+                  <StatCard key={`c-${c}`} label={`Committed (${c})`} value={fmtMinor(s.byCurrency.committed[c] ?? 0, c)} />
+                ))}
+                {ccys.map((c) => (
+                  <StatCard key={`i-${c}`} label={`Invoiced (${c})`} value={fmtMinor(s.byCurrency.invoiced[c] ?? 0, c)} />
+                ))}
+                {ccys.map((c) => (
+                  <StatCard key={`s-${c}`} label={`Saved (${c})`} value={fmtMinor(s.byCurrency.saved[c] ?? 0, c)} tone="good" />
+                ))}
+              </>
+            ) : (
+              <>
+                <StatCard label="Committed" value={fmtMinor(s.poTotalMinor, ccys[0])} />
+                <StatCard label="Invoiced" value={fmtMinor(s.invoicedTotalMinor, ccys[0])} />
+                <StatCard label="Saved (awards)" value={fmtMinor(s.savedMinor, ccys[0])} tone="good" />
+              </>
+            )}
+            <StatCard label="Leakage" value={fmtMinor(intel?.leakageTotalMinor || 0)} tone={(intel?.leakageTotalMinor || 0) > 0 ? "bad" : "good"} />
+          </div>
+          {mixed ? (
+            <p style={{ color: "var(--muted)", fontSize: 12 }}>
+              This tenant transacts in {s.currencyCount} currencies. Totals are shown per currency and are never added together.
+            </p>
+          ) : null}
+
+          {intel?.concentration.singleSourceRisk ? (
+            <ErrorBox message={`Single-source risk: ${intel.concentration.topSupplier} holds ${(intel.concentration.topShareBp / 100).toFixed(1)}% of spend.`} />
+          ) : null}
+
+          <h2>Price anomalies {cases.length ? <Badge tone="warn">{cases.length} open</Badge> : null}</h2>
+          <DataTable caption="Open price anomaly cases" rows={cases} rowKey={(p) => p.id}
+            columns={[
+              { key: "item", header: "Item", render: (p) => p.item },
+              { key: "base", header: "Baseline", numeric: true, render: (p) => fmtMinor(p.baselineMinor) },
+              { key: "quoted", header: "Quoted", numeric: true, render: (p) => fmtMinor(p.quotedMinor) },
+              { key: "var", header: "Variance", numeric: true, render: (p) => `${p.varianceBp < 0 ? "−" : "+"}${(Math.abs(p.varianceBp) / 100).toFixed(1)}%` },
+              {
+                key: "act", header: "Resolve", render: (p) => (
+                  <>
+                    <button className="ghost" onClick={() => resolve(p.id, "handed_off")} disabled={busy !== ""}>Hand off</button>{" "}
+                    <button className="ghost" onClick={() => resolve(p.id, "dismissed")} disabled={busy !== ""}>Dismiss</button>
+                  </>
+                ),
+              },
+            ]}
+            empty={<Empty title="No open price cases" hint="Open one with POST /api/v1/spend/price-evaluate/{po_id}." />} />
+
+          <h2 style={{ marginTop: 20 }}>Should-cost calculator</h2>
+          <p style={{ color: "var(--muted)", fontSize: 12 }}>
+            Money in major units (100.00 = 100.00). Overhead and margin in <strong>percent</strong> (12 = 12%).
+            Integer minor units on the wire; the model is pure arithmetic with no storage.
+          </p>
+          <div className="toolbar">
+            {([["material", "Material"], ["labor", "Labor"], ["overhead", "Overhead %"], ["logistics", "Logistics"], ["margin", "Margin %"], ["quoted", "Quote?"]] as const).map(([k, label]) => (
+              <label key={k}>{label}
+                <input aria-label={label} inputMode="decimal" style={{ width: 110 }} value={calc[k]} onChange={(e) => setCalc({ ...calc, [k]: e.target.value })} />
+              </label>
+            ))}
+            <button onClick={runCalc} disabled={busy !== ""}>{busy === "calc" ? "Calculating…" : "Calculate"}</button>
+          </div>
+          <LiveRegion>{calcOut ? <div className="card mono">{calcOut}</div> : null}</LiveRegion>
+
+          <h2 style={{ marginTop: 20 }}>Spend cube</h2>
+          <DataTable caption="Spend cube by supplier and category" rows={intel?.cube ?? []} rowKey={(r, ) => `${r.supplierId}-${r.categoryId}`}
+            columns={[
+              { key: "sup", header: "Supplier", render: (r) => <span className="mono">{r.supplierId.slice(0, 8)}</span> },
+              { key: "cat", header: "Category", render: (r) => r.categoryId || "—" },
+              { key: "pos", header: "POs", numeric: true, render: (r) => r.poCount },
+              { key: "total", header: "Total", numeric: true, render: (r) => fmtMinor(r.totalMinor, r.currency) },
+            ]}
+            empty={<Empty title="Cube is empty" hint="Committed POs populate the cube." />} />
+        </>
+      )}
     </Shell>
   );
 }
 
 export function DocumentsPage() {
   const [rows, setRows] = useState<Doc[]>([]);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Hit[]>([]);
   const [err, setErr] = useState("");
-  useEffect(() => {
-    let stop = () => {};
-    boot(setErr, async () => setRows((await api<Doc[]>("/api/v1/documents?limit=25")).data || [])).then((s) => (stop = s));
-    return () => stop();
-  }, []);
-  async function upload(f: File) {
-    const kc = keycloak();
-    const fd = new FormData();
-    fd.append("file", f);
-    const idem = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`;
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/documents`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${kc.token}`, "Idempotency-Key": idem },
-      body: fd,
-    });
-    const rid = res.headers.get("X-Request-ID") || "";
-    if (!res.ok) {
-      let msg = `Upload failed (${res.status})`;
-      try {
-        const body = await res.json();
-        if (body?.error?.message) msg = `${body.error.message}${rid ? ` [${rid}]` : ""}`;
-      } catch { /* non-JSON error — keep status text */ }
-      setErr(msg);
-      return;
-    }
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(async () => {
     setRows((await api<Doc[]>("/api/v1/documents?limit=25")).data || []);
+  }, []);
+
+  const { state, error } = useBoot(load);
+  const shownErr = err || error;
+
+  async function upload(f: File) {
+    setBusy("upload"); setErr(""); setNote("");
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      // Multipart cannot go through the JSON `api()` helper, so this one call
+      // talks to the API directly — via API_URL, never a raw env read, which
+      // previously produced `undefined/api/v1/documents` when the var was unset.
+      const res = await fetch(`${API_URL}/api/v1/documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keycloak().token ?? ""}`, "Idempotency-Key": newIdemKey() },
+        body: fd,
+      });
+      if (!res.ok) {
+        let msg = `Upload failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.error?.message) msg = body.error.message;
+        } catch { /* non-JSON error body — keep the status text */ }
+        setErr(msg);
+        return;
+      }
+      setNote(`${f.name} stored and hash-verified.`);
+      await load();
+    } catch {
+      setErr("Upload failed — is the backend reachable?");
+    } finally {
+      setBusy("");
+    }
   }
+
+  async function extract(id: string, filename: string) {
+    setBusy(`ex-${id}`); setErr(""); setNote("");
+    try {
+      const r = await api<{ chunks: number; quarantined: boolean; kind: string }>(`/api/v1/documents/${id}/extract`, { method: "POST", idemKey: newIdemKey() });
+      setNote(r.data.quarantined
+        ? `${filename} has no text layer (${r.data.kind}) and was quarantined. OCR is not wired yet.`
+        : `${filename}: ${r.data.chunks} chunk(s) extracted and indexed.`);
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Extraction failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function search() {
+    setBusy("search"); setErr("");
+    try {
+      const r = await api<Hit[]>(`/api/v1/documents/search?q=${encodeURIComponent(q)}`);
+      setHits(r.data || []);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Search failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const columns: Column<Doc>[] = [
+    { key: "file", header: "File", render: (d) => d.filename },
+    { key: "size", header: "Size", numeric: true, render: (d) => `${(d.sizeBytes / 1024).toFixed(1)} KB` },
+    { key: "status", header: "Status", render: (d) => <Badge tone={d.status === "ready" ? "ok" : d.status === "quarantined" ? "warn" : undefined}>{d.status}</Badge> },
+    {
+      key: "act", header: "Extract", render: (d) => (
+        <button className="ghost" onClick={() => extract(d.id, d.filename)} disabled={busy !== ""}>
+          {busy === `ex-${d.id}` ? "Extracting…" : "Extract text"}
+        </button>
+      ),
+    },
+  ];
+
   return (
-    <Shell><div className="pagehead"><div><h1>Documents</h1><p>Hash-verified store — PDF, DOCX, XLSX, CSV, images.</p></div></div>
-      {err ? <ErrorBox message={err} /> : null}
-      <div className="toolbar"><input type="file" aria-label="Upload document" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} /></div>
-      {rows.length === 0 ? <Empty title="No documents yet" /> : (
-        <table className="grid"><thead><tr><th>File</th><th>Size</th><th>Status</th></tr></thead>
-          <tbody>{rows.map((d) => (<tr key={d.id}><td>{d.filename}</td><td className="num">{(d.sizeBytes / 1024).toFixed(1)} KB</td><td><Badge tone={d.status === "ready" ? "ok" : undefined}>{d.status}</Badge></td></tr>))}</tbody></table>)}
+    <Shell>
+      <div className="pagehead"><div><h1>Documents</h1><p>Hash-verified store for PDF, DOCX, XLSX, CSV and images. Extraction is real; OCR and embeddings are not wired.</p></div></div>
+      <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
+
+      <div className="toolbar" role="search">
+        <label>Upload<input type="file" aria-label="Upload document" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} /></label>
+        <label>Search chunks<input aria-label="Search extracted text" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") search(); }} placeholder="at least 2 characters" /></label>
+        <button onClick={search} disabled={busy !== "" || q.trim().length < 2}>{busy === "search" ? "Searching…" : "Search"}</button>
+      </div>
+
+      {state === "loading" ? <Skeleton rows={3} label="Loading documents" />
+        : state === "signin" ? <Empty title="Sign-in required" />
+        : (
+        <>
+          <DataTable caption="Document list" rows={rows} rowKey={(d) => d.id} columns={columns}
+            empty={<Empty title="No documents yet" hint="Upload a PDF, DOCX, XLSX or CSV to begin." />} />
+
+          {hits.length > 0 ? (
+            <>
+              <h2 style={{ marginTop: 20 }}>Search results for “{q}”</h2>
+              <DataTable caption={`Search results for ${q}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
+                columns={[
+                  { key: "doc", header: "Document", render: (h) => <span className="mono">{h.documentId.slice(0, 8)}</span> },
+                  { key: "chunk", header: "Chunk", numeric: true, render: (h) => h.chunkNo },
+                  { key: "ex", header: "Excerpt", render: (h) => h.excerpt },
+                ]}
+                empty={<Empty title="No matches" />} />
+            </>
+          ) : null}
+        </>
+      )}
     </Shell>
   );
 }
-
-

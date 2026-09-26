@@ -126,7 +126,7 @@ class InvoiceLine(Base, TenantMixin):
 class Approval(Base, TenantMixin):
     __tablename__ = "approvals"
 
-    resource: Mapped[str] = mapped_column(String(32), nullable=False)  # requisition|purchase_order|invoice
+    resource: Mapped[str] = mapped_column(String(64), nullable=False)  # requisition|purchase_order|invoice|ai:<resource>
     resource_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), default="requested", nullable=False)
     tier: Mapped[str] = mapped_column(String(32), default="manager", nullable=False)  # manager|finance|legal

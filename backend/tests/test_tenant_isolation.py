@@ -50,3 +50,66 @@ def test_audit_write_requires_tenant():
     with pytest.raises(ValueError, match="tenant_id is required"):
         record_event(db, tenant_id="", actor="u", action="X", resource="r")
     db.close()
+
+
+def test_no_unpinned_sessions_outside_request_cycle():
+    """Every non-request DB session must be tenant-pinned.
+
+    `get_session_factory()()` is safe on SQLite (no RLS) and silently broken on
+    Postgres: the RLS `WITH CHECK` rejects the write and a broad `except` hides
+    it. That is how idempotency replay and the SSE audit both died in production
+    while the test suite stayed green. This test makes the mistake impossible to
+    reintroduce, because SQLite cannot catch it.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    offenders: list[str] = []
+    for path in root.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "get_session_factory()()" not in text:
+            continue
+        rel = path.relative_to(root).as_posix()
+        # health.py probes liveness with a read-only SELECT 1 + version check,
+        # which is tenant-independent by design. tenant.py *defines* the pinned
+        # wrapper, so the raw call there is the one being made safe.
+        if rel in {"routers/health.py", "core/tenant.py"}:
+            continue
+        # Everything else must go through pinned_session().
+        for match in re.finditer(r"get_session_factory\(\)\(\)", text):
+            line_no = text[: match.start()].count("\n") + 1
+            window = text[max(0, match.start() - 400) : match.start()]
+            if "pinned_session(" not in window:
+                offenders.append(f"{rel}:{line_no}")
+    assert not offenders, (
+        "unpinned get_session_factory()() outside health.py — RLS will reject "
+        f"these writes on Postgres: {offenders}"
+    )
+
+
+def test_pinned_session_pins_on_postgres(monkeypatch):
+    """pinned_session must issue SET LOCAL when the dialect is postgres."""
+    from app.core import tenant as tenant_mod
+
+    executed: list[str] = []
+
+    class FakeBind:
+        class dialect:  # noqa: N801
+            name = "postgresql"
+
+    class FakeSession:
+        bind = FakeBind()
+
+        def execute(self, stmt, params=None):  # type: ignore[no-untyped-def]
+            executed.append(str(stmt))
+            return None
+
+    monkeypatch.setattr(tenant_mod, "get_session_factory", lambda: (lambda: FakeSession()))
+    tenant_mod.pinned_session("tenant-a")
+    assert any("app.tenant_id" in s for s in executed), executed
+    # An empty tenant must NOT be pinned — that would set an empty GUC and
+    # silently make every RLS predicate false, hiding rows instead of leaking.
+    executed.clear()
+    tenant_mod.pinned_session("")
+    assert not executed

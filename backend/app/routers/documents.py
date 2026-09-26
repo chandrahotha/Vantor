@@ -143,16 +143,22 @@ def download(doc_id: str, request: Request, actor: Actor = Depends(get_actor), d
     return FileResponse(path, media_type=row.content_type, filename=safe, headers={"X-SHA256": row.sha256})
 
 
-@router.post("/documents/{doc_id}/extract", status_code=201)
+@router.post("/documents/{doc_id}/extract")
 def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     """Extract text + chunk into DocumentChunk rows. Scanned/unreadable bytes
     quarantine with an explicit reason (never fake-extracted). Idempotent per
-    document: re-extract replaces prior chunks."""
+    document: re-extract replaces prior chunks.
+
+    Role-gated: extraction mutates document status and rewrites chunk rows, so
+    it requires the same write roles as upload. A 200 with `quarantined: true`
+    is a real outcome, not a success — hence 200, not 201.
+    """
     from pathlib import Path
 
     from ..models.document import DocumentChunk
     from ..services.extract import ExtractError, chunk_text, extract
 
+    _write(actor)
     row = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.id == doc_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")

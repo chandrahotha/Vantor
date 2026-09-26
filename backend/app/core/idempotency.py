@@ -40,9 +40,9 @@ def _body_hash(body: bytes) -> str:
 
 def _lookup(tenant_id: str, fingerprint: str):  # type: ignore[no-untyped-def]
     try:
-        from ..core.tenant import get_session_factory
+        from ..core.tenant import pinned_session
 
-        db = get_session_factory()()
+        db = pinned_session(tenant_id)
         try:
             return db.execute(select(IdempotencyKey).where(
                 IdempotencyKey.tenant_id == tenant_id, IdempotencyKey.key == fingerprint)
@@ -55,9 +55,12 @@ def _lookup(tenant_id: str, fingerprint: str):  # type: ignore[no-untyped-def]
 
 def _remember(tenant_id: str, fingerprint: str, method: str, path: str, status_code: int, body: dict) -> None:
     try:
-        from ..core.tenant import get_session_factory
+        from ..core.tenant import pinned_session
 
-        db = get_session_factory()()
+        # Pinned, not raw: RLS `WITH CHECK` on idempotency_keys would otherwise
+        # reject this insert on Postgres and the broad `except` would hide it,
+        # silently disabling idempotency in production while tests pass on SQLite.
+        db = pinned_session(tenant_id)
         try:
             db.add(IdempotencyKey(tenant_id=tenant_id, created_by="", updated_by="",
                                   key=fingerprint, method=method, path=path,

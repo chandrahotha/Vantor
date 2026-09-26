@@ -89,7 +89,8 @@ def test_budget_hard_gate_on_approve(client):
     assert c.post(f"/api/v1/purchase-orders/{po3}/approve", headers=mgr).status_code == 200
 
 
-def test_contract_signoff(client):    c, pem = client
+def test_contract_signoff(client):
+    c, pem = client
     h = _h(pem, roles=("Legal Reviewer",))
     ct = c.post("/api/v1/contracts", json={"code": "CT-S", "title": "Sign me"}, headers=h).json()["data"]["id"]
     # draft cannot be signed

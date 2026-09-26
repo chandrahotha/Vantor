@@ -39,6 +39,10 @@ stdout to Loki/CloudWatch. Correlate user reports via `X-Request-ID`
 | 503 `/ready` unmigrated | migrations not applied | `cd backend && alembic upgrade head` |
 | Audit `valid:false` | tamper or clock skew | freeze writes, `GET /audit-events/verify` message pinpoints row, restore from backup |
 | AI 502 `AI_PROVIDER_FAILED` | provider down/unconfigured | switch `AI_PROVIDER` (ollama/opencode/nvidia/disabled); failures name the provider by design |
+| `BUDGET_EXCEEDED` on approve | PO would breach the category ceiling for the period | raise the ceiling via `POST /api/v1/budgets` (or the Governance page) — do not bypass the gate |
+| `APPROVAL_SOD` 403 | requester == approver | a second human with the right role must approve; this is by design, never disable |
+| Idempotent replay returns stale data | key reused with a different body | keys are body-bound; use a fresh key per distinct action |
+| Notifications badge never clears for one user | broadcast row read state | read state is per-recipient (`read_by`); one user reading no longer silences the tenant |
 
 Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
 (hash chain is the evidence), rotate `JWT_SECRET`/IdP clients, notify
@@ -54,6 +58,31 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
 
 - `python worker/enqueue.py roll_expiry` (needs `SERVICE_API_TOKEN` — Keycloak service account).
 - Queues: `default`, `documents`. Failed RQ jobs stay in the registry for inspection — never silently dropped.
+- **Nothing schedules these jobs.** There is no beat/cron sidecar in `docker-compose.yml` and no
+  periodic enqueue, so `roll_expiry` and `spend_snapshot` run only when a human invokes them. Until a
+  scheduler lands, **contract expiry rolling and spend rollups are not automatic in any environment**,
+  including local compose. Either trigger them by hand or treat the "Contracts flagged expiring"
+  dashboard count as stale.
+- The `documents` queue is currently **dead**: `worker.py` listens on it, but no job functions are
+  registered for it and no backend code enqueues to it. It is reserved for the Phase 5 OCR/embed wave.
+- No backend code calls the worker — `worker/enqueue.py` is the only enqueue path, and it is manual.
+
+## 6a. RLS session discipline (added 2026-09-26)
+
+Application-level `tenant_id` filters are mandatory but **not sufficient**: Postgres RLS is the
+backstop, and RLS only engages if the session has `app.tenant_id` set.
+
+- Request-scoped code uses the `db_for_actor` dependency, which pins via `get_db(actor.tenant_id)`.
+- Code **outside** the request cycle (middleware, SSE generators, background work) must use
+  `core.tenant.pinned_session(tenant_id)`. A raw `get_session_factory()()` looks identical on SQLite
+  and silently fails on Postgres, because the RLS `WITH CHECK` rejects the write and a broad
+  `except` hides it. This is not hypothetical: it broke idempotency and the AI audit trail in
+  production semantics while the test suite stayed green.
+- `test_no_unpinned_sessions_outside_request_cycle` scans the source and fails the build on a
+  regression. If you add a session outside the request cycle, use the pinned helper.
+- Never call `pinned_session("")` — an empty tenant sets an empty GUC, which makes every RLS
+  predicate false and *hides* rows rather than leaking them. The helper no-ops on an empty tenant for
+  exactly that reason.
 
 ## 7. RLS proof (verified 2026-09-26 on genuine Postgres 18)
 

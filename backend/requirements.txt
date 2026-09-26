@@ -1,4 +1,8 @@
-fastapi==0.115.6
+fastapi==0.141.1
+# Pinned explicitly: starlette is a transitive dep of fastapi, and 7 advisories
+# (DoS, request smuggling) live there. pip-audit only sees what is resolvable,
+# so the security-relevant transitive must be named, not left to the resolver.
+starlette==1.7.0
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
@@ -6,12 +10,12 @@ SQLAlchemy==2.0.36
 alembic==1.14.0
 psycopg[binary]==3.2.9
 pgvector==0.3.6
-PyJWT==2.10.1
-cryptography==44.0.0
+PyJWT==2.15.0
+cryptography==50.0.1
 httpx==0.28.1
-python-multipart==0.0.20
+python-multipart==0.0.32
 redis==5.2.1
 rq==1.16.2
 # test
-pytest==8.3.4
-pytest-asyncio==0.24.0
+pytest==9.1.1
+pytest-asyncio==1.4.0

@@ -77,6 +77,38 @@ def test_hitl_file_and_decide(client):
                   headers=_h(pem, "u2", "other", ("Approver",))).status_code == 404
 
 
+def test_hitl_rejects_unbounded_resource(client):
+    """`approvals.resource` is a bounded column and the tool prefixes `ai:`.
+
+    A long caller-supplied resource used to overflow on Postgres at commit time
+    (a 500), while passing silently on SQLite. It must be a 422 instead, and
+    must not silently truncate into a wrong approval target.
+    """
+    c, pem = client
+    h = _h(pem)
+    # 62 chars: "ai:" + 62 = 65 would exceed the 64-char column.
+    long_res = "r" * 62
+    r = c.post("/api/v1/ai/tools/request_approval",
+               json={"action": "award_contract", "resource": long_res, "resource_id": "rfq-1"},
+               headers=h)
+    assert r.status_code == 422, r.text
+    # empty resource / resource_id are refused too
+    assert c.post("/api/v1/ai/tools/request_approval",
+                  json={"action": "award_contract", "resource": "  ", "resource_id": "rfq-1"},
+                  headers=h).status_code == 422
+    assert c.post("/api/v1/ai/tools/request_approval",
+                  json={"action": "award_contract", "resource": "rfq", "resource_id": "i" * 37},
+                  headers=h).status_code == 422
+    # a legal 61-char resource still files, and round-trips intact
+    ok = c.post("/api/v1/ai/tools/request_approval",
+                json={"action": "award_contract", "resource": "r" * 61, "resource_id": "rfq-1"},
+                headers=h)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["result"]["resource"] == "ai:" + "r" * 61
+    # no truncated/overflowing row was left behind by the rejected attempts
+    assert c.get("/api/v1/audit-events?action=AI_APPROVAL_DECIDED", headers=h).status_code == 200
+
+
 def test_stream_framing_disabled(client):
     c, pem = client
     r = c.post("/api/v1/ai/stream", json={"prompt": "Summarize spend"}, headers=_h(pem))
@@ -84,3 +116,10 @@ def test_stream_framing_disabled(client):
     assert "text/event-stream" in r.headers["content-type"]
     assert "[EVIDENCE]" in r.text
     assert "UNKNOWN" in r.text
+    # The stream is SSE-framed but NOT provider-streamed — it says so, so a
+    # client cannot mistake it for real token streaming.
+    assert '"streamed": false' in r.text.replace("'", '"') or '"streamed":false' in r.text
+    # And the completion is audited: an unpinned session is rejected by the
+    # audit_events RLS policy on Postgres, which used to drop the write silently.
+    feed = c.get("/api/v1/audit-events?action=AI_COMPLETED", headers=_h(pem)).json()["data"]
+    assert any(e["action"] == "AI_COMPLETED" for e in feed)

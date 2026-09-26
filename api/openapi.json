@@ -719,6 +719,78 @@
         ]
       }
     },
+    "/api/v1/catalog/categories": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Categories",
+        "operationId": "list_categories_api_v1_catalog_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Categories Api V1 Catalog Categories Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Create Category",
+        "operationId": "create_category_api_v1_catalog_categories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Create Category Api V1 Catalog Categories Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/ai/negotiate": {
       "post": {
         "tags": [
@@ -965,7 +1037,7 @@
           "ai"
         ],
         "summary": "Run Stream",
-        "description": "SSE streaming completions: `data: <text>` chunks + terminal `data: [EVIDENCE] {...}`.\nDisabled/unconfigured providers emit an honest error event (never fake tokens).",
+        "description": "SSE completions: `data: {delta}` frames + terminal `data: [EVIDENCE] {...}`.\n\nHonest about what it is: frames are cut from the *completed* provider\nresponse, so time-to-first-byte equals the blocking call. Provider-side\ntoken streaming is not wired (see `services/ai_gateway.py`).\nDisabled/unconfigured providers emit an honest error event, never fake tokens.",
         "operationId": "run_stream_api_v1_ai_stream_post",
         "requestBody": {
           "content": {
@@ -2894,7 +2966,7 @@
           "documents"
         ],
         "summary": "Extract Doc",
-        "description": "Extract text + chunk into DocumentChunk rows. Scanned/unreadable bytes\nquarantine with an explicit reason (never fake-extracted). Idempotent per\ndocument: re-extract replaces prior chunks.",
+        "description": "Extract text + chunk into DocumentChunk rows. Scanned/unreadable bytes\nquarantine with an explicit reason (never fake-extracted). Idempotent per\ndocument: re-extract replaces prior chunks.\n\nRole-gated: extraction mutates document status and rewrites chunk rows, so\nit requires the same write roles as upload. A 200 with `quarantined: true`\nis a real outcome, not a success \u2014 hence 200, not 201.",
         "operationId": "extract_doc_api_v1_documents__doc_id__extract_post",
         "security": [
           {
@@ -2913,7 +2985,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -3514,6 +3586,7 @@
           "spend"
         ],
         "summary": "Summary",
+        "description": "Ledger aggregates.\n\nMoney is never summed across currencies: `byCurrency` is the authoritative\nper-currency breakdown. `poTotalMinor` / `invoicedTotalMinor` remain for\nsingle-currency tenants and are accompanied by `currencyCount` so a caller\ncan refuse to render a meaningless cross-currency total.",
         "operationId": "summary_api_v1_spend_summary_get",
         "responses": {
           "200": {
@@ -3838,6 +3911,33 @@
           "ceiling_minor"
         ],
         "title": "BudgetIn"
+      },
+      "CategoryIn": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "parent_id": {
+            "type": "string",
+            "title": "Parent Id",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "CategoryIn"
       },
       "CertIn": {
         "properties": {

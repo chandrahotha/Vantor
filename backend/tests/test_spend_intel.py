@@ -54,9 +54,10 @@ def _h(pem: bytes, sub="buyer1", tenant="t1"):
     return {"Authorization": f"Bearer {tok}"}
 
 
-def _po_flow(c, pem, tenant, sub, code, supplier, price, category=""):
+def _po_flow(c, pem, tenant, sub, code, supplier, price, category="", currency=""):
     h = _h(pem, sub, tenant)
     po = c.post("/api/v1/purchase-orders", json={"code": code, "supplier_id": supplier, "category_id": category,
+                "currency": currency,
                 "lines": [{"description": "Widget", "quantity": 10, "unit_price_minor": price}]}, headers=h).json()["data"]["id"]
     now = datetime.now(timezone.utc)
     mtok = jwt.encode({"iss": ISS, "aud": AUD, "sub": "mgr-" + sub, "tenant_id": tenant,
@@ -95,3 +96,43 @@ def test_intelligence_end_to_end(client):
     empty = c.get("/api/v1/spend/intelligence", headers=_h(pem, "u0", "void")).json()["data"]
     assert empty["cube"] == [] and empty["leakageTotalMinor"] == 0
     assert empty["concentration"] == {"topShareBp": 0, "topSupplier": "", "singleSourceRisk": False}
+
+
+def test_summary_never_sums_across_currencies(client):
+    """A total that mixes INR and USD minor units is not money.
+
+    The UI used to render the cross-currency sum labelled with whichever
+    supplier happened to be first. The API now exposes a per-currency breakdown
+    and a currency count so a caller can refuse to show a meaningless total.
+    """
+    c, pem = client
+    h = _h(pem, "u0", "acme")
+    inr = c.post("/api/v1/suppliers", json={"code": "S-INR", "name": "Rupee Supplier", "currency": "INR"}, headers=h).json()["data"]["id"]
+    usd = c.post("/api/v1/suppliers", json={"code": "S-USD", "name": "Dollar Supplier", "currency": "USD"}, headers=h).json()["data"]["id"]
+    _po_flow(c, pem, "acme", "u0", "P-INR", inr, 1000, category="CAT-A", currency="INR")
+    _po_flow(c, pem, "acme", "u0", "P-USD", usd, 500, category="CAT-B", currency="USD")
+
+    s = c.get("/api/v1/spend/summary", headers=h).json()["data"]
+    assert s["currencyCount"] == 2
+    assert set(s["currencies"]) == {"INR", "USD"}
+    # Each currency carries its own total; neither is polluted by the other.
+    assert s["byCurrency"]["committed"]["INR"] == 10_000
+    assert s["byCurrency"]["committed"]["USD"] == 5_000
+    # The flat fields still sum, but the currency count tells the UI not to
+    # label them. This is the field the dashboard used to mislabel.
+    assert s["poTotalMinor"] == 15_000
+    assert all(r["currency"] in {"INR", "USD"} for r in s["bySupplier"])
+    assert len(s["bySupplier"]) == 2
+
+    # Single-currency tenant: flat totals are directly usable. The supplier must
+    # belong to this tenant — reusing the acme one would be invisible cross-tenant.
+    solo_h = _h(pem, "u1", "solo")
+    solo_sup = c.post("/api/v1/suppliers", json={"code": "S-SOLO", "name": "Solo Supplier", "currency": "INR"}, headers=solo_h).json()["data"]["id"]
+    _po_flow(c, pem, "solo", "u1", "P-SOLO", solo_sup, 250, category="CAT-A", currency="INR")
+    solo = c.get("/api/v1/spend/summary", headers=solo_h).json()["data"]
+    assert solo["currencyCount"] == 1 and solo["currencies"] == ["INR"]
+    assert solo["byCurrency"]["committed"]["INR"] == 2_500
+    # invoiced lands in the same currency bucket as its commitment
+    assert solo["byCurrency"]["invoiced"]["INR"] == 2_500
+    # tenant isolation holds on the new breakdown too
+    assert c.get("/api/v1/spend/summary", headers=_h(pem, "x", "void")).json()["data"]["currencyCount"] == 0

@@ -65,6 +65,20 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
         db.close()
 
 
+def pinned_session(tenant_id: str) -> Session:
+    """Standalone session pinned to `tenant_id` — for callers outside the
+    request/dependency cycle (middleware, SSE generators, background work).
+
+    Raw `get_session_factory()()` is NOT safe: on Postgres the RLS `WITH CHECK`
+    on tenant-scoped tables rejects the write, and a broad `except` then hides
+    it. Always pin. Callers own commit/rollback/close.
+    """
+    db = get_session_factory()()
+    if tenant_id and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+    return db
+
+
 def reset_engine_cache() -> None:
     global _engine, _SessionLocal
     _engine = None

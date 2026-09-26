@@ -83,11 +83,14 @@ jobs:
           alembic check
           alembic downgrade -1
           alembic upgrade head
-      - name: API contract export (OpenAPI must generate)
+      - name: API contract export (OpenAPI must generate and match the committed copy)
         run: |
           cd backend
           APP_ENV=test DATABASE_URL=sqlite:// python -c "from app.main import app; import json; json.dump(app.openapi(), open('../api/openapi.json','w'), indent=2)"
           test -f ../api/openapi.json
+          cd ..
+          git diff --exit-code -- api/openapi.json \
+            || (echo "api/openapi.json is stale — commit the regenerated contract" && exit 1)
   frontend:
     needs: policy
     runs-on: ubuntu-latest
@@ -104,12 +107,33 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install + typecheck + build (Next.js, real data only)
+      - name: Install + typecheck + lint + build (Next.js, real data only)
         run: |
           cd frontend
           npm ci
           npm run typecheck
+          npm run lint
           npm run build
       - name: Frontend container builds
         run: docker build ./frontend
-  # Phase 8+ jobs: lint, dep-scan, container-scan.
+  dependabot-audit:
+    needs: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Vulnerability scan (pip)
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --strict
+          pip-audit -r worker/requirements.txt --strict
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Vulnerability scan (npm)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --audit-level=high

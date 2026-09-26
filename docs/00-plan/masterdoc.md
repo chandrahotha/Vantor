@@ -1,5 +1,12 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md) · Original build brief, preserved verbatim (references to "PROCURA X" predate the VANTOR rename).
+>
+> ⚠️ **Scope note (2026-09-26).** This brief is preserved **as written** and is *not* the current
+> scope. It specifies **five** repositories and says "combine five existing private procurement
+> projects". The product is now **ten** — those five became products 01–05, and products 06–10
+> arrived later as a vendored build-brain (`../11-specs-06-10/`). Every "five" below is the
+> *audit/repository* count, never the product count.
+> Current canonical product list: [`../01-product/portfolio.md`](../01-product/portfolio.md).
 
 Below is the prompt I would use. It is deliberately strict about **not producing a mock/demo** and about making the AI inspect the existing repositories before deciding the architecture.
 

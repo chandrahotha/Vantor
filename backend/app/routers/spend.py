@@ -35,20 +35,50 @@ def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, 
 
 @router.get("/spend/summary")
 def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Ledger aggregates.
+
+    Money is never summed across currencies: `byCurrency` is the authoritative
+    per-currency breakdown. `poTotalMinor` / `invoicedTotalMinor` remain for
+    single-currency tenants and are accompanied by `currencyCount` so a caller
+    can refuse to render a meaningless cross-currency total.
+    """
     comm_rows = list(db.execute(
         select(SpendTransaction.supplier_id, SpendTransaction.currency, func.sum(SpendTransaction.amount_minor), func.count(SpendTransaction.id))
         .where(SpendTransaction.tenant_id == actor.tenant_id, SpendTransaction.kind == "commitment")
         .group_by(SpendTransaction.supplier_id, SpendTransaction.currency)).all())
-    actual_total = db.execute(
-        select(func.sum(SpendTransaction.amount_minor)).where(
-            SpendTransaction.tenant_id == actor.tenant_id, SpendTransaction.kind == "actual")).scalar() or 0
-    saved_total = db.execute(
-        select(func.sum(SavingsRecord.saved_minor)).where(SavingsRecord.tenant_id == actor.tenant_id)).scalar() or 0
+    actual_rows = list(db.execute(
+        select(SpendTransaction.currency, func.sum(SpendTransaction.amount_minor))
+        .where(SpendTransaction.tenant_id == actor.tenant_id, SpendTransaction.kind == "actual")
+        .group_by(SpendTransaction.currency)).all())
+    saved_rows = list(db.execute(
+        select(SavingsRecord.currency, func.sum(SavingsRecord.saved_minor))
+        .where(SavingsRecord.tenant_id == actor.tenant_id)
+        .group_by(SavingsRecord.currency)).all())
+
     by_supplier = [{"supplierId": s, "currency": c, "poTotalMinor": int(t or 0), "poCount": int(n or 0)} for s, c, t, n in comm_rows]
-    return envelope({"poTotalMinor": sum(r["poTotalMinor"] for r in by_supplier),
-                     "invoicedTotalMinor": int(actual_total),
-                     "savedMinor": int(saved_total),
-                     "bySupplier": sorted(by_supplier, key=lambda r: -r["poTotalMinor"])}, None, getattr(request.state, "request_id", ""))
+
+    def _totals(pairs):  # type: ignore[no-untyped-def]
+        acc: dict[str, int] = {}
+        for ccy, amount in pairs:
+            acc[ccy] = acc.get(ccy, 0) + int(amount or 0)
+        return dict(sorted(acc.items(), key=lambda kv: -kv[1]))
+
+    by_currency = {
+        "committed": _totals([(c, t) for _, c, t, _ in comm_rows]),
+        "invoiced": _totals(actual_rows),
+        "saved": _totals(saved_rows),
+    }
+    currencies = sorted({c for grp in by_currency.values() for c in grp})
+    return envelope({
+        # Only meaningful when there is exactly one currency in play.
+        "poTotalMinor": sum(v for v in by_currency["committed"].values()),
+        "invoicedTotalMinor": sum(v for v in by_currency["invoiced"].values()),
+        "savedMinor": sum(v for v in by_currency["saved"].values()),
+        "byCurrency": by_currency,
+        "currencies": currencies,
+        "currencyCount": len(currencies),
+        "bySupplier": sorted(by_supplier, key=lambda r: -r["poTotalMinor"]),
+    }, None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/spend/intelligence")

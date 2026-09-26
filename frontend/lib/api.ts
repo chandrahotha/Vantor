@@ -34,6 +34,17 @@ export function setRefreshFn(fn: () => Promise<boolean>) {
   refreshFn = fn;
 }
 
+/** Idempotency key for writes that must not double-execute.
+ *  `crypto.randomUUID` is a secure-context API, so plain-HTTP self-hosted
+ *  deployments fall back to a counter+clock pair. Module scope keeps it out of
+ *  render, which is what `react-hooks/purity` guards against. */
+let fallbackSeq = 0;
+export function newIdemKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  fallbackSeq += 1;
+  return `idem-${Date.now().toString(36)}-${fallbackSeq.toString(36)}`;
+}
+
 export type ApiOptions = Omit<RequestInit, "headers"> & {
   headers?: Record<string, string>;
   /** Pass an explicit key for operations that must not double-execute (resolve, approvals). */
