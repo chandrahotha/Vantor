@@ -1,8 +1,9 @@
-import type { MetadataRoute } from "next";
+﻿import type { MetadataRoute } from "next";
 
 const ROUTES: { path: string; priority: number; changeFrequency: "always" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "never" }[] = [
   { path: "", priority: 1, changeFrequency: "daily" },
   { path: "/suppliers", priority: 0.8, changeFrequency: "daily" },
+  { path: "/requisitions", priority: 0.7, changeFrequency: "daily" },
   { path: "/rfqs", priority: 0.8, changeFrequency: "daily" },
   { path: "/orders", priority: 0.8, changeFrequency: "daily" },
   { path: "/contracts", priority: 0.7, changeFrequency: "weekly" },
@@ -14,7 +15,7 @@ const ROUTES: { path: string; priority: number; changeFrequency: "always" | "hou
 ];
 
 /** Generated per build rather than hardcoded.
- *  A frozen `lastModified` is a lie to crawlers — it tells them a page changed
+ *  A frozen `lastModified` is a lie to crawlers â€” it tells them a page changed
  *  on a date it did not. `output: "standalone"` builds are immutable, so the
  *  build time is the honest "content as of" stamp. */
 export default function sitemap(): MetadataRoute.Sitemap {

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Rfq = { id: string; code: string; title: string; status: string; currency: string; lineCount?: number };
@@ -170,8 +170,7 @@ export default function Rfqs() {
         </div>
       </details>
 
-      {state === "loading" ? <Skeleton rows={4} label="Loading RFQs" />
-        : state === "signin" ? <Empty title="Sign-in required" hint="Your session is not authenticated against the Vantor realm." />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <DataTable

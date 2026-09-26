@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import Shell from "../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, StatCard, useBoot, type Column } from "../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, StatCard, useBoot, type Column } from "../components/ui";
 import { api, fmtMinor } from "../lib/api";
 import { getSession } from "../lib/auth";
 
@@ -76,9 +76,7 @@ export default function Dashboard() {
     { key: "status", header: "Status", render: (a) => <Badge tone={a.tone}>needs action</Badge> },
   ];
 
-  if (state === "loading") return <Shell><Skeleton rows={4} label="Loading dashboard" /></Shell>;
-  if (state === "signin") return <Shell><ErrorBox message="Sign-in required to view procurement data." /></Shell>;
-  if (state === "error") return <Shell><ErrorBox message={error || "Could not load the dashboard."} /></Shell>;
+  if (state !== "ok") return <AuthScreen state={state} error={error} />;
 
   const session = getSession();
 

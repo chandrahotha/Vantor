@@ -1,5 +1,20 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import ThemeInit from "../components/ThemeInit";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+  weight: ["400", "500", "600", "700", "800"],
+});
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+  display: "swap",
+  weight: ["400", "600", "700"],
+});
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const TITLE = "VANTOR — Intelligent Procurement Operating System";
@@ -18,46 +33,18 @@ export const metadata: Metadata = {
   publisher: "Digi Tracks",
   category: "business",
   keywords: [
-    "procurement software",
-    "procurement operating system",
-    "open source procurement",
-    "supplier management",
-    "supplier risk",
-    "strategic sourcing",
-    "RFQ",
-    "RFP",
-    "quotation comparison",
-    "contract lifecycle management",
-    "CLM",
-    "purchase order",
-    "purchase requisition",
-    "three way match",
-    "spend analytics",
-    "spend intelligence",
-    "should-cost model",
-    "maverick spend",
-    "savings tracking",
-    "procurement approval workflow",
-    "supplier onboarding",
-    "supplier qualification",
-    "negotiation simulator",
-    "procurement AI copilot",
-    "human in the loop AI",
-    "Keycloak OIDC",
-    "Row Level Security",
-    "FastAPI",
-    "Next.js",
-    "Postgres",
-    "AGPL-3.0",
-    "self-hosted",
-    "open source ERP",
-    "Digi Tracks",
+    "procurement software", "procurement operating system", "open source procurement",
+    "supplier management", "supplier risk", "strategic sourcing", "RFQ", "RFP",
+    "quotation comparison", "contract lifecycle management", "CLM", "purchase order",
+    "purchase requisition", "three way match", "spend analytics", "spend intelligence",
+    "should-cost model", "maverick spend", "savings tracking", "procurement approval workflow",
+    "supplier onboarding", "supplier qualification", "negotiation simulator",
+    "procurement AI copilot", "human in the loop AI", "Keycloak OIDC", "Row Level Security",
+    "FastAPI", "Next.js", "Postgres", "AGPL-3.0", "self-hosted", "open source ERP", "Digi Tracks",
   ],
   // Honest indexing posture: every route is behind Keycloak OIDC, so a crawler
-  // can only ever see the identity-provider redirect. Claiming `index: true`
-  // invited crawlers to index a login wall and nothing else. The discoverable
-  // surfaces for this product are the docs site and the GitHub repository;
-  // the app origin is marked noindex but social crawlers still fetch the OG card.
+  // can only ever see the identity-provider redirect. The discoverable surfaces
+  // for this product are the docs site and the GitHub repository.
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
@@ -74,25 +61,20 @@ export const metadata: Metadata = {
     title: TITLE,
     description: "Open-source procurement operating system. 10 products, one procurement graph, evidence-cited AI.",
   },
-  other: {
-    "github:repo": "https://github.com/chandrahotha/Vantor",
-  },
+  other: { "github:repo": "https://github.com/chandrahotha/Vantor" },
   formatDetection: { telephone: false, address: false, email: false },
 };
 
-/** `themeColor` moved to the `viewport` export in Next 14+; keeping it here
- *  silently drops it from the generated HTML. */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0A1931",
-  colorScheme: "light",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0A1931" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b101d" },
+  ],
+  colorScheme: "light dark",
 };
 
-/** Structured data so search engines and AI crawlers can identify the product
- *  without scraping the login-walled UI. `SoftwareApplication` with
- *  `offers: 0` is the honest shape: it is free and self-hosted, not a SaaS
- *  with a price. */
 const JSON_LD = {
   "@context": "https://schema.org",
   "@graph": [
@@ -137,11 +119,11 @@ const JSON_LD = {
 
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body>
+        <ThemeInit />
         <script
           type="application/ld+json"
-          // Static, developer-authored JSON-LD — no user input reaches this string.
           dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
         />
         {children}

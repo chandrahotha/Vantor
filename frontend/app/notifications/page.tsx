@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, useBoot, type Column } from "../../components/ui";
 import { api } from "../../lib/api";
 
 type Notif = { id: string; kind: string; title: string; body: string; link: string; read: boolean; createdAt: string };
@@ -98,8 +98,7 @@ export default function Notifications() {
         <button className="ghost" onClick={() => setFilterAndLoad("unread")} aria-pressed={filter === "unread"}>Unread only</button>
       </div>
 
-      {state === "loading" ? <Skeleton rows={4} label="Loading alerts" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <DataTable
           caption="Notification feed"

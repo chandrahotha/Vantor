@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
 import { api, newIdemKey } from "../../lib/api";
 
 type Event = {
@@ -94,8 +94,7 @@ export default function GovernanceClient() {
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state === "loading" ? <Skeleton rows={4} label="Loading governance data" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <div className="cards">

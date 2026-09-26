@@ -17,6 +17,39 @@ export function keycloak(): Keycloak {
   return instance;
 }
 
+export function login(): void {
+  keycloak().login();
+}
+
+export function logout(): void {
+  keycloak().logout();
+}
+
+/** Loop detector. `login-required` bounces to the IdP immediately; if the IdP
+ *  or the client is misconfigured, the user would ping-pong forever with no
+ *  explanation. We record bounce timestamps and, after rapid repeats, stop
+ *  redirecting and surface a real error instead. */
+const BOUNCE_KEY = "vantor.auth.bounces";
+export function noteBounce(): void {
+  try {
+    const now = Date.now();
+    const prev: number[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
+    sessionStorage.setItem(BOUNCE_KEY, JSON.stringify([...prev, now].filter((t) => now - t < 10_000)));
+  } catch { /* sessionStorage unavailable (privacy mode) — proceed unguarded */ }
+}
+export function isLooping(): boolean {
+  try {
+    const now = Date.now();
+    const prev: number[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
+    return prev.filter((t) => now - t < 10_000).length >= 2;
+  } catch {
+    return false;
+  }
+}
+export function clearBounces(): void {
+  try { sessionStorage.removeItem(BOUNCE_KEY); } catch { /* ignore */ }
+}
+
 export type Session = { token: string; name: string; tenant: string; roles: string[] };
 
 export function parseSession(kc: Keycloak): Session | null {

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
 import { api, newIdemKey } from "../../lib/api";
 
 type Supplier = { id: string; code: string; name: string; status: string; country: string; currency: string; riskTier?: string };
@@ -125,8 +125,7 @@ export default function SuppliersClient() {
         <button className="ghost" onClick={searchNow}>Search</button>
       </div>
 
-      {state === "loading" ? <Skeleton rows={5} label="Loading suppliers" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <DataTable caption="Supplier list" rows={rows} rowKey={(r) => r.id} columns={columns}

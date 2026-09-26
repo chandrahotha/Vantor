@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type PO = { id: string; code: string; status: string; totalMinor: number; currency: string; supplierId: string };
@@ -187,8 +187,7 @@ export function OrdersPage() {
         </div>
       </details>
 
-      {state === "loading" ? <Skeleton rows={4} label="Loading purchase orders" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <DataTable caption="Purchase order list" rows={rows} rowKey={(p) => p.id} columns={columns}

@@ -1,24 +1,25 @@
-"use client";
+﻿"use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../lib/api";
 
-type Hit = { kind: string; id: string; label: string; href?: string };
+type Hit = { kind: string; id: string; label: string; hint?: string; href?: string };
 
 const PAGES: Hit[] = [
-  { kind: "Go", id: "nav-dash", label: "Go to Dashboard", href: "/" },
-  { kind: "Go", id: "nav-sup", label: "Go to Suppliers", href: "/suppliers" },
-  { kind: "Go", id: "nav-rfq", label: "Go to RFQs", href: "/rfqs" },
-  { kind: "Go", id: "nav-con", label: "Go to Contracts", href: "/contracts" },
-  { kind: "Go", id: "nav-po", label: "Go to Purchase orders", href: "/orders" },
-  { kind: "Go", id: "nav-spend", label: "Go to Spend", href: "/spend" },
-  { kind: "Go", id: "nav-doc", label: "Go to Documents", href: "/documents" },
-  { kind: "Go", id: "nav-gov", label: "Go to Governance", href: "/governance" },
-  { kind: "Go", id: "nav-alert", label: "Go to Alerts", href: "/notifications" },
-  { kind: "Go", id: "nav-ai", label: "Go to Copilot", href: "/copilot" },
+  { kind: "Go", id: "nav-dash", label: "Go to Dashboard", hint: "Health, attention, latest POs", href: "/" },
+  { kind: "Go", id: "nav-sup", label: "Go to Suppliers", hint: "Directory, search, sort", href: "/suppliers" },
+    { kind: "Go", id: "nav-req", label: "Go to Requisitions", hint: "Request before you buy", href: "/requisitions" },
+  { kind: "Go", id: "nav-rfq", label: "Go to RFQs", hint: "Create, quotes, compare, award", href: "/rfqs" },
+  { kind: "Go", id: "nav-con", label: "Go to Contracts", hint: "Repository and expiry", href: "/contracts" },
+  { kind: "Go", id: "nav-po", label: "Go to Purchase orders", hint: "Approve, send, receive, invoice", href: "/orders" },
+  { kind: "Go", id: "nav-spend", label: "Go to Spend", hint: "Cube, leakage, should-cost", href: "/spend" },
+  { kind: "Go", id: "nav-doc", label: "Go to Documents", hint: "Upload, extract, search", href: "/documents" },
+  { kind: "Go", id: "nav-gov", label: "Go to Governance", hint: "Audit chain, catalog, budgets", href: "/governance" },
+  { kind: "Go", id: "nav-alert", label: "Go to Alerts", hint: "Awards, approvals, expiries", href: "/notifications" },
+  { kind: "Go", id: "nav-ai", label: "Go to Copilot", hint: "Evidence-cited AI answers", href: "/copilot" },
 ];
 
-/** Command palette — Ctrl/⌘+K. Real navigation + live supplier search. No fake entries. */
+/** Command palette â€” Ctrl/âŒ˜+K. Real navigation + live supplier search. */
 export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -29,10 +30,9 @@ export default function CommandPalette() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryId = useRef(0);
 
-  // Nav matches are derived, never stored — keeps the effect free of sync setState.
   const nav = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return PAGES.filter((p) => p.label.toLowerCase().includes(needle));
+    return PAGES.filter((p) => p.label.toLowerCase().includes(needle) || (p.hint ?? "").toLowerCase().includes(needle));
   }, [q]);
   const hits = q.trim().length < 2 ? nav : [...nav, ...supHits];
   const activeIdx = hits.length === 0 ? 0 : Math.min(active, hits.length - 1);
@@ -61,13 +61,13 @@ export default function CommandPalette() {
   useEffect(() => {
     if (!open) return;
     if (timer.current) clearTimeout(timer.current);
-    if (q.trim().length < 2) return; // short queries render `nav` only — nothing to set.
+    if (q.trim().length < 2) return;
     timer.current = setTimeout(async () => {
       const my = ++queryId.current;
       try {
         const r = await api<{ id: string; code: string; name: string }[]>(`/api/v1/suppliers?limit=5&search=${encodeURIComponent(q)}`);
-        if (queryId.current !== my) return; // stale response loses
-        setSupHits((r.data || []).map((s) => ({ kind: "Supplier", id: s.id, label: `${s.code} — ${s.name}` })));
+        if (queryId.current !== my) return;
+        setSupHits((r.data || []).map((s) => ({ kind: "Supplier", id: s.id, label: `${s.code} â€” ${s.name}` })));
       } catch {
         if (queryId.current !== my) return;
         setSupHits([]);
@@ -85,12 +85,23 @@ export default function CommandPalette() {
 
   if (!open) return null;
   return (
-    <div role="dialog" aria-modal="true" aria-label="Command palette" onClick={() => setOpen(false)}
-      style={{ position: "fixed", inset: 0, background: "rgba(10,25,49,.45)", zIndex: 50, paddingTop: "12vh" }}>
-      <div onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: 12, maxWidth: 560, margin: "0 auto", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
-        <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)}
-          role="combobox" aria-expanded="true" aria-controls="palette-listbox"
+    <div
+      className="palette-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+      onClick={() => setOpen(false)}
+    >
+      <div className="palette-panel" onClick={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          className="palette-input"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-listbox"
+          aria-label="Search or run a command"
           aria-activedescendant={hits[activeIdx] ? `palette-opt-${hits[activeIdx].id}` : undefined}
           onKeyDown={(e) => {
             if (hits.length === 0) return;
@@ -98,15 +109,35 @@ export default function CommandPalette() {
             else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
             else if (e.key === "Enter" && hits[activeIdx]) { go(hits[activeIdx]); }
           }}
-          placeholder="Type a command or search suppliers…" aria-label="Command input"
-          style={{ width: "100%", border: "none", outline: "none", padding: "14px 16px", fontSize: 15 }} />
-        <div id="palette-listbox" style={{ maxHeight: 320, overflowY: "auto", borderTop: "1px solid #e2e8f0" }} role="listbox">
-          {hits.length === 0 ? <div style={{ padding: 16, color: "#64748b" }}>No matches.</div> : hits.map((h, i) => (
-            <div key={h.id} id={`palette-opt-${h.id}`} role="option" aria-selected={i === activeIdx} onClick={() => go(h)}
-              style={{ padding: "10px 16px", cursor: "pointer", background: i === activeIdx ? "#eff6ff" : "#fff", display: "flex", gap: 10 }}>
-              <span className="badge info">{h.kind}</span><span>{h.label}</span>
-            </div>
-          ))}
+          placeholder="Search suppliers or jump to a workspaceâ€¦"
+        />
+        <div id="palette-listbox" className="palette-list" role="listbox">
+          {hits.length === 0 ? (
+            <div style={{ padding: 18, color: "var(--faint)", fontSize: "var(--fs-13)" }}>No matches.</div>
+          ) : (
+            hits.map((h, i) => (
+              <div
+                key={h.id}
+                id={`palette-opt-${h.id}`}
+                role="option"
+                aria-selected={i === activeIdx}
+                className={`palette-item${i === activeIdx ? " active" : ""}`}
+                onClick={() => go(h)}
+                onMouseEnter={() => setActive(i)}
+              >
+                <span className={`badge ${h.kind === "Supplier" ? "ok" : "info"}`}>{h.kind}</span>
+                <span>
+                  {h.label}
+                  {h.hint ? <span style={{ color: "var(--faint)", marginLeft: 8, fontSize: "var(--fs-11)" }}>{h.hint}</span> : null}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="palette-foot">
+          <span><kbd>â†‘â†“</kbd> move</span>
+          <span><kbd>â†µ</kbd> open</span>
+          <span><kbd>esc</kbd> close</span>
         </div>
       </div>
     </div>

@@ -96,6 +96,35 @@ def _page(request: Request, rows: list, limit: int) -> dict:
     return envelope(rows, {"limit": limit, "nextCursor": rows[-1]["id"] if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
 
 
+@router.get("/requisitions")
+def list_reqs(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+              limit: int = Query(default=25, ge=1, le=100), status_: str = Query(default="", alias="status"),
+              search: str = Query(default=""), cursor: str = Query(default="")) -> dict:
+    """Requisition index. Status + title/code search, cursor-paginated.
+
+    The requisition feature was previously write-only — there was no way to
+    list what had been created, which made the UI walk and the acceptance of
+    `REQUISITION_CREATED` unverifiable without SQL.
+    """
+    stmt = select(Requisition).where(Requisition.tenant_id == actor.tenant_id)
+    if status_:
+        stmt = stmt.where(Requisition.status == status_)
+    if search:
+        like = f"%{search.strip()}%"
+        stmt = stmt.where(or_(Requisition.title.ilike(like), Requisition.code.ilike(like)))
+    if cursor:
+        cur = db.execute(select(Requisition).where(Requisition.tenant_id == actor.tenant_id, Requisition.id == cursor)).scalar_one_or_none()
+        if cur is None:
+            raise HTTPException(status_code=422, detail="Invalid cursor")
+        stmt = stmt.where(or_(Requisition.created_at < cur.created_at,
+                              ((Requisition.created_at == cur.created_at) & (Requisition.id < cursor))))
+    stmt = stmt.order_by(Requisition.created_at.desc(), Requisition.id.desc()).limit(limit + 1)
+    rows = list(db.execute(stmt).scalars())
+    data = [{"id": r.id, "code": r.code, "title": r.title, "status": r.status,
+             "requester": r.requester, "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
+    return _page(request, data, limit)
+
+
 @router.post("/requisitions", status_code=201)
 def create_req(payload: ReqIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)

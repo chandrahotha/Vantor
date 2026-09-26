@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, Skeleton, StatCard, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, StatCard, useBoot, type Column } from "../../components/ui";
 import { API_URL, api, fmtMinor, newIdemKey } from "../../lib/api";
 import { keycloak } from "../../lib/auth";
 
@@ -38,8 +38,7 @@ export function ContractsPage() {
     <Shell>
       <div className="pagehead"><div><h1>Contracts</h1><p>Repository with obligations, lifecycle and expiry roll.</p></div></div>
       {error ? <ErrorBox message={error} /> : null}
-      {state === "loading" ? <Skeleton rows={4} label="Loading contracts" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
@@ -149,8 +148,7 @@ export function SpendPage() {
       <div className="pagehead"><div><h1>Spend intelligence</h1><p>Ledger aggregates, leakage, concentration and a deterministic should-cost model.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state === "loading" ? <Skeleton rows={3} label="Loading spend data" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : !s ? <Empty title="No spend posted" hint="Approved POs and invoices aggregate here." />
         : (
         <>
@@ -331,8 +329,7 @@ export function DocumentsPage() {
         <button onClick={search} disabled={busy !== "" || q.trim().length < 2}>{busy === "search" ? "Searching…" : "Search"}</button>
       </div>
 
-      {state === "loading" ? <Skeleton rows={3} label="Loading documents" />
-        : state === "signin" ? <Empty title="Sign-in required" />
+      {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
         <>
           <DataTable caption="Document list" rows={rows} rowKey={(d) => d.id} columns={columns}

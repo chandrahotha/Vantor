@@ -8,7 +8,7 @@
  *  empty-state handling instead of reinventing it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { keycloak, parseSession, keepFresh, setSession } from "../lib/auth";
+import { clearBounces, isLooping, keycloak, login, noteBounce, parseSession, keepFresh, setSession } from "../lib/auth";
 import { setTokenGetter, setRefreshFn } from "../lib/api";
 
 export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info"; children: React.ReactNode }) {
@@ -138,6 +138,12 @@ export type BootState = "loading" | "signin" | "error" | "ok";
  *  copy and in whether they set the API token hooks. Returns an unsubscribe for
  *  `useEffect`, and — unlike the originals — does not call `kc.init()` twice
  *  under `reactStrictMode`, because the effect owns a cancellation flag.
+ *
+ *  Redirect discipline: `login-required` bounces instantly to the IdP. To keep
+ *  that invisible bounce from looking like a crash, the caller renders
+ *  `<AuthScreen state="loading">` as a branded splash. Rapid repeated bounces
+ *  (misconfigured IdP/realm/client) are detected and downgraded to an explicit
+ *  "sign-in loop" error instead of an infinite redirect.
  */
 export function useBoot(load: () => Promise<void>) {
   const [state, setState] = useState<BootState>("loading");
@@ -157,9 +163,18 @@ export function useBoot(load: () => Promise<void>) {
 
     (async () => {
       const kc = keycloak();
+      if (isLooping()) {
+        setError(
+          "Sign-in is looping. The identity provider is misconfigured or the realm is unreachable — check NEXT_PUBLIC_KEYCLOAK_URL and the client settings.",
+        );
+        setState("error");
+        return;
+      }
       try {
+        noteBounce();
         const ok = await kc.init({ onLoad: "login-required", pkceMethod: "S256", checkLoginIframe: false });
         if (disposed) return;
+        clearBounces();
         if (!ok) { setState("signin"); return; }
         const s = parseSession(kc);
         if (!s?.tenant) {
@@ -180,8 +195,11 @@ export function useBoot(load: () => Promise<void>) {
           }
         });
         stop = keepFresh(kc, () => setError("Session expired — please sign in again."));
+        if (disposed) return;
         await loadRef.current();
         if (!disposed) setState("ok");
+        // Mark the page ready for the E2E smoke tests.
+        document.documentElement.dataset.booted = "true";
       } catch (e: unknown) {
         if (disposed) return;
         setError(
@@ -212,6 +230,36 @@ export function useBoot(load: () => Promise<void>) {
   }, []);
 
   return { state, error, reload };
+}
+
+/** Full-viewport states that answer "where did the page go?" Before this
+ *  existed, an unauthenticated load flashed a blank frame and vanished into the
+ *  IdP redirect, which read as a bug. */
+export function AuthScreen({ state, error }: { state: BootState; error?: string }) {
+  if (state === "ok") return null;
+  if (state === "loading") {
+    return (
+      <div className="authscreen" role="status" aria-live="polite">
+        <div className="authscreen-mark" aria-hidden="true">V</div>
+        <p className="authscreen-title">Opening VANTOR…</p>
+        {error ? <p className="authscreen-sub">{error}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="authscreen" role={state === "error" ? "alert" : "status"}>
+      <div className="authscreen-mark" aria-hidden="true">V</div>
+      <p className="authscreen-title">
+        {state === "signin" ? "Sign in to VANTOR" : "Could not start VANTOR"}
+      </p>
+      {error ? <p className="authscreen-sub">{error}</p> : null}
+      {state === "signin" || state === "error" ? (
+        <button className="authscreen-cta" onClick={() => login()}>
+          Continue with Vantor ID
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /** Live-region wrapper so async results are announced to screen readers

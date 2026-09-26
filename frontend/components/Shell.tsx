@@ -1,23 +1,37 @@
-"use client";
+﻿"use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
+import { toggleTheme } from "./ThemeInit";
 import { api } from "../lib/api";
 import { getSession, subscribeSession, type Session } from "../lib/auth";
 
-const NAV = [
-  ["Dashboard", "/"],
-  ["Suppliers", "/suppliers"],
-  ["RFQs", "/rfqs"],
-  ["Contracts", "/contracts"],
-  ["Purchase orders", "/orders"],
-  ["Spend", "/spend"],
-  ["Documents", "/documents"],
-  ["Governance", "/governance"],
-  ["Copilot", "/copilot"],
-  ["Alerts", "/notifications"],
+const NAV: { section?: string; items: [icon: string, label: string, href: string][] }[] = [
+  {
+    section: "Workspaces",
+    items: [
+      ["â—ˆ", "Dashboard", "/"],
+      ["â—‰", "Suppliers", "/suppliers"],
+      ["â—‡", "RFQs", "/rfqs"],
+      ["â–£", "Contracts", "/contracts"],
+      ["â—«", "Purchase orders", "/orders"],
+    ],
+  },
+  {
+    section: "Intelligence",
+    items: [
+      ["â—¬", "Spend", "/spend"],
+      ["â–¤", "Documents", "/documents"],
+      ["âœ³", "Governance", "/governance"],
+      ["â—", "Copilot", "/copilot"],
+    ],
+  },
 ];
+
+const PAGE_NAMES: Record<string, string> = Object.fromEntries(
+  NAV.flatMap((g) => g.items).map(([, label, href]) => [href, label]).concat([["/notifications", "Alerts"]]),
+);
 
 function Bell() {
   const [unread, setUnread] = useState(0);
@@ -27,14 +41,40 @@ function Bell() {
       try {
         const r = await api<{ unread: number }>("/api/v1/notifications/unread-count");
         if (!stop) setUnread(r.data.unread);
-      } catch { /* unauthenticated or offline — bell stays quiet */ }
+      } catch { /* unauthenticated or offline â€” bell stays quiet */ }
     }
     poll();
-    const id = setInterval(poll, 30000); // honest polling; push lands later
+    const id = setInterval(poll, 30000);
     return () => { stop = true; clearInterval(id); };
   }, []);
-  if (unread === 0) return null;
+  if (unread === 0) return <span className="badge">0</span>;
   return <span className="badge bad" aria-label={`${unread} unread alerts`}>{unread}</span>;
+}
+
+function ThemeToggle() {
+  // Derived from the DOM attribute, updated via MutationObserver so this
+  // tracks ThemeInit (which sets it on mount) and any other toggle â€” no
+  // setState-in-effect, no hydration mismatch (server renders dark=false).
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const read = () => setDark(el.dataset.theme === "dark");
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
+  return (
+    <button
+      className="icon"
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-pressed={dark}
+      title={dark ? "Light mode" : "Dark mode"}
+      onClick={() => setDark(toggleTheme() === "dark")}
+    >
+      {dark ? "â˜€" : "â˜¾"}
+    </button>
+  );
 }
 
 export default function Shell({ children, user }: { children: ReactNode; user?: { name: string; tenant: string } }) {
@@ -43,28 +83,77 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
   const [session, setSessionState] = useState<Session | null>(() => getSession());
   useEffect(() => subscribeSession(setSessionState), []);
   const shown = user ?? (session ? { name: session.name, tenant: session.tenant } : undefined);
+  const pageName = PAGE_NAMES[base] ?? "VANTOR";
+
   return (
     <div className="shell">
       <a href="#main" className="skip-link">Skip to content</a>
+
       <nav className="side" aria-label="Primary">
-        <div className="brand">VANTOR <span style={{ fontWeight: 400, color: "#7d8aa3", fontSize: 12 }}>by Digi Tracks</span></div>
-        {NAV.map(([label, href]) => (
-          <Link key={href} href={href} className={base === href || (href !== "/" && base.startsWith(href + "/")) ? "active" : ""}>
-            {label}{href === "/notifications" ? (<> <Bell /></>) : null}
-          </Link>
+        <div className="brand">
+          <span className="mark" aria-hidden="true">V</span>
+          <span>
+            VANTOR
+            <small>by Digi Tracks</small>
+          </span>
+        </div>
+
+        {NAV.map((group) => (
+          <div key={group.section}>
+            <div className="section-label">{group.section}</div>
+            {group.items.map(([icon, label, href]) => (
+              <Link
+                key={href}
+                href={href}
+                className={base === href || (href !== "/" && base.startsWith(href + "/")) ? "active" : undefined}
+                aria-current={base === href ? "page" : undefined}
+              >
+                <span aria-hidden="true" style={{ opacity: 0.75 }}>{icon}</span>
+                {label}
+              </Link>
+            ))}
+          </div>
         ))}
+
+        <div className="section-label">Account</div>
+        <Link href="/notifications" className={base === "/notifications" ? "active" : undefined} aria-current={base === "/notifications" ? "page" : undefined}>
+          <span aria-hidden="true" style={{ opacity: 0.75 }}>â—</span>
+          Alerts
+          <Bell />
+        </Link>
+
         <div className="foot">
-          {shown ? <div>{shown.name}<br />tenant: {shown.tenant}</div> : <div>Not signed in</div>}
-          <div style={{ marginTop: 8 }}>digi.tracks@outlook.com</div>
-          <div style={{ marginTop: 4 }}><a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source (AGPL-3.0)</a></div>
+          {shown ? (
+            <div className="userchip">
+              {shown.name}
+              <span>tenant: <span className="mono">{shown.tenant}</span></span>
+            </div>
+          ) : (
+            <div className="userchip">Not signed in</div>
+          )}
+          <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source Â· AGPL-3.0</a>
         </div>
       </nav>
-      <main className="main" id="main" tabIndex={-1}>{children}</main>
-      <div style={{ position: "fixed", bottom: 14, right: 16, zIndex: 40 }}>
-        <button className="kbd" style={{ cursor: "pointer", border: "none" }} onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))} aria-label="Open command palette (Control K)">
-          Ctrl K
-        </button>
-      </div>
+
+      <main className="main" id="main" tabIndex={-1}>
+        <div className="topbar">
+          <div className="crumbs">
+            VANTOR <span aria-hidden="true">/</span> <b>{pageName}</b>
+          </div>
+          <div className="spacer" />
+          <button
+            className="search-trigger"
+            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+            aria-label="Open command palette"
+            aria-keyshortcuts="Control+K"
+          >
+            <span aria-hidden="true">âŒ•</span> Search or command <kbd>Ctrl</kbd><kbd>K</kbd>
+          </button>
+          <ThemeToggle />
+        </div>
+        {children}
+      </main>
+
       <CommandPalette />
     </div>
   );
