@@ -34,8 +34,16 @@ services:
       timeout: 5s
       retries: 5
 
+  # Optional services, behind profiles so `docker compose up -d` stays light and
+  # offline-friendly. Enable them explicitly:
+  #   docker compose --profile ai up -d ollama       # local models for AI + embeddings
+  #   docker compose --profile storage up -d minio  # S3-compatible object storage
+  # Nothing in the default stack depends on either. `.env.example` therefore
+  # ships AI_PROVIDER=disabled and EMBEDDING_PROVIDER=disabled, so a fresh clone
+  # is honest (UNKNOWN, keyword search) rather than broken (connection refused).
   minio:
-    image: minio/minio:latest
+    image: ${MINIO_IMAGE:-minio/minio:latest}
+    profiles: ["storage"]
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -72,13 +80,17 @@ services:
         condition: service_healthy
 
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    profiles: ["ai"]
     restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
-    # Pull models after first start: docker exec vantor-ollama-1 ollama pull llama3.1:8b
+    # After starting: docker exec vantor-ollama-1 ollama pull llama3.1:8b
+    #                 docker exec vantor-ollama-1 ollama pull nomic-embed-text
+    # Then set AI_PROVIDER=ollama (and EMBEDDING_PROVIDER=ollama for real vectors)
+    # in .env and restart the backend.
 
   # Phase 3 Foundation live. Frontend/worker land in Phase 4/7.
   backend:

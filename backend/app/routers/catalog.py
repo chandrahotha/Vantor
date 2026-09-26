@@ -23,6 +23,7 @@ from ..models.catalog import Budget, CatalogItem
 from ..models.supplier import Category
 from ..models.purchase import PurchaseOrder
 from ..services.audit import record_event
+from ..services.refs import require_no_cycle, require_ref
 
 router = APIRouter(tags=["catalog"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Category Manager", "Finance Reviewer"}
@@ -105,8 +106,9 @@ def list_items(request: Request, actor: Actor = Depends(get_actor), db: Session 
 @router.post("/catalog/items", status_code=201)
 def create_item(payload: ItemIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
+    category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
     row = CatalogItem(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
-                      code=payload.code.strip().upper(), name=payload.name.strip(), category_id=payload.category_id.strip(),
+                      code=payload.code.strip().upper(), name=payload.name.strip(), category_id=category_id,
                       uom=payload.uom.strip() or "each", ref_price_minor=payload.ref_price_minor,
                       currency=payload.currency.strip().upper(), status="active")
     db.add(row)
@@ -127,8 +129,10 @@ def set_budget(payload: BudgetIn, request: Request, actor: Actor = Depends(get_a
     _write(actor)
     if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", payload.period):
         raise HTTPException(status_code=422, detail="period must be YYYY-MM")
+    # "" is a legitimate tenant-wide budget; a non-empty id must be real.
+    category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
     row = Budget(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
-                 category_id=payload.category_id.strip(), period=payload.period, ceiling_minor=payload.ceiling_minor)
+                 category_id=category_id, period=payload.period, ceiling_minor=payload.ceiling_minor)
     db.add(row)
     try:
         db.flush()
@@ -159,9 +163,9 @@ def list_categories(request: Request, actor: Actor = Depends(get_actor), db: Ses
 def create_category(payload: CategoryIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
     if payload.parent_id:
-        parent = db.execute(select(Category).where(Category.tenant_id == actor.tenant_id, Category.id == payload.parent_id)).scalar_one_or_none()
-        if parent is None:
-            raise HTTPException(status_code=422, detail="Unknown parent category in this tenant")
+        # Walk the chain, not just the immediate parent: A→B→A used to be
+        # accepted and any future tree traversal would then loop forever.
+        require_no_cycle(db, Category, actor.tenant_id, payload.parent_id, field="parent_id")
     row = Category(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                    code=payload.code.strip().upper(), name=payload.name.strip(), parent_id=payload.parent_id.strip())
     db.add(row)

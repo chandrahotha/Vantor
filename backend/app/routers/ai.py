@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from ..core.errors import envelope
 from ..core.security import Actor, get_actor
 from ..core.tenant import get_db
-from ..services.ai_gateway import AIGatewayError, complete, providers_configured
+from ..services.ai_gateway import AIGatewayError, complete
 from ..services.ai_tools import REGISTRY, ToolError, check_tool_access, check_tool_args
 from ..services.audit import record_event
 import json
@@ -34,10 +34,33 @@ def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, 
 class CompleteIn(BaseModel):
     prompt: str = Field(min_length=2, max_length=8000)
     provider: str = ""
-    system: str = ""
-    # {name, args} — the copilot asks for typed tools; the gateway runs them
-    # with the same role gates as the direct endpoint and cites their rows.
+    model: str = Field(default="", max_length=200)
+    # Per-request BYOK key, never stored server-side and excluded from audit.
+    # `X-Vantor-Provider-Key` is preferred so the key never rides in the body.
+    provider_key: str = Field(default="", max_length=500)
+    system: str = Field(default="", max_length=8000)
     tools: list[ToolCallIn] | None = None
+
+
+def _provider_key_of(request: Request, payload: CompleteIn) -> str:
+    """Header wins over body: keeps the key out of any body-level capture."""
+    return (request.headers.get("X-Vantor-Provider-Key", "") or payload.provider_key).strip()
+
+
+def _check_provider(payload: CompleteIn) -> None:
+    """Reject a provider this build does not know with 422, not a downstream 502.
+
+    The list of known names travels with the error so a client can self-correct
+    without reading the source.
+    """
+    from ..services.ai_gateway import PROVIDERS, _active_provider
+
+    if _active_provider(payload.provider) not in PROVIDERS:
+        raise HTTPException(status_code=422, detail={
+            "code": "AI_PROVIDER_UNKNOWN",
+            "message": f"unknown provider {payload.provider!r}",
+            "details": {"known": sorted(PROVIDERS)},
+        })
 
 
 class ToolCallIn(BaseModel):
@@ -115,14 +138,18 @@ def negotiate(payload: NegoIn, request: Request, actor: Actor = Depends(get_acto
 
 @router.get("/ai/providers")
 def providers(request: Request, actor: Actor = Depends(get_actor)) -> dict:
-    from ..core.config import get_settings
+    """Configured + selectable providers. Never reveals a key — only whether
+    one is present, and whether the caller must bring its own."""
+    from ..services.ai_gateway import _active_provider, providers_catalog
 
-    return envelope({"active": get_settings().ai_provider, "available": providers_configured()}, None, getattr(request.state, "request_id", ""))
+    return envelope({"active": _active_provider(""), "available": providers_catalog()},
+                    None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/ai/complete")
 def run_complete(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     rid = getattr(request.state, "request_id", "")
+    _check_provider(payload)
     blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
     system = payload.system
     if blocks:
@@ -131,7 +158,8 @@ def run_complete(payload: CompleteIn, request: Request, actor: Actor = Depends(g
             "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
         )
     try:
-        result = complete(prompt=payload.prompt, system=system, provider=payload.provider)
+        result = complete(prompt=payload.prompt, system=system, provider=payload.provider,
+                          provider_key=_provider_key_of(request, payload), model=payload.model)
     except AIGatewayError as exc:
         raise HTTPException(status_code=502, detail={"code": "AI_PROVIDER_FAILED", "message": exc.message, "details": {"provider": exc.provider}}) from exc
     result = dict(result)
@@ -139,7 +167,8 @@ def run_complete(payload: CompleteIn, request: Request, actor: Actor = Depends(g
     if notes:
         result["notes"] = notes
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_COMPLETED", resource="ai",
-                 resource_id="complete", after={"provider": result["provider"], "tools": [t.name for t in payload.tools or []]}, source="api", created_by=actor.sub)
+                 resource_id="complete", after={"provider": result["provider"], "model": result.get("model", ""),
+                                                "tools": [t.name for t in payload.tools or []]}, source="api", created_by=actor.sub)
     db.commit()
     return envelope(result, None, rid)
 
@@ -178,27 +207,25 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
     """HITL decision on an AI-filed approval. Approving here records consent;
     the caller then performs the action through the normal API (nothing auto-executes)."""
     from ..models.purchase import Approval
-    from ..services.purchase import check_sod
+    from ..services.purchase import PurchaseError, decide_approval as _decide
 
     row = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == approval_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Approval not found")
     if not row.resource.startswith("ai:"):
         raise HTTPException(status_code=422, detail="Not an AI-filed approval")
-    if row.status != "requested":
-        raise HTTPException(status_code=422, detail="Already decided")
     try:
-        check_sod(row.created_by, actor.sub)
-    except Exception as exc:
-        raise HTTPException(status_code=403, detail="Requester cannot decide their own filing") from exc
-    if not set(actor.roles or ()) & {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Approver"}:
-        raise HTTPException(status_code=403, detail="Approver role required")
-    row.status, row.decided_by, row.reason, row.updated_by = ("approved" if payload.approve else "rejected",
-                                                              actor.sub, payload.reason.strip(), actor.sub)
+        status = _decide(db, tenant_id=actor.tenant_id, approver_sub=actor.sub,
+                         approver_roles=set(actor.roles or ()), approval=row,
+                         approve=payload.approve, reason=payload.reason)
+    except PurchaseError as exc:
+        code = {"APPROVAL_ROLE": 403, "APPROVAL_SOD": 403, "APPROVAL_ALREADY_DECIDED": 409,
+                "APPROVAL_REASON_REQUIRED": 422}.get(exc.code, 422)
+        raise HTTPException(status_code=code, detail={"code": exc.code, "message": exc.message}) from exc
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_APPROVAL_DECIDED", resource="ai_tool",
                  resource_id=approval_id, after={"approved": payload.approve}, source="api", created_by=actor.sub)
     db.commit()
-    return envelope({"id": approval_id, "status": row.status}, None, getattr(request.state, "request_id", ""))
+    return envelope({"id": approval_id, "status": status}, None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/ai/stream")
@@ -209,11 +236,12 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
 
     from fastapi.responses import StreamingResponse as _SS
 
-    from ..services.ai_gateway import AIGatewayError, complete as _complete, stream as _stream
+    from ..services.ai_gateway import AIGatewayError, _active_provider, complete as _complete, stream as _stream
 
     rid = getattr(request.state, "request_id", "")
     tenant, sub = actor.tenant_id, actor.sub
 
+    _check_provider(payload)
     blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
     system = payload.system
     if blocks:
@@ -222,10 +250,9 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
             "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
         )
 
-    from ..core.config import get_settings
-    requested = (payload.provider or "").strip().lower()
-    live = requested != "disabled" if requested else get_settings().ai_provider.strip().lower() != "disabled"
-    provider_name = requested or get_settings().ai_provider.strip().lower()
+    provider_name = _active_provider(payload.provider)
+    live = provider_name != "disabled"
+    key = _provider_key_of(request, payload)
 
     def _events():  # type: ignore[no-untyped-def]
         from ..core.tenant import pinned_session
@@ -234,19 +261,22 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
         aggregated: list[str] = []
         try:
             if live:
-                for delta in _stream(prompt=payload.prompt, system=system, provider=payload.provider):
+                for delta in _stream(prompt=payload.prompt, system=system, provider=payload.provider,
+                                     provider_key=key, model=payload.model):
                     aggregated.append(delta)
                     yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
                 answer = "".join(aggregated)
-                evidence_payload = {"confidence": 0.55, "provider": provider_name, "evidence": evidence, "notes": notes,
+                evidence_payload = {"confidence": 0.55, "provider": provider_name,
+                                    "model": payload.model or "", "evidence": evidence, "notes": notes,
                                     "requires_human_review": True, "requestId": rid, "streamed": True}
             else:
-                result = _complete(prompt=payload.prompt, system=system, provider=payload.provider)
+                result = _complete(prompt=payload.prompt, system=system, provider=payload.provider,
+                                   provider_key=key, model=payload.model)
                 answer = result.get("answer", "")
                 yield f"data: {_json.dumps({'delta': answer, 'streamed': False})}\n\n"
                 evidence_payload = {"confidence": result.get("confidence"), "provider": result.get("provider"),
-                                    "evidence": evidence, "notes": notes, "requires_human_review": True,
-                                    "requestId": rid, "streamed": False}
+                                    "model": result.get("model", ""), "evidence": evidence, "notes": notes,
+                                    "requires_human_review": True, "requestId": rid, "streamed": False}
         except AIGatewayError as exc:
             yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider, 'streamed': live})}\n\n"
             return

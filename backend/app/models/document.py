@@ -41,7 +41,8 @@ class DocumentChunk(Base, TenantMixin):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # A list of floats when a vector exists, {} when the provider was disabled
     # or the document quarantined — chunks are excluded from ranking, never
-    # assigned a zero vector and reported as if they matched.
-    embedding: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # assigned a zero vector and reported as if they matched. Both shapes live
+    # in this one JSON column, so the annotation has to admit both.
+    embedding: Mapped[dict | list[float]] = mapped_column(JSON, default=dict, nullable=False)
 
     __table_args__ = (Index("ix_chunk_tenant_doc", "tenant_id", "document_id"),)

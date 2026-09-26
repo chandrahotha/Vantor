@@ -39,11 +39,17 @@ class AuditEvent(Base, TenantMixin):
 
 
 class IdempotencyKey(Base, TenantMixin):
-    """Stored responses for mutating requests carrying an Idempotency-Key header."""
+    """Stored responses for mutating requests carrying an Idempotency-Key header.
+
+    `key` holds the *composed* fingerprint `method|path|header|sha256(body)`,
+    not the raw header, so it is bounded by the longest path rather than by the
+    header. 512 leaves room for a 512-char path plus a 128-char key plus the
+    digest — see migration 0016.
+    """
 
     __tablename__ = "idempotency_keys"
 
-    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    key: Mapped[str] = mapped_column(String(512), nullable=False)
     method: Mapped[str] = mapped_column(String(16), nullable=False)
     path: Mapped[str] = mapped_column(String(512), nullable=False)
     status_code: Mapped[int] = mapped_column(nullable=False, default=200)

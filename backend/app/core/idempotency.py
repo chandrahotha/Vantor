@@ -38,6 +38,25 @@ def _body_hash(body: bytes) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
+#: The composed fingerprint is stored in `idempotency_keys.key` (VARCHAR(512)).
+#: Bound it here too, so a pathological path can never push a row past the
+#: column — an overflow is swallowed by the fail-open handlers below and would
+#: silently disable idempotency with no error anywhere.
+FINGERPRINT_MAX = 512
+
+
+def _fingerprint(method: str, path: str, key: str, body: bytes) -> str:
+    """`method|path|key|sha256(body)`, hashed down if it would not fit.
+
+    A stable hash keeps every distinct request distinct, so two long paths that
+    differ only past the limit can never collide onto one stored response.
+    """
+    raw = f"{method}|{path}|{key}|{_body_hash(body)}"
+    if len(raw) <= FINGERPRINT_MAX:
+        return raw
+    return f"{method}|{path[:200]}|{key[:128]}|{_body_hash(raw.encode())}"
+
+
 def _lookup(tenant_id: str, fingerprint: str):  # type: ignore[no-untyped-def]
     try:
         from ..core.tenant import pinned_session
@@ -97,7 +116,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             return {"type": "http.request", "body": raw_body, "more_body": False}
 
         request = Request(request.scope, _receive)
-        fingerprint = f"{request.method}|{path}|{key}|{_body_hash(raw_body)}"
+        fingerprint = _fingerprint(request.method, path, key, raw_body)
         stored = _lookup(tenant_id, fingerprint)
         if stored is not None:
             resp = JSONResponse(status_code=stored.status_code, content=stored.response_body)

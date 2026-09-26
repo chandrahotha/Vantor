@@ -46,6 +46,8 @@ jobs:
           python-version: "3.13"
       - name: Brain-link check (every doc links to BRAIN.md)
         run: python scripts/verify_brain_links.py
+      - name: Encoding check (no mojibake in tracked text)
+        run: python scripts/check_mojibake.py
   backend:
     needs: policy
     runs-on: ubuntu-latest

@@ -30,14 +30,46 @@ class Settings(BaseSettings):
     oidc_issuer: str = Field(default="http://keycloak:8080/realms/vantor", alias="OIDC_ISSUER")
     jwt_audience: str = Field(default="vantor-web", alias="JWT_AUDIENCE")
 
-    # AI gateway — free-first; all optional, `disabled` deterministic mode.
+    # AI gateway — free-first; all optional, `disabled` is the deterministic mode.
+    # `ai_provider` picks the default; every provider is also selectable per
+    # request, and every provider accepts a per-request BYOK key. A provider is
+    # "configured" when it has a base URL and a model (see ai_gateway).
     ai_provider: str = Field(default="ollama", alias="AI_PROVIDER")
+    ai_default_model: str = Field(default="", alias="AI_DEFAULT_MODEL")  # empty = the provider's own default
+    # empty = VANTOR_VOICE in ai_gateway. Set it to pin a house style.
+    ai_system_prompt: str = Field(default="", alias="AI_SYSTEM_PROMPT")
+
+    # Self-hosted.
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="llama3.1:8b", alias="OLLAMA_MODEL")
     opencode_base_url: str = Field(default="", alias="OPENCODE_BASE_URL")
     opencode_model: str = Field(default="", alias="OPENCODE_MODEL")
+    opencode_api_key: str = Field(default="", alias="OPENCODE_API_KEY")
+
+    # Free online endpoints (BYO free key; nothing is stored server side).
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
+    openrouter_model: str = Field(default="meta-llama/llama-3.3-70b-instruct:free", alias="OPENROUTER_MODEL")
+    openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
+    opencode_zen_base_url: str = Field(default="https://opencode.ai/zen/v1", alias="OPENCODE_ZEN_BASE_URL")
+    opencode_zen_model: str = Field(default="gpt-5-nano", alias="OPENCODE_ZEN_MODEL")
+    opencode_zen_api_key: str = Field(default="", alias="OPENCODE_ZEN_API_KEY")
+    omnirouter_base_url: str = Field(default="", alias="OMNIROUTER_BASE_URL")
+    omnirouter_model: str = Field(default="", alias="OMNIROUTER_MODEL")
+    omnirouter_api_key: str = Field(default="", alias="OMNIROUTER_API_KEY")
     nvidia_base_url: str = Field(default="https://integrate.api.nvidia.com/v1", alias="NVIDIA_BASE_URL")
     nvidia_model: str = Field(default="", alias="NVIDIA_MODEL")
+    nvidia_api_key: str = Field(default="", alias="NVIDIA_API_KEY")
+
+    # Paid BYOK — same contract, you bring a paid key if you want these voices.
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    anthropic_base_url: str = Field(default="https://api.anthropic.com", alias="ANTHROPIC_BASE_URL")
+    anthropic_model: str = Field(default="claude-haiku-4-5", alias="ANTHROPIC_MODEL")
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    gemini_base_url: str = Field(default="https://generativelanguage.googleapis.com/v1beta", alias="GEMINI_BASE_URL")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
     @field_validator("app_env")
     @classmethod

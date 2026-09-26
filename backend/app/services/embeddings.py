@@ -88,12 +88,13 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / (na * nb)
 
 
-def rank(query: str, candidates: list[dict]) -> list[dict]:
+def rank(query: str, candidates: list[dict]) -> tuple[list[dict], str]:
     """Re-order ILIKE-filtered candidates by cosine over stored vectors.
 
     Candidates without a vector keep their keyword order — they are not
-    assigned 0.0 and penalised for lacking a vector. Returns (rows, mode)
-    where mode tells the caller which ranking actually ran.
+    assigned 0.0 and penalised for lacking a vector. Returns `(rows, mode)`
+    where mode tells the caller which ranking actually ran: `keyword`,
+    `toy-rank` or `semantic`.
     """
     qv = embed(query)
     if qv is None:

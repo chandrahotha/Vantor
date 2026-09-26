@@ -14,7 +14,7 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import asc, desc, or_, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,9 +23,10 @@ from ..core.security import Actor, get_actor
 from ..core.tenant import get_db
 from ..models.purchase import Approval, Invoice, InvoiceLine, PurchaseOrder, PurchaseOrderLine, Receipt, ReceiptLine, Requisition, RequisitionLine
 from ..models.spend import SpendTransaction
-from ..models.supplier import Supplier
+from ..models.supplier import Category, Supplier
 from ..services.audit import record_event
-from ..services.purchase import PurchaseError, check_sod, required_tiers, three_way_match
+from ..services.refs import require_ref
+from ..services.purchase import APPROVER_ROLES, PurchaseError, check_sod, decide_approval, next_pending, order_pending, required_tiers, three_way_match
 
 router = APIRouter(tags=["purchase"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Finance Reviewer", "Approver"}
@@ -168,9 +169,13 @@ def create_po(payload: PoIn, request: Request, actor: Actor = Depends(get_actor)
     if sup is None:
         raise HTTPException(status_code=422, detail="Unknown supplier")
     total = sum(l.unit_price_minor * l.quantity for l in payload.lines)
+    # "" means "uncategorised" and is allowed; anything else must be a real
+    # category, because an uncategorised PO both bypasses the budget gate and
+    # trips the maverick report.
+    category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
     po = PurchaseOrder(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                        code=payload.code.strip().upper(), supplier_id=payload.supplier_id, status="draft",
-                       currency=payload.currency.strip().upper(), total_minor=total, category_id=payload.category_id.strip())
+                       currency=payload.currency.strip().upper(), total_minor=total, category_id=category_id)
     db.add(po)
     try:
         db.flush()
@@ -186,6 +191,126 @@ def create_po(payload: PoIn, request: Request, actor: Actor = Depends(get_actor)
     db.commit()
     db.refresh(po)
     return envelope({"id": po.id, "totalMinor": total, "tiers": required_tiers(total)}, None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/approvals")
+def list_approvals(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                   limit: int = Query(default=25, ge=1, le=100),
+                   status_: str = Query(default="requested", alias="status"),
+                   resource: str = Query(default=""), tier: str = Query(default=""),
+                   cursor: str = Query(default="")) -> dict:
+    """The approval queue — the read side of the HITL loop.
+
+    Approvals were write-only: rows were filed by PO/requisition/invoice/AI
+    paths and nothing could list them, so the queue only existed in SQL. Roles
+    come from the verified token, so a tenant can only ever see its own rows.
+    """
+    if not set(actor.roles or ()) & APPROVER_ROLES:
+        raise HTTPException(status_code=403, detail="Approver role required to view the approval queue")
+    stmt = select(Approval).where(Approval.tenant_id == actor.tenant_id)
+    if status_:
+        stmt = stmt.where(Approval.status == status_)
+    if resource:
+        stmt = stmt.where(Approval.resource == resource)
+    if tier:
+        stmt = stmt.where(Approval.tier == tier)
+    if cursor:
+        cur = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == cursor)).scalar_one_or_none()
+        if cur is None:
+            raise HTTPException(status_code=422, detail="Invalid cursor")
+        stmt = stmt.where(or_(Approval.created_at < cur.created_at,
+                              ((Approval.created_at == cur.created_at) & (Approval.id < cursor))))
+    stmt = stmt.order_by(Approval.created_at.desc(), Approval.id.desc()).limit(limit + 1)
+    rows = list(db.execute(stmt).scalars())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    data = [{
+        "id": a.id, "resource": a.resource, "resourceId": a.resource_id, "status": a.status,
+        "tier": a.tier, "requestedBy": a.created_by, "decidedBy": a.decided_by or "",
+        "reason": a.reason or "", "requiresHumanReview": True,
+        "createdAt": a.created_at.isoformat() if a.created_at else "",
+    } for a in rows]
+    return envelope(data, {"limit": limit, "nextCursor": data[-1]["id"] if has_more and data else "",
+                           "hasMore": has_more}, getattr(request.state, "request_id", ""))
+
+
+class DecideIn(BaseModel):
+    approve: bool = False
+    reason: str = Field(default="", max_length=1000)
+
+
+@router.post("/approvals/{aid}/decide", status_code=200)
+def decide_approval_endpoint(aid: str, payload: DecideIn, request: Request, actor: Actor = Depends(get_actor),
+                             db: Session = Depends(db_for_actor)) -> dict:
+    """Decide one approval (requisition, purchase order, invoice).
+
+    `ai:*` approvals are deliberately excluded: they are decided through
+    `/ai/approvals/{id}/decide` so the copilot's HITL path stays explicit.
+    Nothing auto-executes on approval — the caller then acts through the
+    normal endpoint.
+    """
+    _write(actor)
+    row = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == aid)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    if row.resource.startswith("ai:"):
+        raise HTTPException(status_code=422, detail="AI approvals are decided through /ai/approvals/{id}/decide")
+    try:
+        new_status = decide_approval(db, tenant_id=actor.tenant_id, approver_sub=actor.sub,
+                                     approver_roles=set(actor.roles or ()), approval=row,
+                                     approve=payload.approve, reason=payload.reason)
+    except PurchaseError as exc:
+        raise HTTPException(status_code=_approval_status(exc.code), detail={"code": exc.code, "message": exc.message}) from exc
+    parent_status = _sync_parent(db, actor.tenant_id, row)
+    db.commit()
+    return envelope({"id": aid, "status": new_status, "resource": row.resource,
+                     "resourceId": row.resource_id, "resourceStatus": parent_status},
+                    None, getattr(request.state, "request_id", ""))
+
+
+def _approval_status(code: str) -> int:
+    return {"APPROVAL_ROLE": 403, "APPROVAL_SOD": 403, "APPROVAL_ALREADY_DECIDED": 409,
+            "APPROVAL_REASON_REQUIRED": 422}.get(code, 422)
+
+
+def _sync_parent(db: Session, tenant_id: str, approval: Approval) -> str:
+    """Push the decision onto the document the approval was filed against.
+
+    This is what closes the requisition dead-end: a submitted requisition had
+    approvals nothing could decide, so it could never leave `submitted`. The
+    transition only fires from the state the document is actually parked in
+    while it waits for approval, so a PO already sent can never be dragged back
+    to `rejected` by a late decision.
+    """
+    model, status_attr, awaiting = {
+        "requisition": (Requisition, "status", "submitted"),
+        "purchase_order": (PurchaseOrder, "status", "draft"),
+        "invoice": (Invoice, "status", "received"),
+    }.get(approval.resource, (None, "", ""))
+    if model is None:
+        return ""
+    if approval.status == "rejected":
+        decision = "rejected"
+    else:
+        siblings = list(db.execute(select(Approval).where(
+            Approval.tenant_id == tenant_id, Approval.resource == approval.resource,
+            Approval.resource_id == approval.resource_id)).scalars())
+        decision = "approved" if all(a.status == "approved" for a in siblings) else ""
+    if not decision:
+        return ""
+    # Every model here is a TenantMixin subclass, so `tenant_id`/`id` exist; the
+    # mapping is built from literals above, so the union is not worth modelling.
+    parent = db.execute(select(model).where(  # type: ignore[attr-defined]
+        model.tenant_id == tenant_id, model.id == approval.resource_id  # type: ignore[attr-defined]
+    )).scalar_one_or_none()
+    if parent is None:
+        return ""
+    current = getattr(parent, status_attr, "")
+    if current != awaiting:
+        return current
+    setattr(parent, status_attr, decision)
+    setattr(parent, "updated_by", approval.decided_by or approval.updated_by or "")
+    return decision
 
 
 @router.post("/purchase-orders/{pid}/approve", status_code=200)
@@ -207,17 +332,23 @@ def approve_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db
     from ..routers.catalog import check_budget as _check_budget
 
     _check_budget(db, tenant_id=actor.tenant_id, category_id=po.category_id, this_total=po.total_minor, currency=po.currency)
-    # Approve caller's highest pending tier (manager→finance→legal order enforced by tier list).
-    pend[0].status, pend[0].decided_by = "approved", actor.sub
+    # Clear the *earliest* outstanding tier. Reading `pend[0]` off an unordered
+    # result let a finance approver consume the manager's slot and skip a step.
+    step = next_pending(pend)
+    step.status, step.decided_by = "approved", actor.sub
     if all(a.status == "approved" for a in db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.resource == "purchase_order", Approval.resource_id == pid)).scalars()):
         po.status = "approved"
-    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_APPROVED", resource="purchase_order", resource_id=pid, after={"tier": pend[0].tier}, source="api", created_by=actor.sub)
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_APPROVED", resource="purchase_order", resource_id=pid, after={"tier": step.tier}, source="api", created_by=actor.sub)
     from ..services.notify import notify as _notify
 
-    _notify(db, tenant_id=actor.tenant_id, kind="PO_APPROVED", title=f"PO {po.code} approved ({pend[0].tier})",
+    _notify(db, tenant_id=actor.tenant_id, kind="PO_APPROVED", title=f"PO {po.code} approved ({step.tier})",
             link="/orders", user_sub=po.created_by, created_by=actor.sub)
     db.commit()
-    return envelope({"id": pid, "status": po.status}, None, getattr(request.state, "request_id", ""))
+    return envelope({"id": pid, "status": po.status, "tier": step.tier,
+                     "pending": [a.tier for a in order_pending(list(db.execute(select(Approval).where(
+                         Approval.tenant_id == actor.tenant_id, Approval.resource == "purchase_order",
+                         Approval.resource_id == pid, Approval.status == "requested")).scalars()))]},
+                    None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/purchase-orders/{pid}/send", status_code=200)
@@ -273,6 +404,18 @@ def create_invoice(pid: str, payload: InvIn, request: Request, actor: Actor = De
     po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid)).scalar_one_or_none()
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
+    # An invoice line must cite a line of *this* PO. Unvalidated, the bad id was
+    # stored and only surfaced later as a three-way-match failure at approval
+    # time — the write accepted a record that could never be paid.
+    po_line_ids = {l.id for l in db.execute(select(PurchaseOrderLine).where(
+        PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == pid)).scalars()}
+    for ln in payload.lines:
+        if (ln.po_line_id or "").strip() not in po_line_ids:
+            raise HTTPException(status_code=422, detail={
+                "code": "INVOICE_LINE_NOT_ON_PO",
+                "message": "lines[].po_line_id must reference a line of this purchase order",
+                "details": {"poLineId": ln.po_line_id, "poId": pid},
+            })
     total = sum(l.unit_price_minor * l.quantity for l in payload.lines)
     inv = Invoice(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, code=payload.code.strip().upper(),
                   po_id=pid, supplier_id=po.supplier_id, status="received", currency=(payload.currency or po.currency).strip().upper(), total_minor=total)

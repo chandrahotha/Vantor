@@ -1,11 +1,23 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { Badge, Empty, ErrorBox, LiveRegion, Skeleton, useBoot } from "../../components/ui";
-import { API_URL, api } from "../../lib/api";
-import { keycloak } from "../../lib/auth";
+import { AuthScreen, Badge, Empty, ErrorBox, LiveRegion, useBoot } from "../../components/ui";
+import { api } from "../../lib/api";
+import { aiStream, type ProviderList, type StreamEvidence, type EvidenceRef } from "../../lib/ai";
+import Approvals from "./approvals";
 
-type Turn = { role: "you" | "ai" | "system"; text: string; provider?: string; confidence?: number | null; evidence?: unknown[]; streamed?: boolean };
+type Turn = {
+  id: string;
+  role: "you" | "ai" | "system";
+  text: string;
+  provider?: string;
+  model?: string;
+  confidence?: number | null;
+  evidence?: EvidenceRef[];
+  notes?: string[];
+  requiresHumanReview?: boolean;
+  streamed?: boolean;
+};
 
 const SUGGESTIONS = [
   "Which suppliers are single-sourced for this category?",
@@ -13,75 +25,78 @@ const SUGGESTIONS = [
   "Explain how three-way match decides an invoice.",
 ];
 
+/** One citation line. The API returns plain objects, so raw JSON was unreadable. */
+function citation(e: EvidenceRef): string {
+  const ref = e.resource ?? e.type ?? e.kind;
+  const id = e.id ?? e.resourceId ?? e.poId ?? e.invoiceId ?? e.rfqId ?? e.supplierId;
+  if (ref && id) return `${ref} ${id}`;
+  if (id) return String(id);
+  if (ref) return String(ref);
+  const first = Object.entries(e)[0];
+  return first ? `${first[0]}: ${String(first[1])}` : "citation";
+}
+
 export default function Copilot() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
-  const [providers, setProviders] = useState<{ active: string; available: { name: string; configured: boolean }[] } | null>(null);
+  const [providers, setProviders] = useState<ProviderList | null>(null);
+  const [provider, setProvider] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
-    setProviders((await api<{ active: string; available: { name: string; configured: boolean }[] }>("/api/v1/ai/providers")).data);
+    setProviders((await api<ProviderList>("/api/v1/ai/providers")).data);
   }, []);
 
   const { state, error } = useBoot(load);
   const shownErr = err || error;
 
+  // Never leave an open stream behind: navigating away mid-answer used to leave
+  // the connection running and set state on an unmounted component.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  function patchTurn(id: string, patch: Partial<Turn>) {
+    setTurns((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }
+
   async function send(prompt?: string) {
     const text = (prompt ?? q).trim();
-    if (!text) return;
+    if (!text || busy) return;
     setQ("");
-    setBusy(true); setErr("");
-    setTurns((t) => [...t, { role: "you", text }]);
-    const assistant: Turn = { role: "ai", text: "" };
-    setTurns((t) => [...t, assistant]);
+    setBusy(true);
+    setErr("");
+    setTurns((t) => [...t, { id: "you", role: "you", text }, { id: "ai", role: "ai", text: "" }]);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let acc = "";
     try {
-      // SSE endpoint. The server frames a *completed* provider response and marks
-      // each frame `streamed: false` — surfaced in the UI rather than implied.
-      const res = await fetch(`${API_URL}/api/v1/ai/stream`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // The SSE endpoint is behind the same OIDC guard as every other route;
-          // an unauthenticated stream would 401 with no frames at all.
-          Authorization: `Bearer ${keycloak().token ?? ""}`,
-          Accept: "text/event-stream",
+      await aiStream(
+        { prompt: text, provider: provider || undefined },
+        {
+          signal: controller.signal,
+          onDelta: (d) => {
+            acc += d;
+            patchTurn("ai", { text: acc });
+          },
+          onEvidence: (ev: StreamEvidence) => patchTurn("ai", {
+            provider: ev.provider,
+            model: ev.model,
+            confidence: ev.confidence,
+            evidence: ev.evidence,
+            notes: ev.notes,
+            requiresHumanReview: ev.requires_human_review,
+            streamed: ev.streamed,
+          }),
         },
-        body: JSON.stringify({ prompt: text }),
-      });
-      if (!res.ok || !res.body) throw new Error(`Copilot request failed (${res.status}).`);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let acc = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) {
-          const line = frame.trim();
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (payload.startsWith("[EVIDENCE]")) {
-            const ev = JSON.parse(payload.slice("[EVIDENCE]".length)) as {
-              provider?: string; confidence?: number | null; evidence?: unknown[]; requires_human_review?: boolean; streamed?: boolean;
-            };
-            setTurns((t) => t.map((x) => (x === assistant ? { ...x, provider: ev.provider, confidence: ev.confidence, evidence: ev.evidence, streamed: ev.streamed } : x)));
-          } else {
-            const d = JSON.parse(payload) as { delta?: string; error?: string };
-            if (d.error) throw new Error(d.error);
-            acc += d.delta ?? "";
-            setTurns((t) => t.map((x) => (x === assistant ? { ...x, text: acc } : x)));
-          }
-        }
-      }
+      );
     } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       const msg = e instanceof Error ? e.message : "Copilot unavailable";
       setErr(msg);
-      setTurns((t) => t.map((x) => (x === assistant ? { role: "system", text: `No answer produced — ${msg}` } : x)));
+      patchTurn("ai", { role: "system", text: msg });
     } finally {
+      abortRef.current = null;
       setBusy(false);
     }
   }
@@ -100,65 +115,111 @@ export default function Copilot() {
 
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>
 
-      {state === "loading" ? <Skeleton rows={2} label="Loading provider status" /> : providers ? (
-        <p style={{ color: "var(--muted)", fontSize: 12 }}>
-          Provider: <strong>{providers.active}</strong> · available:{" "}
-          {providers.available.map((p) => `${p.name}${p.configured ? "" : " (not configured)"}`).join(", ")}
-        </p>
-      ) : null}
-
-      <div role="log" aria-label="Conversation" aria-live="polite" className="panel" style={{ minHeight: 180, marginTop: 12 }}>
-        {turns.length === 0 ? (
-          <Empty title="Ask something" hint="Try one of the suggestions, or write your own question." />
-        ) : (
-          turns.map((t, i) => (
-            <div key={i} style={{ marginBottom: 14, borderLeft: `3px solid ${t.role === "you" ? "var(--primary)" : t.role === "system" ? "var(--warn)" : "var(--line)"}`, paddingLeft: 12 }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--muted)" }}>
-                {t.role === "you" ? "You" : t.role === "system" ? "Not answered" : "Copilot"}
-                {t.provider ? <> · <Badge tone="info">{t.provider}</Badge></> : null}
-                {t.confidence != null ? <> · confidence {Math.round(t.confidence * 100)}%</> : null}
-              </div>
-              <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{t.text || (busy && t.role === "ai" ? "…" : "")}</div>
-              {t.streamed === false && t.role === "ai" ? (
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                  This environment is running in deterministic mode — the response is complete
-                  when it renders, not token-streamed.
-                </div>
-              ) : null}
-              {t.evidence && t.evidence.length > 0 ? (
-                <ul style={{ fontSize: 12, color: "var(--muted)" }}>{t.evidence.map((e, j) => <li key={j}>{JSON.stringify(e)}</li>)}</ul>
-              ) : null}
+      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
+        <>
+          {providers ? (
+            <div className="toolbar" style={{ alignItems: "center", gap: 8 }}>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>Active provider:</span>{" "}
+              <strong style={{ fontSize: 12 }}>{providers.active}</strong>
+              <label style={{ fontSize: 12 }} htmlFor="copilot-provider">Ask using</label>
+              <select
+                id="copilot-provider"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                style={{ fontSize: 12 }}
+              >
+                <option value="">Server default ({providers.active})</option>
+                {providers.available.map((p) => (
+                  <option key={p.name} value={p.name} disabled={!p.configured && !p.needsKey}>
+                    {p.name}
+                    {p.needsKey && !p.configured ? " — needs your API key" : ""}
+                    {!p.configured && !p.needsKey ? " — not configured" : ""}
+                  </option>
+                ))}
+              </select>
             </div>
-          ))
-        )}
-      </div>
+          ) : null}
 
-      <div className="toolbar">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} className="ghost" onClick={() => send(s)} disabled={busy}>{s}</button>
-        ))}
-      </div>
+          <div
+            role="log"
+            aria-label="Conversation"
+            aria-busy={busy}
+            className="panel"
+            style={{ minHeight: 180, marginTop: 12 }}
+          >
+            {turns.length === 0 ? (
+              <Empty title="Ask something" hint="Try one of the suggestions, or write your own question." />
+            ) : (
+              turns.map((t) => (
+                <div
+                  key={t.id}
+                  style={{
+                    marginBottom: 14,
+                    borderLeft: `3px solid ${t.role === "you" ? "var(--primary)" : t.role === "system" ? "var(--warn)" : "var(--line)"}`,
+                    paddingLeft: 12,
+                  }}
+                >
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--muted)" }}>
+                    {t.role === "you" ? "You" : t.role === "system" ? "Not answered" : "Copilot"}
+                    {t.provider ? <> · <Badge tone="info">{t.provider}</Badge></> : null}
+                    {t.model ? <> <span className="mono">{t.model}</span></> : null}
+                    {t.confidence != null ? <> · confidence {Math.round(t.confidence * 100)}%</> : null}
+                    {t.requiresHumanReview ? <> · <Badge tone="warn">advisory</Badge></> : null}
+                  </div>
+                  <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{t.text || (busy && t.role === "ai" ? "…" : "")}</div>
+                  {t.streamed === false && t.role === "ai" ? (
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                      This environment is running in deterministic mode — the response is complete
+                      when it renders, not token-streamed.
+                    </div>
+                  ) : null}
+                  {t.notes && t.notes.length > 0 ? (
+                    <ul style={{ fontSize: 12, color: "var(--warn)", marginTop: 6 }}>
+                      {t.notes.map((n, i) => <li key={i}>{n}</li>)}
+                    </ul>
+                  ) : null}
+                  {t.evidence && t.evidence.length > 0 ? (
+                    <details style={{ fontSize: 12, marginTop: 6 }}>
+                      <summary style={{ cursor: "pointer", color: "var(--muted)" }}>
+                        {t.evidence.length} cited record{t.evidence.length === 1 ? "" : "s"}
+                      </summary>
+                      <ul style={{ color: "var(--muted)" }}>
+                        {t.evidence.map((e, j) => (
+                          <li key={j}><span className="mono">{citation(e)}</span></li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
 
-      <form
-        className="toolbar"
-        onSubmit={(e) => { e.preventDefault(); send(); }}
-      >
-        <label style={{ flex: 1, minWidth: 260 }}>
-          Question
-          <input
-            aria-label="Ask the copilot"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Which supplier is single-sourced for fasteners?"
-            disabled={busy}
-          />
-        </label>
-        <button type="submit" disabled={busy || !q.trim()}>{busy ? "Thinking…" : "Send"}</button>
-      </form>
-      <p style={{ color: "var(--muted)", fontSize: 12 }}>
-        Read-only typed tools only. High-risk actions (award, approve, contact a supplier) must be filed
-        as a human-in-the-loop approval — the copilot cannot execute them.
-      </p>
+          <div className="toolbar">
+            {SUGGESTIONS.map((s) => (
+              <button key={s} className="ghost" onClick={() => send(s)} disabled={busy}>{s}</button>
+            ))}
+          </div>
+
+          <form
+            className="toolbar"
+            onSubmit={(e) => { e.preventDefault(); send(); }}
+          >
+            <label style={{ flex: 1, minWidth: 260 }}>
+              Question
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Which supplier is single-sourced for fasteners?"
+                disabled={busy}
+              />
+            </label>
+            <button type="submit" disabled={busy || !q.trim()}>{busy ? "Thinking…" : "Send"}</button>
+          </form>
+
+          <Approvals />
+        </>
+      )}
     </Shell>
   );
 }

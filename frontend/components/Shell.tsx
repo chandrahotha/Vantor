@@ -11,20 +11,20 @@ const NAV: { section?: string; items: [icon: string, label: string, href: string
   {
     section: "Workspaces",
     items: [
-      ["Ã¢â€”Ë†", "Dashboard", "/"],
-      ["Ã¢â€”â€°", "Suppliers", "/suppliers"],
-      ["Ã¢â€”â€¡", "RFQs", "/rfqs"],
-      ["Ã¢â€“Â£", "Contracts", "/contracts"],
-      ["Ã¢â€”Â«", "Purchase orders", "/orders"],
+      ["◈", "Dashboard", "/"],
+      ["◉", "Suppliers", "/suppliers"],
+      ["◇", "RFQs", "/rfqs"],
+      ["▣", "Contracts", "/contracts"],
+      ["◫", "Purchase orders", "/orders"],
     ],
   },
   {
     section: "Intelligence",
     items: [
-      ["Ã¢â€”Â¬", "Spend", "/spend"],
-      ["Ã¢â€“Â¤", "Documents", "/documents"],
-      ["Ã¢Å“Â³", "Governance", "/governance"],
-      ["Ã¢â€”Â", "Copilot", "/copilot"],
+      ["◬", "Spend", "/spend"],
+      ["▤", "Documents", "/documents"],
+      ["✳", "Governance", "/governance"],
+      ["◐", "Copilot", "/copilot"],
     ],
   },
 ];
@@ -41,7 +41,7 @@ function Bell() {
       try {
         const r = await api<{ unread: number }>("/api/v1/notifications/unread-count");
         if (!stop) setUnread(r.data.unread);
-      } catch { /* unauthenticated or offline Ã¢â‚¬â€ bell stays quiet */ }
+      } catch { /* unauthenticated or offline — bell stays quiet */ }
     }
     poll();
     const id = setInterval(poll, 30000);
@@ -53,7 +53,7 @@ function Bell() {
 
 function ThemeToggle() {
   // Derived from the DOM attribute, updated via MutationObserver so this
-  // tracks ThemeInit (which sets it on mount) and any other toggle Ã¢â‚¬â€ no
+  // tracks ThemeInit (which sets it on mount) and any other toggle — no
   // setState-in-effect, no hydration mismatch (server renders dark=false).
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -72,7 +72,7 @@ function ThemeToggle() {
       title={dark ? "Light mode" : "Dark mode"}
       onClick={() => setDark(toggleTheme() === "dark")}
     >
-      {dark ? "Ã¢Ëœâ‚¬" : "Ã¢ËœÂ¾"}
+      {dark ? "☀" : "☾"}
     </button>
   );
 }
@@ -117,7 +117,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
 
         <div className="section-label">Account</div>
         <Link href="/notifications" className={base === "/notifications" ? "active" : undefined} aria-current={base === "/notifications" ? "page" : undefined}>
-          <span aria-hidden="true" style={{ opacity: 0.75 }}>Ã¢â€”Â</span>
+          <span aria-hidden="true" style={{ opacity: 0.75 }}>◆</span>
           Alerts
           <Bell />
         </Link>
@@ -131,7 +131,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
           ) : (
             <div className="userchip">Not signed in</div>
           )}
-          <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source Ã‚Â· AGPL-3.0</a>
+          <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source · AGPL-3.0</a>
         </div>
       </nav>
 
@@ -147,7 +147,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
             aria-label="Open command palette"
             aria-keyshortcuts="Control+K"
           >
-            <span aria-hidden="true">Ã¢Å’â€¢</span> Search or command <kbd>Ctrl</kbd><kbd>K</kbd>
+            <span aria-hidden="true">⌕</span> Search or command <kbd>Ctrl</kbd><kbd>K</kbd>
           </button>
           <ThemeToggle />
         </div>

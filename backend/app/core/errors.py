@@ -70,6 +70,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         rid = getattr(request.state, "request_id", "")
         detail = exc.detail
+        extra: dict[str, Any]
         if isinstance(detail, dict) and "code" in detail:
             code = str(detail.get("code", "REQUEST_FAILED"))
             message = str(detail.get("message", "Request failed"))

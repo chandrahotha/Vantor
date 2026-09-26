@@ -1,4 +1,5 @@
 """HITL + streaming tests — approval filing/decide, SSE framing."""
+import json as json_mod
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -7,6 +8,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
+
+from app.services.ai_gateway import AIGatewayError
 
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"
@@ -71,8 +74,15 @@ def test_hitl_file_and_decide(client):
     mgr = _h(pem, "mgr1", roles=("Approver",))
     assert c.post(f"/api/v1/ai/approvals/{aid}/decide", json={"approve": True, "reason": "reviewed"},
                   headers=mgr).json()["data"]["status"] == "approved"
-    # double-decide blocked; other tenant blind
-    assert c.post(f"/api/v1/ai/approvals/{aid}/decide", json={"approve": False}, headers=mgr).status_code == 422
+    # double-decide is a conflict, not a validation error: the request is
+    # well-formed but the resource has already moved on.
+    assert c.post(f"/api/v1/ai/approvals/{aid}/decide", json={"approve": False}, headers=mgr).status_code == 409
+    # a rejection must carry a written reason
+    other = c.post("/api/v1/ai/tools/request_approval",
+                   json={"action": "award_contract", "resource": "rfq", "resource_id": "rfq-2"},
+                   headers=_h(pem, "filer2")).json()["data"]["result"]["approval_id"]
+    assert c.post(f"/api/v1/ai/approvals/{other}/decide", json={"approve": False},
+                  headers=mgr).status_code == 422
     assert c.post(f"/api/v1/ai/approvals/{aid}/decide", json={"approve": True},
                   headers=_h(pem, "u2", "other", ("Approver",))).status_code == 404
 
@@ -130,7 +140,7 @@ def test_stream_framing_live_provider(monkeypatch, client):
     response. This is the regression that made `/ai/stream` theatre."""
     c, pem = client
 
-    def fake_stream(*, prompt, system="", provider=""):
+    def fake_stream(*, prompt, system="", provider="", provider_key="", model=""):
         yield "hel"
         yield "lo "
         yield "supplier"
@@ -141,25 +151,17 @@ def test_stream_framing_live_provider(monkeypatch, client):
 
     r = c.post("/api/v1/ai/stream", json={"prompt": "Hello", "provider": "ollama"}, headers=_h(pem))
     assert r.status_code == 200
-    assert 'data: {"delta": "hel", "streamed": true}' in r.text
-    assert 'data: {"delta": "lo ", "streamed": true}' in r.text
-    assert 'data: {"delta": "supplier", "streamed": true}' in r.text
-    assert "[EVIDENCE]" in r.text
-    # the four frames arrive as distinct SSE events and their deltas concatenate
-    # to the full answer — proof they are emitted as received, not after the fact.
-    import json as _j
-    frames = [_j.loads(l[5:]) for l in r.text.split("\n\n") if l.startswith("data: ") and not l.startswith("data: [EVIDENCE]")]
-    assert "".join(f["delta"] for f in frames if "delta" in f) == "hello suppliers"
+    frames = [json_mod.loads(l[5:]) for l in r.text.split("\n\n") if l.startswith("data: ") and not l.startswith("data: [EVIDENCE]")]
+    assert "".join(f["delta"] for f in frames) == "hello suppliers"
     assert all(f["streamed"] for f in frames)
+    assert "[EVIDENCE]" in r.text
 
 
 def test_stream_provider_error_is_explicit(monkeypatch, client):
-    """A live provider failure must surface as an error event, not fake text."""
-    from app.services.ai_gateway import AIGatewayError
-
+    """A live provider failure must surface as an error event, never fake text."""
     c, pem = client
 
-    def boom(*, prompt, system="", provider=""):
+    def boom(*, prompt, system="", provider="", provider_key="", model=""):
         raise AIGatewayError("ollama", "stream failed: connection refused")
         return
         yield

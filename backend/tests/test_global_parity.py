@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
 
+from .helpers import make_category
+
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"
 
@@ -70,15 +72,18 @@ def test_budget_hard_gate_on_approve(client):
     c, pem = client
     h = _h(pem)
     s = c.post("/api/v1/suppliers", json={"code": "SUP-B", "name": "Budget Parts"}, headers=h).json()["data"]["id"]
-    assert c.post("/api/v1/budgets", json={"category_id": "CAT-STEEL", "period": current_period(), "ceiling_minor": 100_000}, headers=h).status_code == 201
+    # The budget keys off a real category: `category_id` is validated, so an id
+    # pointing at nothing would 422 instead of exercising the ceiling.
+    cat = make_category(c, h, "CAT-STEEL", "Steel")
+    assert c.post("/api/v1/budgets", json={"category_id": cat, "period": current_period(), "ceiling_minor": 100_000}, headers=h).status_code == 201
     # PO within budget approves fine
-    po1 = c.post("/api/v1/purchase-orders", json={"code": "PO-B1", "supplier_id": s, "category_id": "CAT-STEEL",
+    po1 = c.post("/api/v1/purchase-orders", json={"code": "PO-B1", "supplier_id": s, "category_id": cat,
                  "lines": [{"description": "Steel", "quantity": 10, "unit_price_minor": 5000}]}, headers=h).json()["data"]["id"]
     mgr = _h(pem, sub="mgr1", roles=("Procurement Manager",))
     assert c.post(f"/api/v1/purchase-orders/{po1}/approve", headers=mgr).status_code == 200
     assert c.post(f"/api/v1/purchase-orders/{po1}/send", headers=h).status_code == 200
     # second PO breaches 100000 ceiling (50000 committed + 60000) => 422
-    po2 = c.post("/api/v1/purchase-orders", json={"code": "PO-B2", "supplier_id": s, "category_id": "CAT-STEEL",
+    po2 = c.post("/api/v1/purchase-orders", json={"code": "PO-B2", "supplier_id": s, "category_id": cat,
                  "lines": [{"description": "Steel", "quantity": 10, "unit_price_minor": 6000}]}, headers=h).json()["data"]["id"]
     over = c.post(f"/api/v1/purchase-orders/{po2}/approve", headers=mgr)
     assert over.status_code == 422
@@ -87,6 +92,11 @@ def test_budget_hard_gate_on_approve(client):
     po3 = c.post("/api/v1/purchase-orders", json={"code": "PO-B3", "supplier_id": s,
                  "lines": [{"description": "Misc", "quantity": 1, "unit_price_minor": 999_999}]}, headers=h).json()["data"]["id"]
     assert c.post(f"/api/v1/purchase-orders/{po3}/approve", headers=mgr).status_code == 200
+    # a category that does not exist is a 422, not a silent orphan
+    ghost = c.post("/api/v1/purchase-orders", json={"code": "PO-B4", "supplier_id": s, "category_id": "CAT-NOPE",
+                 "lines": [{"description": "Ghost", "quantity": 1, "unit_price_minor": 100}]}, headers=h)
+    assert ghost.status_code == 422
+    assert ghost.json()["error"]["details"]["field"] == "category_id"
 
 
 def test_contract_signoff(client):

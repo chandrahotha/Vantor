@@ -22,10 +22,12 @@ from sqlalchemy.orm import Session
 from ..core.errors import envelope
 from ..core.security import Actor, get_actor
 from ..core.tenant import get_db
+from ..models.document import Document
 from ..models.scorecard import SupplierScorecard
-from ..models.onboarding import CERT_STATUSES, QUAL_STATUSES, SupplierCertification, SupplierQualification
-from ..models.supplier import Supplier, SupplierContact
+from ..models.onboarding import SupplierCertification, SupplierQualification
+from ..models.supplier import Category, Supplier, SupplierContact
 from ..services.audit import record_event
+from ..services.refs import require_ref
 from ..services.scoring import DEFAULT_WEIGHTS, ScoringError, score as score_supplier
 from ..services.supplier import (
     SupplierError,
@@ -147,6 +149,7 @@ def create_supplier(payload: SupplierIn, request: Request, actor: Actor = Depend
     except SupplierError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
     dup = find_possible_duplicate(db, tenant_id=actor.tenant_id, name=name, country=ctry)
+    category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
     row = Supplier(
         tenant_id=actor.tenant_id,
         created_by=actor.sub,
@@ -156,7 +159,7 @@ def create_supplier(payload: SupplierIn, request: Request, actor: Actor = Depend
         status=st,
         country=ctry,
         currency=ccy,
-        category_id=(payload.category_id or "").strip(),
+        category_id=category_id,
         payment_terms=(payload.payment_terms or "").strip(),
         notes=(payload.notes or "").strip(),
     )
@@ -202,8 +205,12 @@ def update_supplier(supplier_id: str, payload: SupplierPatch, request: Request, 
             row.name, row.status, row.currency, row.country = name, st, ccy, ctry
         for f in ("category_id", "payment_terms", "notes"):
             v = getattr(payload, f)
-            if v is not None:
-                setattr(row, f, v.strip())
+            if v is None:
+                continue
+            # Re-parenting a supplier must not leave it pointing at a category
+            # that does not exist (or one from another tenant).
+            setattr(row, f, require_ref(db, Category, actor.tenant_id, v, field=f, code="UNKNOWN_CATEGORY")
+                    if f == "category_id" else v.strip())
         row.updated_by = actor.sub
         db.flush()
     except SupplierError as exc:
@@ -327,9 +334,14 @@ def add_cert(supplier_id: str, payload: CertIn, request: Request, actor: Actor =
             parse_iso_day(payload.valid_until, "valid_until")
         except Exception as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # A certification is evidence. Accepting a document_id that does not exist
+    # (or belongs to another tenant) lets a supplier be "qualified" against
+    # evidence nobody can ever open, which is the whole point of the gate.
+    document_id = require_ref(db, Document, actor.tenant_id, payload.document_id,
+                             field="document_id", code="UNKNOWN_DOCUMENT")
     row = SupplierCertification(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, supplier_id=supplier_id,
                                 name=payload.name.strip(), issuer=payload.issuer.strip(), valid_until=payload.valid_until.strip(),
-                                status="pending", document_id=payload.document_id.strip())
+                                status="pending", document_id=document_id)
     db.add(row)
     db.flush()
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CERT_SUBMITTED", resource="supplier",

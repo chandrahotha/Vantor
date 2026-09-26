@@ -38,7 +38,9 @@ stdout to Loki/CloudWatch. Correlate user reports via `X-Request-ID`
 | 429 `RATE_LIMITED` | `X-RateLimit-Remaining` headers | raise `RATE_LIMIT_*_PER_MIN` or spread load |
 | 503 `/ready` unmigrated | migrations not applied | `cd backend && alembic upgrade head` |
 | Audit `valid:false` | tamper or clock skew | freeze writes, `GET /audit-events/verify` message pinpoints row, restore from backup |
-| AI 502 `AI_PROVIDER_FAILED` | provider down/unconfigured | switch `AI_PROVIDER` (ollama/opencode/nvidia/disabled); failures name the provider by design |
+| AI 502 `AI_PROVIDER_FAILED` | provider down / key missing | the message names the provider and the exact env var. `GET /api/v1/ai/providers` shows which are configured. Switch `AI_PROVIDER` to another of `disabled` / `ollama` / `opencode` / `openrouter` / `opencode-zen` / `omnirouter` / `nvidia` / `openai` / `anthropic` / `gemini`; failures never fall back silently to another provider |
+| AI 422 `AI_PROVIDER_UNKNOWN` | client asked for a provider this build does not know | `error.details.known` lists the valid names — a client bug, not an outage |
+| `UNKNOWN_REFERENCE` 422 on write | a `category_id` / `document_id` points at nothing in this tenant | the field name is in `error.details.field`. Create the parent first; the API refuses to store an orphan because there is no FOREIGN KEY to catch it |
 | `BUDGET_EXCEEDED` on approve | PO would breach the category ceiling for the period | raise the ceiling via `POST /api/v1/budgets` (or the Governance page) — do not bypass the gate |
 | `APPROVAL_SOD` 403 | requester == approver | a second human with the right role must approve; this is by design, never disable |
 | Idempotent replay returns stale data | key reused with a different body | keys are body-bound; use a fresh key per distinct action |

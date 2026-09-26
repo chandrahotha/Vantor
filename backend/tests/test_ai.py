@@ -67,8 +67,132 @@ def test_disabled_mode_honest_envelope(client):
 def test_unknown_provider_names_itself(client):
     c, pem = client
     r = c.post("/api/v1/ai/complete", json={"prompt": "hi there", "provider": "oracle-ai"}, headers=_h(pem))
+    # A provider name this build does not know is a request-shape error, so it
+    # is a 422 with the known set attached — not a 502 from a provider we never
+    # even tried to reach.
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "AI_PROVIDER_UNKNOWN"
+    assert "ollama" in r.json()["error"]["details"]["known"]
+
+
+def test_provider_catalog_never_leaks_keys(client):
+    """`/ai/providers` must report shape, never the credential itself."""
+    c, pem = client
+    r = c.get("/api/v1/ai/providers", headers=_h(pem))
+    assert r.status_code == 200
+    data = r.json()["data"]
+    names = [p["name"] for p in data["available"]]
+    assert "disabled" in names and "ollama" in names
+    by_name = {p["name"]: p for p in data["available"]}
+    assert by_name["disabled"]["active"] is True          # AI_PROVIDER=disabled in this env
+    assert by_name["disabled"]["needsKey"] is False
+    assert by_name["openai"]["needsKey"] is True
+    # ollama is a self-hosted provider: no key required, always configured here
+    assert by_name["ollama"]["needsKey"] is False
+    for p in data["available"]:
+        assert set(p) == {"name", "configured", "needsKey", "active"}
+
+
+def test_env_key_is_used_when_no_request_key(client, monkeypatch):
+    """The env key must actually reach the provider.
+
+    `_provider_key` existed but was never called, so `/ai/providers` advertised
+    every provider with a configured key while every call failed with
+    "no API key for ...". This asserts the env key is picked up and sent.
+    """
+    from app.core.config import get_settings
+
+    c, pem = client
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    get_settings.cache_clear()
+    seen: dict = {}
+
+    def fake_post(url, **kwargs):
+        seen["url"] = url
+        seen["auth"] = kwargs.get("headers", {}).get("Authorization")
+
+        class R:
+            def raise_for_status(self): return None
+
+            def json(self): return {"choices": [{"message": {"content": "grounded answer"}}]}
+
+        return R()
+
+    monkeypatch.setattr("app.services.ai_gateway.httpx.post", fake_post)
+    r = c.post("/api/v1/ai/complete", json={"prompt": "hello", "provider": "openai"}, headers=_h(pem))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["answer"] == "grounded answer"
+    assert seen["auth"] == "Bearer sk-test-not-a-real-key"
+    assert seen["url"].startswith("https://api.openai.com/v1/chat/completions")
+    get_settings.cache_clear()
+
+
+def test_request_key_overrides_env_and_header_wins(client, monkeypatch):
+    """A per-request BYOK key beats the environment; the header beats the body."""
+    from app.core.config import get_settings
+
+    c, pem = client
+    monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+    get_settings.cache_clear()
+    seen: list[str] = []
+
+    def fake_post(url, **kwargs):
+        seen.append(kwargs.get("headers", {}).get("Authorization", ""))
+
+        class R:
+            def raise_for_status(self): return None
+
+            def json(self): return {"choices": [{"message": {"content": "ok"}}]}
+
+        return R()
+
+    monkeypatch.setattr("app.services.ai_gateway.httpx.post", fake_post)
+    h = _h(pem)
+    c.post("/api/v1/ai/complete", json={"prompt": "hi", "provider": "openai"}, headers=h)
+    c.post("/api/v1/ai/complete", json={"prompt": "hi", "provider": "openai", "provider_key": "body-key"}, headers=h)
+    c.post("/api/v1/ai/complete", json={"prompt": "hi", "provider": "openai", "provider_key": "body-key"},
+           headers={**h, "X-Vantor-Provider-Key": "header-key"})
+    assert seen == ["Bearer env-key", "Bearer body-key", "Bearer header-key"]
+    get_settings.cache_clear()
+
+
+def test_missing_key_names_the_env_var_and_the_provider(client):
+    """Fail closed with one actionable sentence, never a third-party 401."""
+    c, pem = client
+    r = c.post("/api/v1/ai/complete", json={"prompt": "hi", "provider": "gemini"}, headers=_h(pem))
     assert r.status_code == 502
-    assert r.json()["error"]["details"]["provider"] == "oracle-ai"
+    err = r.json()["error"]
+    assert err["code"] == "AI_PROVIDER_FAILED"
+    assert err["details"]["provider"] == "gemini"
+    assert "GEMINI_API_KEY" in err["message"]
+
+
+def test_base_url_override_is_honoured(client, monkeypatch):
+    """`ANTHROPIC_BASE_URL` was a dead setting: the URL was hardcoded."""
+    from app.core.config import get_settings
+
+    c, pem = client
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.internal/anthropic")
+    get_settings.cache_clear()
+    seen: dict = {}
+
+    def fake_post(url, **kwargs):
+        seen["url"] = url
+
+        class R:
+            def raise_for_status(self): return None
+
+            def json(self): return {"content": [{"type": "text", "text": "proxied"}]}
+
+        return R()
+
+    monkeypatch.setattr("app.services.ai_gateway.httpx.post", fake_post)
+    r = c.post("/api/v1/ai/complete", json={"prompt": "hi", "provider": "anthropic"}, headers=_h(pem))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["answer"] == "proxied"
+    assert seen["url"] == "https://proxy.internal/anthropic/v1/messages"
+    get_settings.cache_clear()
 
 
 def test_unconfigured_opencode_fails_explicitly(client):

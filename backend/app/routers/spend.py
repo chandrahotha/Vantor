@@ -19,7 +19,7 @@ from ..core.tenant import get_db
 from ..models.pricecase import PriceCase
 from ..models.purchase import PurchaseOrderLine
 from ..models.spend import SavingsRecord, SpendTransaction
-from ..services.price_intel import ANOMALY_BP, PriceIntelError, baseline_for, normalize_item, variance_bp
+from ..services.price_intel import ANOMALY_BP, BaselineCache, PriceIntelError, baseline_for, normalize_item, variance_bp
 from ..services.should_cost import ShouldCostError, gap_vs_quote, model_total
 from ..services.spend_intel import concentration as _concentration
 from ..services.spend_intel import cube as _cube
@@ -128,16 +128,25 @@ def price_evaluate(po_id: str, request: Request, actor: Actor = Depends(get_acto
         raise HTTPException(status_code=404, detail="PO not found")
     lines = list(db.execute(select(PurchaseOrderLine).where(
         PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == po_id)).scalars())
+    # One pass over the already-open cases instead of one query per line, and
+    # `price_cases` has no unique constraint on (po_line_id, status) — so the
+    # old `scalar_one_or_none()` raised MultipleResultsFound (a 500) the moment
+    # two concurrent evaluations opened a case on the same line.
+    open_lines = {pc.po_line_id for pc in db.execute(select(PriceCase).where(
+        PriceCase.tenant_id == actor.tenant_id, PriceCase.status == "open",
+        PriceCase.po_line_id.in_([l.id for l in lines]))).scalars()} if lines else set()
+    # The baseline is built from the tenant's PO-line descriptions and approved
+    # invoices; share one cache across every line instead of rebuilding it per line.
+    cache = BaselineCache(db, actor.tenant_id)
     opened: list[str] = []
     skipped: list[dict] = []
     for ln in lines:
-        dup = db.execute(select(PriceCase).where(PriceCase.tenant_id == actor.tenant_id,
-                                                 PriceCase.po_line_id == ln.id, PriceCase.status == "open")).scalar_one_or_none()
-        if dup is not None:
+        if ln.id in open_lines:
             skipped.append({"line": ln.line_no, "reason": "PRICE_CASE_OPEN"})
             continue
         try:
-            base = baseline_for(db, tenant_id=actor.tenant_id, item=ln.description, supplier_id=po.supplier_id, exclude_po_id=po_id)
+            base = baseline_for(db, tenant_id=actor.tenant_id, item=ln.description, supplier_id=po.supplier_id,
+                                exclude_po_id=po_id, cache=cache)
         except PriceIntelError as exc:
             skipped.append({"line": ln.line_no, "reason": exc.code})
             continue

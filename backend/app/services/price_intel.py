@@ -33,28 +33,71 @@ def normalize_item(description: str) -> str:
     return re.sub(r"\s+", " ", (description or "").strip().lower())
 
 
-def baseline_for(db: Session, *, tenant_id: str, item: str, supplier_id: str, exclude_po_id: str = "") -> dict:
+class BaselineCache:
+    """Per-request cache for the PO-line descriptions a baseline is built from.
+
+    `baseline_for` used to load the tenant's entire `purchase_order_lines` table
+    on every call, and `price_evaluate` calls it once per PO line — so a PO with
+    n lines materialised n x (every PO line in the tenant) rows in memory. This
+    loads the description map once and reuses it across the request.
+    """
+
+    def __init__(self, db: Session, tenant_id: str):
+        self._db = db
+        self._tenant_id = tenant_id
+        self._descriptions: dict[str, str] | None = None
+        self._invoices: dict[str, list[tuple[str, str]]] | None = None
+
+    def _po_line_descriptions(self) -> dict[str, str]:
+        if self._descriptions is None:
+            rows = self._db.execute(
+                select(PurchaseOrderLine.id, PurchaseOrderLine.description).where(
+                    PurchaseOrderLine.tenant_id == self._tenant_id)).all()
+            self._descriptions = {r[0]: r[1] for r in rows}
+        return self._descriptions
+
+    def _approved_invoices(self, supplier_id: str) -> list[tuple[str, str]]:
+        """`(invoice_id, po_id)` for approved/paid invoices of a supplier.
+
+        The PO id travels with the invoice id because the caller excludes the
+        PO under evaluation, and those are different columns.
+        """
+        if self._invoices is None:
+            self._invoices = {}
+            for inv_id, sup, po_id in self._db.execute(
+                    select(Invoice.id, Invoice.supplier_id, Invoice.po_id).where(
+                        Invoice.tenant_id == self._tenant_id,
+                        Invoice.status.in_(["approved", "paid"]))).all():
+                self._invoices.setdefault(sup, []).append((inv_id, po_id))
+        return self._invoices.get(supplier_id, [])
+
+
+def baseline_for(db: Session, *, tenant_id: str, item: str, supplier_id: str, exclude_po_id: str = "",
+                 cache: BaselineCache | None = None) -> dict:
     """Median approved unit price for the same normalized item + supplier.
 
-    History walks approved invoices → their PO lines → PO line descriptions, so
+    History walks approved invoices -> their PO lines -> PO line descriptions, so
     only like-for-like items form the baseline. The PO under evaluation is
     excluded (a baseline must never contain the price it judges). Raises when
     evidence is thin.
+
+    Pass a `BaselineCache` when evaluating many lines in one request so the
+    PO-line and invoice lookups are done once instead of once per line.
     """
     norm = normalize_item(item)
     if len(norm) < 2:
         raise PriceIntelError("PRICE_ITEM_INVALID", "item description too short for a baseline")
-    inv_ids = [i.id for i in db.execute(select(Invoice).where(
-        Invoice.tenant_id == tenant_id, Invoice.supplier_id == supplier_id,
-        Invoice.status.in_(["approved", "paid"]))).scalars() if i.po_id != exclude_po_id]
+    if cache is None:
+        cache = BaselineCache(db, tenant_id)
+    inv_ids = [inv_id for inv_id, po_id in cache._approved_invoices(supplier_id)
+               if not exclude_po_id or po_id != exclude_po_id]
     if not inv_ids:
         raise PriceIntelError("PRICE_NO_HISTORY", "no approved invoice history for this supplier")
-    po_lines = {l.id: l for l in db.execute(select(PurchaseOrderLine).where(
-        PurchaseOrderLine.tenant_id == tenant_id)).scalars()}
+    descriptions = cache._po_line_descriptions()
     prices: list[int] = []
     for il in db.execute(select(InvoiceLine).where(InvoiceLine.tenant_id == tenant_id, InvoiceLine.invoice_id.in_(inv_ids))).scalars():
-        pl = po_lines.get(il.po_line_id)
-        if pl is None or normalize_item(pl.description) != norm or il.unit_price_minor <= 0:
+        desc = descriptions.get(il.po_line_id)
+        if desc is None or normalize_item(desc) != norm or il.unit_price_minor <= 0:
             continue
         prices.append(il.unit_price_minor)
     if len(prices) < MIN_HISTORY:

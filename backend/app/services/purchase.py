@@ -15,7 +15,7 @@ Returns match detail or raises with explicit mismatches (never auto-adjust).
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 MANAGER_LIMIT_MINOR = 100_000
@@ -39,6 +39,80 @@ def required_tiers(total_minor: int, *, legal_required: bool = False) -> list[st
 def check_sod(requester_sub: str, approver_sub: str) -> None:
     if requester_sub and requester_sub == approver_sub:
         raise PurchaseError("APPROVAL_SOD", "Requester cannot approve their own document (segregation of duties)")
+
+
+#: The canonical order a multi-tier approval must be consumed in. An approver
+#: always clears the *earliest* outstanding tier, so finance can never consume
+#: the manager's signature slot and skip a step.
+TIER_ORDER = ("manager", "finance", "legal")
+
+
+def tier_rank(tier: str) -> int:
+    """Sort key for a tier; unknown tiers sort last but stay deterministic."""
+    try:
+        return TIER_ORDER.index((tier or "").strip().lower())
+    except ValueError:
+        return len(TIER_ORDER)
+
+
+def order_pending(pending: list) -> list:
+    """Pending approvals in the order they must be decided (earliest tier first).
+
+    Ties break on `created_at` then `id` so the order is stable across calls
+    and identical databases. This is what stops a finance approver from
+    consuming the manager tier out of turn.
+    """
+    def key(a) -> tuple:  # type: ignore[no-untyped-def]
+        ts = a.created_at
+        # Missing timestamps sort last, never first: an unknown age must not
+        # outrank a tier that was genuinely filed first.
+        return (tier_rank(a.tier), ts is None, ts or "", a.id)
+
+    return sorted(pending, key=key)
+
+
+def next_pending(pending: list):
+    """The single approval an approver is allowed to clear right now."""
+    return order_pending(pending)[0] if pending else None
+
+
+#: Roles allowed to decide an approval, and the resources an approval may name.
+APPROVER_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Approver", "Finance Reviewer"}
+
+
+def decide_approval(db: Session, *, tenant_id: str, approver_sub: str, approver_roles: set[str],
+                    approval: object, approve: bool, reason: str) -> str:
+    """Record a human decision on one approval row and return the new status.
+
+    Shared by the purchase and AI routers so segregation of duties, tier
+    ordering and audit are enforced in exactly one place. Raises
+    `PurchaseError` with a code; the routers map code -> HTTP status.
+    """
+    from ..services.audit import record_event
+
+    if not (approver_roles or set()) & APPROVER_ROLES:
+        raise PurchaseError("APPROVAL_ROLE", "Approver role required")
+    status = getattr(approval, "status", "")
+    if status != "requested":
+        raise PurchaseError("APPROVAL_ALREADY_DECIDED", f"already {status}")
+    if not approve and not reason.strip():
+        raise PurchaseError("APPROVAL_REASON_REQUIRED", "A rejection needs a written reason")
+
+    # SoD is enforced against whoever filed the approval, which for a PO or
+    # requisition is the person who raised it.
+    filed_by = getattr(approval, "created_by", "") or ""
+    check_sod(filed_by, approver_sub)
+
+    new_status = "approved" if approve else "rejected"
+    setattr(approval, "status", new_status)
+    setattr(approval, "decided_by", approver_sub)
+    setattr(approval, "reason", reason.strip())
+    setattr(approval, "updated_by", approver_sub)
+    record_event(db, tenant_id=tenant_id, actor=approver_sub, action="APPROVAL_DECIDED",
+                 resource=getattr(approval, "resource", "") or "approval",
+                 resource_id=getattr(approval, "id", ""), after={"approved": approve, "tier": getattr(approval, "tier", "")},
+                 source="api", created_by=approver_sub)
+    return new_status
 
 
 def three_way_match(db: Session, *, tenant_id: str, po_id: str, invoice_id: str) -> dict:

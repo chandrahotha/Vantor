@@ -7,7 +7,9 @@ request_approval) arrive with HITL gates in Wave 2.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from typing import Callable
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.purchase import PurchaseOrder
@@ -137,7 +139,9 @@ def request_approval(db: Session, tenant_id: str, action: str, resource: str, re
     return {"approval_id": row.id, "status": "requested", "resource": f"ai:{resource}"}
 
 
-REGISTRY = {
+#: Every callable here takes `(db, tenant_id, **kwargs)` and returns a JSON-able
+#: dict. Typing it explicitly is what lets callers index it without a cast.
+REGISTRY: dict[str, Callable[..., dict]] = {
     "search_suppliers": search_suppliers,
     "get_supplier": get_supplier,
     "compare_quotes": compare_quotes,

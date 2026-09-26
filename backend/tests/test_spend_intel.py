@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
 
+from .helpers import make_category
+
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"
 
@@ -84,7 +86,7 @@ def test_intelligence_end_to_end(client):
     ct = c.post("/api/v1/contracts", json={"code": "CT-1", "title": "Cover Alpha", "supplier_id": s1, "value_minor": 10_000_000}, headers=h).json()["data"]["id"]
     c.patch(f"/api/v1/contracts/{ct}/status", json={"status": "review"}, headers=h)
     c.patch(f"/api/v1/contracts/{ct}/status", json={"status": "active"}, headers=h)
-    _po_flow(c, pem, "acme", "u0", "P1", s1, 1000, category="CAT-A")
+    _po_flow(c, pem, "acme", "u0", "P1", s1, 1000, category=make_category(c, h, "CAT-A", "Alpha Parts"))
     _po_flow(c, pem, "acme", "u0", "P2", s2, 9000)  # uncategorized => maverick
     intel = c.get("/api/v1/spend/intelligence", headers=h).json()["data"]
     assert intel["cube"] != []
@@ -109,8 +111,8 @@ def test_summary_never_sums_across_currencies(client):
     h = _h(pem, "u0", "acme")
     inr = c.post("/api/v1/suppliers", json={"code": "S-INR", "name": "Rupee Supplier", "currency": "INR"}, headers=h).json()["data"]["id"]
     usd = c.post("/api/v1/suppliers", json={"code": "S-USD", "name": "Dollar Supplier", "currency": "USD"}, headers=h).json()["data"]["id"]
-    _po_flow(c, pem, "acme", "u0", "P-INR", inr, 1000, category="CAT-A", currency="INR")
-    _po_flow(c, pem, "acme", "u0", "P-USD", usd, 500, category="CAT-B", currency="USD")
+    _po_flow(c, pem, "acme", "u0", "P-INR", inr, 1000, category=make_category(c, h, "CAT-A", "Alpha Parts"), currency="INR")
+    _po_flow(c, pem, "acme", "u0", "P-USD", usd, 500, category=make_category(c, h, "CAT-B", "Beta Parts"), currency="USD")
 
     s = c.get("/api/v1/spend/summary", headers=h).json()["data"]
     assert s["currencyCount"] == 2
@@ -128,7 +130,8 @@ def test_summary_never_sums_across_currencies(client):
     # belong to this tenant — reusing the acme one would be invisible cross-tenant.
     solo_h = _h(pem, "u1", "solo")
     solo_sup = c.post("/api/v1/suppliers", json={"code": "S-SOLO", "name": "Solo Supplier", "currency": "INR"}, headers=solo_h).json()["data"]["id"]
-    _po_flow(c, pem, "solo", "u1", "P-SOLO", solo_sup, 250, category="CAT-A", currency="INR")
+    _po_flow(c, pem, "solo", "u1", "P-SOLO", solo_sup, 250,
+             category=make_category(c, solo_h, "CAT-A", "Alpha Parts"), currency="INR")
     solo = c.get("/api/v1/spend/summary", headers=solo_h).json()["data"]
     assert solo["currencyCount"] == 1 and solo["currencies"] == ["INR"]
     assert solo["byCurrency"]["committed"]["INR"] == 2_500

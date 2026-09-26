@@ -137,8 +137,8 @@ export default function CommandPalette() {
           )}
         </div>
         <div className="palette-foot">
-          <span><kbd>â†‘â†“</kbd> move</span>
-          <span><kbd>â†µ</kbd> open</span>
+          <span><kbd>↑↓</kbd> move</span>
+          <span><kbd>↵</kbd> open</span>
           <span><kbd>esc</kbd> close</span>
         </div>
       </div>

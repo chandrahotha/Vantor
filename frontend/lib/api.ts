@@ -52,7 +52,8 @@ export type ApiOptions = Omit<RequestInit, "headers"> & {
   idemKey?: string;
 };
 
-function friendly(status: number, code: string, message: string): string {
+/** Human-readable copy for a failed request. Never a bare status number. */
+export function friendly(status: number, code: string, message: string): string {
   if (status === 401) return "Session expired — please sign in again.";
   if (status === 403) return `Not permitted (${code}). Your role lacks access.`;
   if (status === 409) return `Conflict (${code}): ${message}`;

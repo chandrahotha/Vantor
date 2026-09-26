@@ -12,7 +12,7 @@ All deterministic, integer math, tenant-scoped.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from ..models.contract import Contract
@@ -22,17 +22,28 @@ from ..models.spend import SpendTransaction
 
 def cube(db: Session, tenant_id: str) -> list[dict]:
     """Spend cube from the LEDGER (single source of truth), joined to POs for
-    category. One row per (supplier, category, currency); no ghost cells."""
-    rows = db.execute(select(SpendTransaction, PurchaseOrder.category_id).join(
-        PurchaseOrder, PurchaseOrder.id == SpendTransaction.po_id)
+    category. One row per (supplier, category, currency); no ghost cells.
+
+    The join is an OUTER join and the tenant predicate lives in the ON clause.
+    Two reasons: an inner join silently dropped any ledger row whose PO is
+    missing (under-reporting the one number that must never be wrong), and
+    without the tenant predicate the join relied on RLS alone for correctness.
+    A commitment with no matching PO still lands in the cube, as uncategorized.
+    """
+    rows = db.execute(select(SpendTransaction, PurchaseOrder.category_id).outerjoin(
+        PurchaseOrder, and_(PurchaseOrder.id == SpendTransaction.po_id,
+                            PurchaseOrder.tenant_id == tenant_id))
         .where(SpendTransaction.tenant_id == tenant_id, SpendTransaction.kind == "commitment")).all()
     cells: dict[tuple, dict] = {}
     for tx, cat in rows:
         key = (tx.supplier_id, cat or "uncategorized", tx.currency)
         cell = cells.setdefault(key, {"supplierId": tx.supplier_id, "categoryId": cat or "uncategorized",
-                                      "currency": tx.currency, "totalMinor": 0, "poCount": 0, "_pos": set()})
+                                      "currency": tx.currency, "totalMinor": 0, "poCount": 0,
+                                      "orphaned": False, "_pos": set()})
         cell["totalMinor"] += tx.amount_minor
-        cell["_pos"].add(tx.po_id)
+        cell["orphaned"] = cell["orphaned"] or cat is None
+        if tx.po_id:
+            cell["_pos"].add(tx.po_id)
     out = []
     for cell in cells.values():
         cell["poCount"] = len(cell.pop("_pos"))

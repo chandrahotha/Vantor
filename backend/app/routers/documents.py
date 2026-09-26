@@ -14,7 +14,7 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, or_, select
+from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -83,9 +83,25 @@ async def upload(
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, dest)
+    # `resource`/`resource_id` are a polymorphic pointer (the target table comes
+    # from `resource`), so there is no parent to validate against. What we can
+    # refuse is a value that does not fit: the old code truncated to the column
+    # width, which silently stored an id that matches no record at all.
+    if len(resource_id.strip()) > 36:
+        raise HTTPException(status_code=422, detail={
+            "code": "REFERENCE_TOO_LONG",
+            "message": "resource_id must be at most 36 characters",
+            "details": {"length": len(resource_id.strip())},
+        })
+    if len(resource.strip()) > 64:
+        raise HTTPException(status_code=422, detail={
+            "code": "REFERENCE_TOO_LONG",
+            "message": "resource must be at most 64 characters",
+            "details": {"length": len(resource.strip())},
+        })
     row = Document(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, filename=filename,
                    content_type=file.content_type or "application/octet-stream", size_bytes=len(data), sha256=digest,
-                   storage_key=str(dest), status="uploaded", resource=resource.strip()[:64], resource_id=resource_id.strip()[:36])
+                   storage_key=str(dest), status="uploaded", resource=resource.strip(), resource_id=resource_id.strip())
     db.add(row)
     try:
         db.flush()
@@ -213,17 +229,27 @@ def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session
     Keyword stage: ILIKE substring match (works on SQLite and Postgres). Ranking
     stage: if the embedding provider has written vectors, cosine score re-orders
     those candidates; otherwise the keyword order stands and `mode` says so.
-    Chunks without vectors are never ranked as if they matched."""
+    Chunks without vectors are never ranked as if they matched.
+
+    Chunks are joined to their parent document so a QUARANTINED document is not
+    searchable. It was not joined before, and the two quarantine paths return
+    before the chunk delete, so text from a document explicitly held for review
+    kept surfacing in search results.
+    """
     from ..models.document import DocumentChunk
     from ..services.embeddings import rank
 
     like = f"%{q.strip()}%"
-    rows = list(db.execute(select(DocumentChunk).where(
-        DocumentChunk.tenant_id == actor.tenant_id, DocumentChunk.text.ilike(like))
-        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(50)).scalars())
+    rows = list(db.execute(
+        select(DocumentChunk, Document.status).join(
+            Document, and_(Document.id == DocumentChunk.document_id, Document.tenant_id == actor.tenant_id))
+        .where(DocumentChunk.tenant_id == actor.tenant_id,
+               Document.status != "quarantined",
+               DocumentChunk.text.ilike(like))
+        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(50)).all())
 
     candidates = [{"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
-                   "text": h.text[:280], "embedding": h.embedding} for h in rows]
+                   "text": h.text[:280], "embedding": h.embedding} for h, _status in rows]
     ranked, mode = rank(q, candidates)
     out = [{"documentId": r["document_id"], "chunkNo": r["chunk_no"], "excerpt": r["text"]} for r in ranked[:25]]
     return envelope(out, {"count": len(out), "mode": mode}, getattr(request.state, "request_id", ""))

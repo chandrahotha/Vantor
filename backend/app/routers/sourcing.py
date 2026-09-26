@@ -22,8 +22,9 @@ from ..core.security import Actor, get_actor
 from ..core.tenant import get_db
 from ..models.sourcing import Award, Quote, QuoteLine, Rfq, RfqLine
 from ..models.spend import SavingsRecord
-from ..models.supplier import Supplier
+from ..models.supplier import Category, Supplier
 from ..services.audit import record_event
+from ..services.refs import require_ref
 from ..services.sourcing import SourcingError, check_quote_transition, check_rfq_transition, line_total
 
 router = APIRouter(tags=["sourcing"])
@@ -121,9 +122,10 @@ def create_rfq(payload: RfqIn, request: Request, actor: Actor = Depends(get_acto
     if len(code) < 2:
         raise HTTPException(status_code=422, detail="Invalid RFQ code")
     ccy = payload.currency.strip().upper()
+    category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
     r = Rfq(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, code=code,
             title=payload.title.strip(), status="draft", currency=ccy,
-            category_id=payload.category_id.strip(), notes=payload.notes.strip())
+            category_id=category_id, notes=payload.notes.strip())
     db.add(r)
     try:
         db.flush()
@@ -189,6 +191,18 @@ def submit_quote(rfq_id: str, payload: QuoteIn, request: Request, actor: Actor =
     sup = db.execute(select(Supplier).where(Supplier.tenant_id == actor.tenant_id, Supplier.id == payload.supplier_id)).scalar_one_or_none()
     if sup is None:
         raise HTTPException(status_code=422, detail="Unknown supplier for this tenant")
+    # A quote line must point at a line of *this* RFQ. Unvalidated, a quote could
+    # cite an arbitrary (or another tenant's) rfq_line id, and since award totals
+    # and savings are derived from these lines, that poisons the money chain.
+    rfq_line_ids = [ln.id for ln in db.execute(select(RfqLine).where(
+        RfqLine.tenant_id == actor.tenant_id, RfqLine.rfq_id == rfq_id)).scalars()]
+    for ln in payload.lines:
+        if (ln.rfq_line_id or "").strip() and ln.rfq_line_id.strip() not in rfq_line_ids:
+            raise HTTPException(status_code=422, detail={
+                "code": "QUOTE_LINE_NOT_ON_RFQ",
+                "message": "lines[].rfq_line_id must reference a line of this RFQ",
+                "details": {"rfqLineId": ln.rfq_line_id, "rfqId": rfq_id},
+            })
     q = Quote(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, rfq_id=rfq_id,
               supplier_id=payload.supplier_id, status="submitted", currency=(payload.currency or r.currency).strip().upper())
     db.add(q)

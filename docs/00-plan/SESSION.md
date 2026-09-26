@@ -3,15 +3,15 @@
 
 # Session Handoff — VANTOR
 
-**Last updated: 2026-09-26. Branch `main` = `origin/main`. Working tree clean.**
+**Last updated: 2026-09-27. Branch `main` = `origin/main`.**
 
 ## Where we stand
 
-- V1 docs-first scaffold: **done** (README, LICENSE Apache-2.0, SECURITY, CONTRIBUTING, env, free Docker Compose, CI with brain-link gate).
-- Docs brain: `docs/BRAIN.md` + `docs/README.md` index + glossary + numbered `00-plan…10-decisions` structure. Every doc links to the brain (CI-enforced, 38/38 green).
-- **Phase 0 audit: VERIFIED.** All 5 private repos cloned to `_audit/`, inspected read-only (~775 files), matrix + SHAs in `00-plan/REPOSITORY_AUDIT.md`, final verdicts in `00-plan/MIGRATION_PLAN.md`, clones deleted, no private code committed.
-- **Stack decided (ADR-007):** FastAPI backend + Next.js frontend + Postgres/RLS + RQ/Redis + Keycloak OIDC.
-- Repo visibility: **PRIVATE** (flip to public only on explicit `make public`).
+- **Backend: implemented and green.** FastAPI + Postgres/RLS + Alembic (16 revisions, one head, no destructive `upgrade()`), Keycloak OIDC, canonical hashed audit writer, RQ worker + beat scheduler. 128 backend tests.
+- **Frontend: implemented and green.** Next.js App Router, design system, 8 workspaces, 48 tests. `npm run typecheck && lint && test && build` all pass.
+- **AI: real, evidence-first, never silent.** `/ai/stream` is provider-side token streaming for every vendor. `disabled` is the default and the honesty anchor (UNKNOWN, confidence 0.0).
+- **Phase 0 audit: VERIFIED** (`00-plan/REPOSITORY_AUDIT.md`, `MIGRATION_PLAN.md`). Phases 3–8 and the frontend have landed; the earlier "next work" list on this page is retired.
+- CI: weekly + manual dispatch by owner budget, with pytest, mypy-adjacent gates, the Alembic PG chain, an OpenAPI drift check, `pip-audit`, `npm audit`, and a mojibake guard.
 
 ## Resume on the new device
 
@@ -20,20 +20,53 @@ gh auth login
 gh repo clone chandrahotha/Vantor
 Set-Location Vantor
 Copy-Item .env.example .env
-docker compose up -d postgres redis minio keycloak ollama
+docker compose up -d postgres redis keycloak
+docker compose up -d --build backend frontend worker beat
 python scripts/verify_brain_links.py
+python scripts/check_mojibake.py
 ```
 
-## Next work (in order)
+`ollama` and `minio` are behind profiles — see `08-deployment/local.md`. The AI
+gateway ships `disabled` on purpose: a fresh clone answers UNKNOWN rather than
+failing to connect.
 
-1. **Phase 1 sign-off:** review `docs/00-plan/*` + ADRs; confirm Keycloak + RQ choices.
-2. **Phase 3 Foundation (first code wave):** FastAPI skeleton `/api/v1`, Keycloak OIDC, `tenant_id` RLS, canonical audit writer (port SupplierRadar's), Alembic baseline, PR-gated CI.
-3. **Phase 4 Core:** supplier → sourcing → contract → spend → purchase per `MIGRATION_PLAN.md` waves (RFQLens demo paths get rewritten, not ported).
-4. Decide public-flip timing (suggest after Phase 3 lands).
+## Before you build
+
+```powershell
+# backend  (SQLite, no Postgres needed)
+$env:APP_ENV=test; $env:DATABASE_URL=sqlite://
+python -m pytest backend/tests -q
+python -m mypy backend/app --ignore-missing-imports
+
+# frontend
+Set-Location frontend; npm ci; npm run typecheck; npm run lint; npm test
+```
+
+## Known limitations worth knowing
+
+- **No foreign keys anywhere.** 40 tables, zero `FOREIGN KEY`, zero
+  `relationship()`. Referential integrity is enforced in the routers via
+  `app/services/refs.py` (`require_ref`, `require_refs`, `require_no_cycle`).
+  Adding real constraints is the single highest-value schema change available;
+  it has not been done because it needs a data-cleanliness pass first.
+- **`organizations` / `user_accounts` / `roles` are dead tables.** Nothing reads
+  or writes them. Authorization is a hard-coded `WRITE_ROLES` set per router, so
+  `roles.permissions` is decorative. RBAC lands with the identity work.
+- **Write-only tables:** `integrations` (adapters are a hard-coded dict),
+  `contract_signatures` and `match_runs` (evidence written, never readable).
+- **`requisitions` have no `requisition_id` on `purchase_orders`.** The
+  "maverick" spend metric is therefore really an *uncategorised PO* metric.
+- **All search is leading-wildcard `ILIKE`**, so the purpose-built name indexes
+  are unusable and `document_chunks.text` is unindexed.
+- **`price_intel.baseline_for`** is per-line by design; pass a `BaselineCache`
+  when evaluating many lines in one request (`spend.py` does).
+- **`CREATE EXTENSION vector`** is required at install but unused — embeddings
+  are JSON arrays ranked with in-Python cosine.
 
 ## Open items / risks
 
 - RFQLens mock-as-done code must never be ported as-is (see audit § honesty check).
-- CI everywhere upstream is weekly-only/disabled — Vantor CI must gate PRs from day one (Phase 3).
-- No observability in any source repo — plan OTEL/metrics in Phase 10, wire request-IDs from Phase 3.
-- Secrets: only placeholders in repo; real Keycloak/DB creds live in local `.env` (never commit).
+- Secrets: only placeholders in the repo; real Keycloak/DB creds live in local `.env` (never commit).
+- OTEL tracing is still a Phase 10 item; the in-process metrics endpoint
+  (`GET /api/v1/ops/metrics`) is the honest baseline.
+- Repo is **private**; flip only on explicit `make public`.
