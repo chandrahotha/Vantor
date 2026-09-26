@@ -341,6 +341,25 @@ pgvector for nothing.
 invoice is therefore **permanently stuck at `received`**. This is a missing
 capability rather than a broken one, so it is listed rather than silently added.
 
+### 5.6b Price cases could be resolved by anyone `FIXED`
+`spend.py` had **no role set at all**, so `POST /spend/price-cases/{id}/resolve`
+was reachable by any authenticated tenant member, `Read Only` included: anyone
+could dismiss a live price anomaly and silently retire the control that flagged
+it. `POST /spend/price-evaluate/{po_id}` was likewise ungated, and evaluation
+writes case rows.
+
+- Fix: `RESOLVE_ROLES` is deliberately narrower than `EVALUATE_ROLES` —
+  opening a case is the intended workflow for a buyer on a PO they raised,
+  closing one is not. See `EVALUATE_ROLES` / `RESOLVE_ROLES` in `spend.py`.
+- Test: `test_price_intel.py::test_baseline_and_anomaly_flow` now asserts a
+  `Buyer` is refused and a `Read Only` seat cannot evaluate.
+- Deliberately **not** gated: `/ai/complete`, `/ai/stream`, `/ai/negotiate`. A
+  blanket gate there would destroy the copilot's honesty design — a caller
+  without permission for a tool still gets an answer, with the refusal admitted
+  in `notes` rather than hidden behind a 403. `test_grounding_respects_role_gates`
+  pins that behaviour and it is the right behaviour. The real control is
+  per-tool, and `request_approval` is deliberately not copilot-reachable.
+
 ### 5.7 `services/contract.py` promises a `renewed_from` link that does not exist `OPEN`
 The docstring advertises contract renewal via a successor link; there is no such
 column and no code path.

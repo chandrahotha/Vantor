@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Required docs present
         run: |
-          for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md docs/00-plan/REPOSITORY_AUDIT.md docs/00-plan/MIGRATION_PLAN.md docs/00-plan/BUGS.md; do test -f "$f" || (echo "missing $f" && exit 1); done
+          for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md docs/00-plan/REPOSITORY_AUDIT.md docs/00-plan/MIGRATION_PLAN.md docs/00-plan/BUGS.md docs/00-plan/SCORECARD.md; do test -f "$f" || (echo "missing $f" && exit 1); done
           echo "docs gate OK"
       - uses: actions/setup-python@v5
         with:

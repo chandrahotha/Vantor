@@ -5,6 +5,11 @@
 
 **Last updated: 2026-09-27. Branch `main` = `origin/main`.**
 
+> **Before you plan anything:** read [`SCORECARD.md`](SCORECARD.md). It says, in
+> one place, what is strong, what is not, and the three unglamorous pieces of work
+> that close the gap between "the code is good" and "the product is trustworthy".
+> [`BUGS.md`](BUGS.md) is the per-defect register.
+
 ## Where we stand
 
 - **Backend: implemented and green.** FastAPI + Postgres/RLS + Alembic (16 revisions, one head, no destructive `upgrade()`), Keycloak OIDC, canonical hashed audit writer, RQ worker + beat scheduler. 128 backend tests.

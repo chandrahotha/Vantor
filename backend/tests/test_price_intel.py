@@ -45,10 +45,10 @@ def client(monkeypatch):
     get_settings.cache_clear()
 
 
-def _h(pem: bytes, sub="buyer1", tenant="t1"):
+def _h(pem: bytes, sub="buyer1", tenant="t1", roles=("Buyer",)):
     now = datetime.now(timezone.utc)
     tok = jwt.encode({"iss": ISS, "aud": AUD, "sub": sub, "tenant_id": tenant,
-                      "realm_access": {"roles": ["Buyer"]},
+                      "realm_access": {"roles": list(roles)},
                       "exp": now + timedelta(minutes=5), "iat": now},
                      pem, algorithm="RS256", headers={"kid": "pi-kid"})
     return {"Authorization": f"Bearer {tok}"}
@@ -101,9 +101,22 @@ def test_baseline_and_anomaly_flow(client):
     assert cases[0]["varianceBp"] == variance_bp(baseline_minor=510, quoted_minor=800) == 5686
     assert cases[0]["samples"] == 3
     cid = cases[0]["id"]
-    assert c.post(f"/api/v1/spend/price-cases/{cid}/resolve", json={"status": "bogus"}, headers=_h(pem, "u0", "acme")).status_code == 422
-    assert c.post(f"/api/v1/spend/price-cases/{cid}/resolve", json={"status": "handed_off"}, headers=_h(pem, "u0", "acme")).json()["data"]["status"] == "handed_off"
-    assert c.get("/api/v1/spend/price-cases?status=open", headers=_h(pem, "u0", "acme")).json()["data"] == []
+    # Resolving a case RETIRES the control that flagged it, so it is narrower
+    # than opening one: the buyer who raised the over-priced PO must not be able
+    # to dismiss the anomaly raised against it. This router had no role set at
+    # all, so this was previously reachable by any member of the tenant.
+    buyer = _h(pem, "u0", "acme")
+    assert c.post(f"/api/v1/spend/price-cases/{cid}/resolve",
+                  json={"status": "bogus"}, headers=buyer).status_code == 403
+    finance = _h(pem, "fin1", "acme", roles=("Finance Reviewer",))
+    assert c.post(f"/api/v1/spend/price-cases/{cid}/resolve",
+                  json={"status": "bogus"}, headers=finance).status_code == 422
+    assert c.post(f"/api/v1/spend/price-cases/{cid}/resolve",
+                  json={"status": "handed_off"}, headers=finance).json()["data"]["status"] == "handed_off"
+    assert c.get("/api/v1/spend/price-cases?status=open", headers=finance).json()["data"] == []
+    # a Read Only seat cannot evaluate either — evaluation writes case rows
+    readonly = _h(pem, "ro1", "acme", roles=("Read Only",))
+    assert c.post(f"/api/v1/spend/price-evaluate/{spike['id']}", headers=readonly).status_code == 403
     # other tenant isolated
     assert c.get("/api/v1/spend/price-cases", headers=_h(pem, "u0", "other")).json()["data"] == []
 

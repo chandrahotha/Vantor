@@ -28,9 +28,32 @@ from ..services.spend_intel import maverick as _maverick
 
 router = APIRouter(tags=["spend"])
 
+#: Roles that may run a price evaluation. Evaluation *opens* anomaly cases, and a
+#: buyer triggering one on a PO they raised is the intended workflow, so this is
+#: the ordinary write-role set used by the rest of the product.
+EVALUATE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin",
+                  "Procurement Manager", "Buyer", "Category Manager", "Finance Reviewer"}
+
+#: Roles that may *resolve* a case. Resolving **retires the control** that flagged
+#: it, so it is narrower than opening one: a Buyer who raised a PO must not be
+#: able to dismiss the price anomaly raised against it. This router previously had
+#: no role set at all, so `POST /spend/price-cases/{id}/resolve` was reachable by
+#: any authenticated member of the tenant, `Read Only` included.
+RESOLVE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin",
+                 "Procurement Manager", "Finance Reviewer", "Category Manager"}
+
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:
     yield from get_db(actor.tenant_id)
+
+
+def _require(actor: Actor, roles: set[str], what: str) -> None:
+    # Fail-closed: empty/missing roles can never write.
+    if not set(actor.roles or ()) & roles:
+        raise HTTPException(status_code=403, detail={
+            "code": "INSUFFICIENT_ROLE",
+            "message": f"Insufficient role to {what}",
+        })
 
 
 @router.get("/spend/summary")
@@ -122,6 +145,7 @@ def price_evaluate(po_id: str, request: Request, actor: Actor = Depends(get_acto
     """Evaluate every PO line against its like-for-like baseline; open anomaly
     cases at |variance| >= 10%. Lines without enough history are SKIPPED with
     reasons (never fake-flagged)."""
+    _require(actor, EVALUATE_ROLES, "run a price evaluation")
     from ..models.purchase import PurchaseOrder
     po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == po_id)).scalar_one_or_none()
     if po is None:
@@ -212,6 +236,7 @@ class ResolveIn(BaseModel):
 def resolve_case(case_id: str, payload: ResolveIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     from ..services.audit import record_event as _rec2
 
+    _require(actor, RESOLVE_ROLES, "resolve a price case")
     row = db.execute(select(PriceCase).where(PriceCase.tenant_id == actor.tenant_id, PriceCase.id == case_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Case not found")

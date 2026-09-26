@@ -26,6 +26,16 @@ import json
 
 router = APIRouter(tags=["ai"])
 
+# Deliberately no blanket role gate on this surface. The copilot's honesty design
+# is that a caller *without* permission for a tool still gets an answer, with the
+# refusal admitted in `notes` rather than hidden behind a 403. A gate here would
+# destroy that: `test_grounding_respects_role_gates` pins the behaviour, and it
+# is the right behaviour. The real control is per-tool (`check_tool_access` in
+# `run_tool` and `COPILOT_TOOL_ARG_KEYS` for copilot-invoked tools), and
+# `request_approval` — the only mutating tool — is deliberately not copilot-
+# reachable and requires an Approver-role decision through the HITL endpoint.
+# Provider spend is bounded by the rate limiter, and every call is audited.
+
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:
     yield from get_db(actor.tenant_id)

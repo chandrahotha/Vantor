@@ -28,6 +28,10 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 coverage/
+# `pytest --cov` writes this at the repo root; it is a local run artifact, not source.
+.coverage
+.coverage.*
+htmlcov/
 playwright-report/
 test-results/
 .pytest_cache/
