@@ -50,6 +50,7 @@ flowchart TD
 | 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–10, Definition of Done | PLANNED |
 | 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix | VERIFIED |
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
+| 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
 | 1 | [`01-product/requirements.md`](01-product/requirements.md) | PRD: modules, graph, non-negotiables | PLANNED |
 | 2 | [`02-architecture/system.md`](02-architecture/system.md) | Modular monolith, free topology | PLANNED |
 | 2 | [`02-architecture/domain.md`](02-architecture/domain.md) | 60-entity domain model | PLANNED |

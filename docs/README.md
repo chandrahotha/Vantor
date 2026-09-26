@@ -35,6 +35,7 @@ docs/
 | 0 | Repository audit | BLOCKED | [00-plan/REPOSITORY_AUDIT.md](00-plan/REPOSITORY_AUDIT.md) |
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
 | 0 | Original brief (masterdoc) | Reference | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
+| 0 | Session handoff | IMPLEMENTED | [00-plan/SESSION.md](00-plan/SESSION.md) |
 | 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
 | 2 | System architecture | PLANNED | [02-architecture/system.md](02-architecture/system.md) |
 | 2 | Domain model | PLANNED | [02-architecture/domain.md](02-architecture/domain.md) |

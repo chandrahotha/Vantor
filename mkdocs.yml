@@ -7,6 +7,7 @@ nav:
       - Roadmap: docs/00-plan/ROADMAP.md
       - Repository audit: docs/00-plan/REPOSITORY_AUDIT.md
       - Migration plan: docs/00-plan/MIGRATION_PLAN.md
+      - Session handoff: docs/00-plan/SESSION.md
   - Product: docs/01-product/requirements.md
   - Architecture:
       - System: docs/02-architecture/system.md
