@@ -41,6 +41,17 @@ export default function Copilot() {
   const [q, setQ] = useState("");
   const [providers, setProviders] = useState<ProviderList | null>(null);
   const [provider, setProvider] = useState("");
+  // VNT-038. The provider picker has always offered options labelled "needs your
+  // API key", with no way to supply one — so picking one was a dead end that
+  // failed at request time with an upstream error the user could not act on. The
+  // backend has accepted a per-request key all along (`X-Vantor-Provider-Key`);
+  // only the entry flow was missing.
+  //
+  // The key lives in component state and nowhere else: not localStorage, not
+  // sessionStorage, not the server. It goes out as a header on the one request it
+  // applies to and is then forgotten, because a BYOK secret persisted in a browser
+  // is a credential at rest on a shared machine.
+  const [providerKey, setProviderKey] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -57,6 +68,13 @@ export default function Copilot() {
   const { state, error } = useBoot(load);
   const shownErr = err || error;
 
+  // The provider that needs a key typed in: one that requires a key and has none
+  // on the server. A provider the server is already configured for never shows
+  // the field, because typing a key there would override a working deployment
+  // key for no reason.
+  const selected = providers?.available.find((p) => p.name === provider);
+  const needsOwnKey = !!(selected?.needsKey && !selected.configured);
+
   // Never leave an open stream behind: navigating away mid-answer used to leave
   // the connection running and set state on an unmounted component.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -68,6 +86,14 @@ export default function Copilot() {
   async function send(prompt?: string) {
     const text = (prompt ?? q).trim();
     if (!text || busy) return;
+    // Refuse before the request rather than letting the provider fail: an
+    // upstream 401 for a missing key reads as "the app is broken" and gives the
+    // user nothing to act on.
+    const chosen = providers?.available.find((p) => p.name === provider);
+    if (chosen?.needsKey && !chosen.configured && !providerKey.trim()) {
+      setErr(`${chosen.name} needs an API key. Enter one below, or choose another provider.`);
+      return;
+    }
     setQ("");
     setBusy(true);
     setErr("");
@@ -96,7 +122,7 @@ export default function Copilot() {
     let acc = "";
     try {
       await aiStream(
-        { prompt: text, provider: provider || undefined },
+        { prompt: text, provider: provider || undefined, providerKey: providerKey.trim() || undefined },
         {
           signal: controller.signal,
           onDelta: (d) => {
@@ -162,7 +188,41 @@ export default function Copilot() {
                   </option>
                 ))}
               </select>
+              {needsOwnKey ? (
+                <>
+                  <label style={{ fontSize: 12 }} htmlFor="copilot-provider-key">
+                    {selected?.name} API key
+                  </label>
+                  <input
+                    id="copilot-provider-key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={providerKey}
+                    onChange={(e) => setProviderKey(e.target.value)}
+                    placeholder="sk-…"
+                    style={{ fontSize: 12, minWidth: 220 }}
+                  />
+                  <button
+                    type="button"
+                    className="ghost"
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                    onClick={() => setProviderKey("")}
+                    disabled={!providerKey}
+                  >
+                    Clear key
+                  </button>
+                </>
+              ) : null}
             </div>
+          ) : null}
+          {needsOwnKey ? (
+            <p style={{ color: "var(--muted)", fontSize: 12, margin: "-4px 0 10px" }}>
+              Your key is sent only with the next request. It is not stored in this
+              browser and not saved on the server, so you will be asked again after a
+              reload. The server&apos;s own key for {selected?.name} is used instead if
+              one is configured.
+            </p>
           ) : null}
 
           <div
