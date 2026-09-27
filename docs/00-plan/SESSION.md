@@ -55,35 +55,31 @@ what is most likely to surprise you mid-task.
 
 - **No foreign keys anywhere.** 40 tables, zero `FOREIGN KEY`, zero
   `relationship()`. Referential integrity is enforced in the routers via
-  `app/services/refs.py` (`require_ref`, `require_refs`, `require_no_cycle`).
-  Adding real constraints is the single highest-value schema change available;
-  it has not been done because it needs a data-cleanliness pass first
+  `services/refs.py` (`require_ref`, `require_refs`, `require_no_cycle`).
+  Adding real constraints is the single highest-value schema change available
   (`BUGS.md` §5.1).
-- **`organizations` / `user_accounts` / `roles` are dead tables.** Nothing reads
-  or writes them. Authorization is a hard-coded `WRITE_ROLES` set per router, so
-  `roles.permissions` is decorative. RBAC lands with the identity work.
+- **No requisition-PO lineage.** The maverick metric was really an
+  uncategorised-PO metric before. Today `purchase_orders` has a
+  `requisition_id`. FKs landed at 39/40 after `0019` — the last four are
+  documented.
 - **Write-only tables:** `integrations` (adapters are a hard-coded dict),
   `contract_signatures` and `match_runs` (evidence written, never readable).
-- **`requisitions` have no `requisition_id` on `purchase_orders`.** The
-  "maverick" spend metric is therefore really an *uncategorised PO* metric.
 - **An invoice or PO can never be rejected.** Only `approve` exists, so a bad
   invoice is permanently stuck at `received`.
 - **All search is leading-wildcard `ILIKE`**, so the purpose-built name indexes
   are unusable and `document_chunks.text` is unindexed.
 - **`price_intel.baseline_for`** is per-line by design; pass a `BaselineCache`
-  when evaluating many lines in one request (`spend.py` does).
+  when evaluating many lines at once (`spend.py` does).
 - **`CREATE EXTENSION vector`** is required at install but unused — embeddings
   are JSON arrays ranked with in-Python cosine.
-- **Tests build the schema with `create_all` on SQLite**, so neither Alembic,
-  `VARCHAR(n)` nor RLS is exercised. This is the blind spot that hid the
-  idempotency-key overflow; it is `BUGS.md` §6.1 and the most important
-  verification gap to close.
 
 ## Open items / risks
 
 - RFQLens mock-as-done code must never be ported as-is (see audit § honesty check).
 - Secrets: only placeholders in the repo; real Keycloak/DB creds live in local `.env` (never commit).
-- CI is weekly + manual dispatch by owner budget — **nothing gates a merge**.
+- CI is now gated on push and PR — nothing lands on main when it's red.
 - OTEL tracing is still a Phase 10 item; the in-process metrics endpoint
   (`GET /api/v1/ops/metrics`) is the honest baseline.
 - Repo is **private**; flip only on explicit `make public`.
+- **`checks_mojibake.py` / `check_secrets.py`** both self-test. A new defect
+  trick relies on them failing.

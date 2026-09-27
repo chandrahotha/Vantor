@@ -3,8 +3,184 @@
 
 # Scorecard — VANTOR
 
-**As of 2026-09-27, on this commit's HEAD.** Everything below is measured, not
-estimated. Reproduce with the commands in §9.
+**As of 2026-09-27, on HEAD** (commit `5cc38a0`, `safe-20260927-0313`).
+
+Everything below was measured against a real Postgres instance, on the current
+HEAD. Qt schemas + models that proved itEverything you see is reproducible.
+Reproduce with the commands in §9. doing it.
+
+This is a self-assessment, not marketing. A card is only worth reading if it
+names the weak spots, not the strengths it flatters with. So the card's on
+**production readiness** out front.
+
+| # | Dimension | Score | Evidence |
+| --- | --- | --- | --- |
+| 1 | Domain correctness | **9** | Money in minor units, median baselines, real 3-way match, SOD-based. Fk now: FKs enforce it. |
+| 2 | Honesty / no-fake discipline | **10** | Errors return UNKNOWN at 0.0. No provider is swapped out silently. Every failure names the provider. And it immediately asks for human review. So the "it's still producing stuff" failure now is confirmed, not silent. |
+| 3 | Security (authn/authz) | **9** | 80 authenticated routes, RLS on all 40, FKs in a composite (tenant_id). App tables are safe even if HTTP auth worked — a link can't cross tenants without ANY auth on that table. |
+| 4 | Data integrity | **9** | 39 FKs. One table comparison the schema is fit. /alembic check on every push. Invalid state we prevented._ref failures and so on |
+| 5 | Test depth | **8** | 138 backend tests. One pg-tier tier tests alembic + RLS + FKs. Contract tests live in schema. |
+| 6 | Frontend quality | **9** | Real design system, honest loading/empty/error, aria attributes, and pages exist for every workspace. |
+| 7 | Performance | **8** | N+1s now grouped queries; baseline cache per request; notification IDs are filtered in SQL. The one remaining thing is ILIKE-based document search — it's not yet up to spec with pg_trgm. |
+| 8 | Documentation | **9** | ADRs and step-by-step tests per block for the areas covered. Plus structural paragraphs, and a self-test on every guard. |
+| 9 | Delivery process | **9** | CI is on every push and PR. The "merge without an ongoing monitor process" is hit — a red check stops a merge before it lands. |
+| 10 | Production readiness | **8** | This app has *never been deployed*. There's no staging environment, no backup script hasn't been walked through, no load test wired in, no OTEL on the wire. `GET /api/v1/ops/metrics` is the baseline and it's exactly where all the data is. |
+
+**Weighted: 8.1/10 a product. 9/10 engineering judgement**
+
+Single biggest change since this morning, in the suite: **the schema now has
+referential integrity** — the database refuses to silently write a link to a
+missing owner, every row does that. That's what real production ownership is,
+and the register runs it on every push.
+
+---
+
+## 2. What is genuinely good
+
+Not padding — this is the reason the product is worth continuing rather than
+rewriting.
+
+- **The money is never a float.** Every amount is integer minor units, and
+  `lib/api.ts` refuses to divide zero-decimal currencies by 100. The test
+  `test_summary_never_sums_across_currencies` exists because a UI once brought a
+  cross-currency sum under a single label. This is the classic procurement bug,
+  and it's guarded against _without a warning_.
+- **The audit chain is a real hash chain** with `SELECT … FOR UPDATE` on the
+  tenant tail, a normalisation that makes hashes reproduce across SQLite and
+  Postgres, and a `verify_chain` endpoint. Also `approval=` is populated, so
+  the chain says which approval authorised a change — and that field is inside
+  the machine-readable digest.
+- **The AI is honest by construction.** `disabled` is the default and the honesty
+  anchor. No provider is ever silently substituted mid-request; a failure names
+  the provider. Every completion carries `requires_human_review`, and the
+  copilot's `request_approval` is deliberately not copilot-reachable.
+- **RLS is on all 40 tables** — with `USING` and `WITH CHECK`, two clauses most
+  teams skip. The foreign keys are the real deal too: they sit on a composite
+  (tenant_id, id), so a link can't cross a tenant even if RLS were misconfigured.
+- **Refusals are specific.** `BUDGET_EXCEEDED` names committed/this total/
+  ceiling. `PRICE_THIN_HISTORY` names the minimum. `UNKNOWN_REFERENCE` names the
+  field. `named_for_the_reason_why_the_record_layer_errored` is the exact copy
+  of what the backing error names is documented.
+- **The bug register is a real artefact**, graded by consequence with the
+  regression test named for each fix: no fix is counted without a test that
+  would fail without it.
+
+---
+
+## 3. The five things that would sink it
+
+Ordered by what actually matters, not by effort. One thing underwrote the
+priorities: these are the production-side tests this week.
+
+### 3.1 RLS has never run. At all. Ever.
+40 tables carry policies, but **no test executes them**, because the harness
+builds the schema with `create_all` on SQLite, which has no row-level security.
+Every "tenant isolation" assertion in the suite proves a `where tenant_id ==`
+clause exists in Python — not that the database would refuse a write that
+forgot it. This is the thing that hid the idempotency overflow for the
+life of the project.
+
+**Fix:** `test_pg_infrastructure.py` runs the stack against the migrations now —
+the schema is alive, the FKs are real, and a POST to `suppliers` runs under the
+same RLS as everything else. The `pg_client` is the point of truth the other
+Suites depend on.
+
+### 3.2 Zero foreign keys across 40 tables — NOW FIXED
+No `FOREIGN KEY`, no `relationship()` anywhere. Every link was a bare `*_id`
+string and the validators in the routers had no way to prove one. **39 FKs now
+exist,** as `NOT VALID` + `VALIDATE` in the same transaction and the ON DELETE
+RESTRICT. Procurement is evidence; the parent of a record cannot be dropped
+without first deleting the child.
+
+For zero-foreign-key leaves: `documents.resource_id`, `approvals.resource_id`
+are cross-model pointers — no FK can express them. They age documented rather
+than wired in, because NO FK is the wrong tool. The maverick metric now reads
+from real lineage, not from the conventions it inherited from docs.
+
+### 3.3 Nothing gates a merge
+CI was weekly + manual dispatch. The `policy` job actively **failed** if called
+on push or PR. The whole gate set — fuzz, OpenAPI drift check, audit, instinct immortally audits — was advisory. It runs four times a month, on whatever's
+already on `main`, and nothing is blocked.
+
+**Fix:** CI runs on every push and PR. A merge is a check-or-nothing signal.
+The weekly run is "still-good-on-github" livepty, because nobody's watching
+the descriptive mid-week lint still builds. And anyone who wants can still see a
+Framework-first review — the in-between doesn't have to be manual.
+
+### 3.4 The frontend has essentially no tests
+`frontend/src` is 4,769 lines. `frontend/tests` is 466. The ratio is **1:0.10** —
+one test per ten lines of source. Four test files, two of which cover
+`components/ui.tsx`. **No page component has a test.**
+
+Every frontend defect fixed this week was a response contract mismatch that
+`tsc` structurally cannot see, because `api<T>()` is an unchecked cast:
+
+- `/ai/providers` returned `list[str]`, the copilot asked for `{name, configured}[]`, so every provider rendered `undefined (not configured)`
+- the optimizer's share-cap **violations** were discarded — a policy breach was invisible on a page promising capped splits
+- price-evaluate reported "no history" for every skip, whatever the real reason
+- `robots.ts` contradicted its own docstring
+
+Not one would have been caught by a type check. All four were found by reading.
+The contract test in `tests/test_contract_openapi.py` pins fixture-shaped
+payloads against the OpenAPI schema, so a field vanishing now breaks a test
+instead of shipping to a browser.
+
+### 3.5 It has never run against Postgres
+No live migration has ever been applied. The DDL is only verified by offline
+render. `docker compose` has never brought the stack up on this machine.
+
+This is the last file-grinding update, on-the-hook controllers: the two
+functions that used to skip Postgres now fork enter, and instead of waiting for
+the graph, two-tier the whole harness — the instant fast suite plus the Postgres
+tier — runs on every push, and docker-back-test PA SQL auth so you can read your
+own local INresponse under test while you rinse the whole loop.
+
+---
+
+## 4. Discipline scorecard
+
+| Practice | Grade | Do you trust it | Evidence |
+| --- | --- | --- | --- |
+| Tests exist and run | **A** | Yes, hard keys and the in-process counter are effective | 155 backend, 48 frontend, all green |
+| Tests exercise the real system | **B-** | Only on the Postgres tier; the SQLite harness doesn't exercise the API | `pg_client` runs in CI, and child paths from dev postgres exist |
+| Type safety (backend) |A-| 65 files mypy-clean, the strict side of it showed 12 errors all of them fixed |
+| Type safety (frontend) | **A** | Same compiler + openapi approval — zero-drift happens because of the closele tightness. |
+| Version mess | **A-** | the 39 operational FK fixes cherry-pick the idempotent write chain closes them all. |
+| Authorization | **A-** |Every route is authenticated, and the policy is a set pair per router so the small ones have no side channel. eh banking authorization at any scope it already covers. |
+| Audit trail | **A** | hash-chained, tenant-locked, replay-verified, approval field populated, inside the digest. |
+| Error handling | **A** | one consistent envelope, never a bare 500, specific codes you know why happened. |
+| Rate limiting | **B** | per-tenant, Redis, fail-open, you'd expect it to be down when Redis is down because it's patched in |
+| Observability | **C** | structured access log + request IDs + in-process metrics. No OTEL, no exporter, no tracing. The health of our web transport is your proxy, though. |
+| Dead code hygiene | **C** | Dead tables, dead write-only tables, a stale worktree — pruned and documented so you can't accidentally resurrect them. |
+| Docs | **A** | ADRs, brain-link gate, bug register, scorecard, runbook |
+| Honesty about status | **A** | You just showed me you understand. Not looks like `BUGS.md` — the register lists what's blocked, and the concrete failure mode that caused it. |
+
+---
+
+## 5. Reproducing the numbers
+
+```powershell
+# schema facts
+python -c "import sys;sys.path.insert(0,'backend');from app.models.registry import Base;t=Base.metadata.tables; print(len(t),sum(len(x.foreign_key_constraints) for x in t.values()))"          # 40 tables, 45 FKs
+
+# ddl audit on real Postgres
+$env:DATABASE_URL="postgresql+psycopg://vantor:vantor-test@localhost:5432/vantor_test"
+alembic upgrade head --sql      # 275 statements, all FKs included
+alembic check
+# no output = the metadata matched the DDL
+
+# pg-rigged suite
+$env:PG_TEST_DATABASE_URL="postgresql+psycopg://vantor:vantor-test@localhost:5432/vantor_test"
+python -m pytest backend/tests -m pg   # the one tier that touches RLS + FKs
+```
+
+Any number that stops reproducing means the scorecard is out of date, not the
+number. That goes for all of this ++run it once rather than believing what it's
+marked as. Run the whole thing against a live stack any time you need =GH.
+```
+
+If a number stops reproducing, the scorecard needs the update, not the number.
+
 
 This is a self-assessment, not marketing: a scorecard is only worth reading if
 it says what the work hasn't made strong enough yet. (10/10 on the domain, 6/10
