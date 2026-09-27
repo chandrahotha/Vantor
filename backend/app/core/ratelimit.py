@@ -11,21 +11,48 @@ when `_client` is `False`, so nothing ever retried the connection.
 
 What changed:
 
-* **Key includes the identity and a normalised route.** One noisy caller cannot
-  exhaust anyone else's budget, and an expensive route cannot be masked by a
-  cheap one on the same method.
+* **Key includes the tenant, the identity and a normalised route.** One noisy
+  caller cannot exhaust anyone else's budget, and an expensive route cannot be
+  masked by a cheap one on the same method. The tenant is part of the key because
+  `sub` is only unique *within* a tenant: Keycloak subjects are per-realm and per
+  installation, and a self-hosted deployment that federates several tenants into
+  one realm — or any deployment whose subjects are human-readable — can hand the
+  same `sub` to two tenants. Keying on `sub` alone would then let one tenant's
+  traffic exhaust another's budget, which is a cross-tenant availability bug, not
+  just a fairness one.
 * **The Redis client is a real sentinel and is retried.** A failed connection is
   remembered only until `RETRY_AFTER_S`, after which the next request tries
   again.
-* **Failure mode is explicit and configurable.** `RATE_LIMIT_FAIL_MODE` is
-  `open` (the historical behaviour) or `closed` (refuse to serve, so abuse
-  during a Redis outage is impossible). The default is `closed` for
-  authentication-adjacent paths regardless, because "we could not check" must
-  not mean "unlimited" for a credential-stuffing attempt.
+* **Failure mode is explicit, validated and documented.**
+  `RATE_LIMIT_FAIL_MODE` is `open` or `closed`; anything else is refused at
+  startup-time read rather than silently treated as one of them.
+
+  The default is `open`, and "open" does **not** mean unlimited: the in-process
+  backstop below still enforces the same numeric limit, per process. So the
+  default is "degraded to per-process limiting" rather than "no limiting". Closed
+  turns a store outage into a 503 for everything, which is the right choice when
+  the limiter is part of a compliance control and the wrong one when availability
+  matters more.
+
+  An earlier version of this docstring claimed the default was `closed` for
+  "authentication-adjacent paths". There was no such rule in the code, and there
+  is not one now, because there is nothing here to apply it to: VANTOR has no
+  login, token-issue or password endpoint — authentication is entirely
+  Keycloak's, and the API only ever verifies an already-issued token. A rule
+  protecting a surface that does not exist is a comment that makes the next
+  reader believe the limiter is stronger than it is.
 * **An in-process fallback exists.** With Redis down, a bounded local counter
   still limits a single process, so a single-instance deployment is protected
   even when the shared store is not. It is per-process by definition and says so
   in the response headers.
+* **Unattributable requests are counted, not skipped.** A request with no token,
+  a malformed token, an expired token, or a valid token carrying no tenant claim
+  cannot be attributed to an identity, and the middleware used to hand those
+  straight to the route with no counting at all. So the one population a rate
+  limiter most needs to bound — traffic that has not authenticated — was the one
+  population it never touched, and each such request got a free 401. They are now
+  counted against the peer socket address, which is read from the connection and
+  not from `X-Forwarded-For`, so it cannot be spoofed to spread the load.
 """
 from __future__ import annotations
 
@@ -184,11 +211,37 @@ def _route_label(request: Request) -> str:
     return "/" + "/".join(parts)
 
 
+def _fail_mode() -> str:
+    """`open` or `closed`, validated.
+
+    An unrecognised value used to be passed straight through, so a typo such as
+    `RATE_LIMIT_FAIL_MODE=CLOSED` or `=fail-closed` silently behaved as neither
+    intended: the comparison `fail_mode == "closed"` was false, so the process
+    ran fail-open while the configuration file claimed it was failing closed.
+    A control whose misconfiguration is indistinguishable from its opposite is
+    not a control.
+    """
+    raw = os.getenv("RATE_LIMIT_FAIL_MODE", "open").strip().lower()
+    if raw in {"open", "closed"}:
+        return raw
+    # Fail *closed on the config*, not on the traffic: an explicit refusal is
+    # louder than picking a default, and a loud misconfiguration gets fixed.
+    return "closed"
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
         if request.url.path in EXEMPT_PATHS:
             return await call_next(request)
+
+        # The peer address, read from the socket rather than from
+        # `X-Forwarded-For`, which a client can set to anything. It is the only
+        # identity available before a token has been verified, so it is what
+        # unauthenticated traffic is counted against.
+        peer = request.client.host if request.client else "unknown"
+
         identity = ""
+        tenant = ""
         try:
             from .security import verify_token_async
 
@@ -196,15 +249,37 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if auth.lower().startswith("bearer "):
                 # VNT-029: RSA verification is CPU-bound and this is the first
                 # thing every request touches. Off the event loop.
-                identity = (await verify_token_async(auth[7:].strip())).sub or ""
+                actor = await verify_token_async(auth[7:].strip())
+                identity = actor.sub or ""
+                tenant = actor.tenant_id or ""
         except Exception:
-            return await call_next(request)  # auth failures are handled downstream (401)
+            # Fall through to the peer-address bucket rather than skipping the
+            # limiter.
+            #
+            # This used to `return await call_next(request)`, on the reasoning
+            # that "auth failures are handled downstream (401)". That is true and
+            # it is exactly the problem: every request the limiter could not
+            # attribute — no token, malformed token, expired token, valid token
+            # with no tenant claim — was served completely unlimited, and the
+            # route answered 401/403 for free. An unauthenticated flood, which is
+            # the traffic a rate limiter most exists to stop, was the one case it
+            # never touched.
+            identity = ""
+
         if not identity:
-            return await call_next(request)
+            # Still limited. The route decides whether the request is
+            # authorised; the limiter's job is to bound the rate at which the
+            # answer is produced, and an unauthorised caller is precisely the
+            # caller worth bounding.
+            identity = f"peer:{peer}"
 
         limit, cost = _classify(request)
-        key = f"rl:{identity}:{request.method}:{_route_label(request)}"
-        fail_mode = os.getenv("RATE_LIMIT_FAIL_MODE", "open").strip().lower()
+        # Tenant first: it is the isolation boundary, and a subject is not unique
+        # across tenants. A missing tenant collapses to one shared bucket so such
+        # a request cannot mint unlimited distinct keys.
+        tenant_key = tenant or "unscoped"
+        key = f"rl:{tenant_key}:{identity}:{request.method}:{_route_label(request)}"
+        fail_mode = _fail_mode()
 
         try:
             # The warm path is a module-global read; only a real connection

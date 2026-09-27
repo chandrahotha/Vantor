@@ -33,6 +33,100 @@ def migration():
     return _load_migration("0020_domain_constraints")
 
 
+def _all_migration_checks() -> dict[tuple[str, str], str]:
+    """Every CHECK created by *any* migration, not just 0020.
+
+    This fixture originally read 0020 alone, which was correct when 0020 was the
+    only migration adding CHECKs. The moment a second migration added one — 0021
+    for `verified_via` — the "is every model CHECK migrated?" assertion failed on
+    a constraint that *was* migrated, because the test had a hardcoded view of
+    which migrations exist. A guard that only knows about the constraint migration
+    that motivated it stops guarding as soon as the schema grows.
+
+    Obtained by *running* each migration's `upgrade()` against a recording stand-in
+    for alembic's `op`, rather than by reading the source. Two source-reading
+    approaches were tried first and both were wrong: scanning for "any list of
+    3-tuples" swept in 0019's foreign-key table (also `(table, column, target)`
+    triples, 38 phantom checks), and resolving loop variables through the AST found
+    nothing, because both 0020 and 0021 declare their checks inside
+    `for table, name, predicate in CHECKS:` loops.
+
+    Executing `upgrade()` is what an alembic run does anyway, so the recorder sees
+    exactly the constraints a real migration would create — and a migration that
+    would crash under a real `op` fails here loudly rather than being silently
+    skipped.
+    """
+    import importlib.util
+
+    class _EmptyResult:
+        """A result set with no rows, so a preflight check finds nothing to
+        complain about and the migration proceeds to the DDL this test wants."""
+
+        def mappings(self) -> list:
+            return []
+
+        def scalar_one_or_none(self):  # type: ignore[no-untyped-def]
+            return None
+
+    class _FakeBind:
+        def execute(self, *_a, **_k) -> _EmptyResult:  # type: ignore[no-untyped-def]
+            return _EmptyResult()
+
+    class RecordingOp:
+        """Stands in for `alembic.op`, recording the constraints it is asked for."""
+
+        def __init__(self) -> None:
+            self.checks: list[tuple[str, str, str]] = []
+
+        def create_check_constraint(self, name, table, predicate, **kw):  # type: ignore[no-untyped-def]
+            self.checks.append((name, table, str(predicate)))
+
+        def get_bind(self) -> _FakeBind:  # type: ignore[no-untyped-def]
+            # 0020 runs a data preflight before its DDL. Without a bind it
+            # would raise on `None.execute(...)` and the test would report a
+            # broken migration for a missing test double.
+            return _FakeBind()
+
+        def __getattr__(self, _item):  # type: ignore[no-untyped-def]
+            # Everything else a migration may do (add_column, create_index,
+            # execute, alter_column) is irrelevant here and must not explode.
+            return lambda *a, **k: None
+
+    out: dict[tuple[str, str], str] = {}
+    versions = BACKEND / "alembic" / "versions"
+    for path in sorted(versions.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        if not (spec and spec.loader):
+            continue
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            continue
+        recorder = RecordingOp()
+        module.op = recorder  # type: ignore[attr-defined]
+        upgrade = getattr(module, "upgrade", None)
+        if not callable(upgrade):
+            continue
+        try:
+            upgrade()
+        except Exception as exc:
+            raise AssertionError(
+                f"{path.name}: upgrade() failed against the recording op ({exc!r}). "
+                "A migration that cannot run is a broken migration."
+            ) from exc
+        for name, table, predicate in recorder.checks:
+            out[(table, name)] = predicate
+    return out
+
+
+@pytest.fixture(scope="module")
+def all_migration_checks() -> dict[tuple[str, str], str]:
+    return _all_migration_checks()
+
+
 @pytest.fixture(scope="module")
 def model_checks() -> dict[tuple[str, str], str]:
     """Every CHECK constraint declared on an ORM table: (table, name) -> SQL."""
@@ -98,13 +192,34 @@ def test_every_migrated_check_has_identical_predicate(migration, model_checks):
     assert not mismatched, f"CHECK predicate drift between migration and model: {mismatched}"
 
 
-def test_every_model_check_is_migrated(migration, model_checks):
+def test_every_model_check_is_migrated(model_checks, all_migration_checks):
     """A CHECK added to a model and not to a migration is the dangerous direction."""
-    migrated = {(t, n) for t, n, _ in migration.CHECKS}
-    unmigrated = sorted(set(model_checks) - migrated)
+    unmigrated = sorted(set(model_checks) - set(all_migration_checks))
     assert not unmigrated, (
         "the models declare CHECK constraints that no migration creates — the "
         f"database will not have them: {unmigrated}")
+
+
+def test_every_migration_check_is_declared_on_a_model(all_migration_checks, model_checks):
+    """The other direction: a CHECK in a migration that the model does not declare.
+
+    This is what `alembic check` catches, but only against a live database, so it
+    is asserted here where it runs on every push.
+    """
+    undeclared = sorted(set(all_migration_checks) - set(model_checks))
+    assert not undeclared, (
+        "migrations create CHECK constraints the models do not declare: "
+        f"{undeclared}")
+
+
+def test_migration_check_predicates_match_the_models(all_migration_checks, model_checks):
+    mismatched = [
+        {"table": table, "name": name,
+         "migration": predicate, "model": model_checks.get((table, name))}
+        for (table, name), predicate in all_migration_checks.items()
+        if (table, name) in model_checks and model_checks[(table, name)] != predicate
+    ]
+    assert not mismatched, f"CHECK predicate drift between migration and model: {mismatched}"
 
 
 def test_every_migrated_unique_exists_on_the_model(migration, model_uniques):

@@ -375,7 +375,13 @@ def sign_contract(contract_id: str, payload: SignIn, request: Request, actor: Ac
                             signer=actor.sub, method=payload.method, provider=payload.provider.strip(),
                             envelope_id=payload.envelope_id.strip(), snapshot_hash=digest,
                             status="signed" if payload.method == "internal" else "pending",
-                            verified_at=now if payload.method == "internal" else None)
+                            verified_at=now if payload.method == "internal" else None,
+                            # An internal signature is an authenticated click, not a
+                            # provider claim, and saying so is the difference
+                            # between a truthful provenance column and a decorative
+                            # one. An e-sign row starts with no provenance at all:
+                            # it has not been verified by anyone yet.
+                            verified_via="internal_click" if payload.method == "internal" else "")
     db.add(sig)
     try:
         db.flush()
@@ -408,14 +414,111 @@ class VerifySignIn(BaseModel):
     payload: dict = Field(default_factory=dict)
 
 
+@router.post("/contracts/signatures/provider-callback", status_code=200)
+async def provider_signature_callback(
+    request: Request,
+    provider: str = Query(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+) -> dict:
+    """An e-sign provider's answer, authenticated by HMAC.
+
+    This is the path where the *provider* states that an envelope was signed, and
+    the only one where the platform can honestly record a verified e-signature.
+    `POST /contracts/{id}/sign/verify` is the same transition performed by a
+    trusted human; both write a signature row, and `verified_via` records which
+    one produced it.
+
+    Unauthenticated by design — the caller is the provider, not a VANTOR user — so
+    the request is authenticated by the MAC instead. Three consequences, all
+    deliberate:
+
+    * **No user session, so `get_actor` is not used.** Requiring one would mean
+      the provider had to hold a VANTOR user's token, which is exactly the
+      confusion this endpoint exists to avoid.
+    * **Every refusal is the same shape.** An unknown envelope and a bad
+      signature produce the same status and comparable wording, so the endpoint
+      cannot be used to discover which envelope ids exist.
+    * **It is rate limited like any other unauthenticated request.** The limiter
+      counts traffic it cannot attribute against the peer address rather than
+      skipping it, which is what makes an unauthenticated endpoint safe to
+      expose at all.
+
+    The provider's shared secret is read from the environment (`env:`-style
+    reference only, never stored) and a provider with no secret configured is
+    refused — "not configured" must never mean "verification skipped".
+    """
+    from ..services import esign
+
+    provider = provider.strip()
+    raw = await request.body()
+    try:
+        esign.verify_callback(
+            provider=provider,
+            timestamp=request.headers.get("X-ESign-Timestamp", ""),
+            body=raw,
+            signature=request.headers.get("X-ESign-Signature", ""),
+        )
+        payload = esign.parse_body(raw)
+        sig, before = esign.apply_callback(
+            db,
+            provider=provider,
+            envelope_id=str(payload.get("envelope_id") or ""),
+            status=str(payload.get("status") or ""),
+            payload=payload,
+        )
+    except esign.CallbackError as exc:
+        db.rollback()
+        # 401 means "we do not believe you are the provider"; 422 means "you are
+        # the provider and your request is wrong". The split is safe precisely
+        # because every 422 branch sits *after* the MAC has been verified, so an
+        # attacker without the shared secret can never reach one and cannot use
+        # the status code to tell an unknown envelope from a bad signature.
+        # Collapsing them to one code would hide real provider misconfiguration
+        # behind an authentication error it does not deserve.
+        if exc.code in {
+            "ESIGN_SIGNATURE_INVALID",
+            "ESIGN_TIMESTAMP_STALE",
+            "ESIGN_TIMESTAMP_INVALID",
+            "ESIGN_PROVIDER_NOT_CONFIGURED",
+        }:
+            code, message = status.HTTP_401_UNAUTHORIZED, "Callback rejected"
+        else:
+            code, message = status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message
+        raise HTTPException(status_code=code, detail={
+            "code": exc.code, "message": message}) from exc
+
+    record_event(db, tenant_id=sig.tenant_id, actor=f"provider:{provider}",
+                 action="CONTRACT_SIGNATURE_PROVIDER_CALLBACK", resource="contract",
+                 resource_id=sig.contract_id,
+                 before={"status": before},
+                 after={"status": sig.status, "envelope": sig.envelope_id,
+                        "verifiedVia": sig.verified_via},
+                 source="provider_webhook", created_by=f"provider:{provider}")
+    db.commit()
+    return {"data": {"id": sig.id, "status": sig.status, "verifiedVia": sig.verified_via},
+            "pagination": None}
+
+
 @router.post("/contracts/{contract_id}/sign/verify", status_code=200)
 def verify_signature(contract_id: str, payload: VerifySignIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     """Apply a provider's confirmation to an open e-signature.
 
-    This is the missing half of VNT-023. It is a first-class endpoint rather than
-    an out-of-band adapter call because the provider's answer has to land on the
-    right row, and the only thing that can identify that row reliably is the
-    envelope id the tenant registered.
+    This is the **operator-attested** path, not the verified one. A legal
+    reviewer with `sign` authority is asserting what the provider said; the
+    platform is not checking with the provider at all. That is a legitimate and
+    sometimes necessary thing to do — a provider can be unreachable, or a
+    migration can leave envelopes whose confirmations were never delivered — but
+    it is a different claim from "the provider confirmed this", and until
+    VNT-023's second half it was recorded identically.
+
+    So the row is stamped `verified_via = 'manual_reconciliation'`, the audit
+    event says so, and `ck_signature_esign_verified_via` refuses a signed e-sign
+    row with no provenance at all. A verified provider callback is the other
+    route: `POST /contracts/signatures/provider-callback`.
+
+    It is a first-class endpoint rather than an out-of-band adapter call because
+    the provider's answer has to land on the right row, and the only thing that
+    can identify that row reliably is the envelope id the tenant registered.
     """
     from datetime import datetime, timezone
 
@@ -451,10 +554,16 @@ def verify_signature(contract_id: str, payload: VerifySignIn, request: Request, 
     sig.status = target
     sig.provider_payload = payload.payload or {}
     sig.verified_at = datetime.now(timezone.utc) if target == "signed" else sig.verified_at
+    # The provenance of this claim. Without it a row confirmed by the provider's
+    # signed callback and a row a reviewer typed are the same object in the
+    # database, in the API and in the audit chain.
+    sig.verified_via = "internal_click" if sig.method == "internal" else "manual_reconciliation"
     sig.updated_by = actor.sub
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_SIGNATURE_VERIFIED",
                  resource="contract", resource_id=contract_id,
-                 before={"status": before}, after={"status": target, "envelope": payload.envelope_id},
+                 before={"status": before},
+                 after={"status": target, "envelope": payload.envelope_id,
+                        "verifiedVia": sig.verified_via},
                  source="api", created_by=actor.sub)
     db.commit()
     db.refresh(sig)

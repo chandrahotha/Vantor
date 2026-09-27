@@ -2935,13 +2935,69 @@
         }
       }
     },
+    "/api/v1/contracts/signatures/provider-callback": {
+      "post": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Provider Signature Callback",
+        "description": "An e-sign provider's answer, authenticated by HMAC.\n\nThis is the path where the *provider* states that an envelope was signed, and\nthe only one where the platform can honestly record a verified e-signature.\n`POST /contracts/{id}/sign/verify` is the same transition performed by a\ntrusted human; both write a signature row, and `verified_via` records which\none produced it.\n\nUnauthenticated by design \u2014 the caller is the provider, not a VANTOR user \u2014 so\nthe request is authenticated by the MAC instead. Three consequences, all\ndeliberate:\n\n* **No user session, so `get_actor` is not used.** Requiring one would mean\n  the provider had to hold a VANTOR user's token, which is exactly the\n  confusion this endpoint exists to avoid.\n* **Every refusal is the same shape.** An unknown envelope and a bad\n  signature produce the same status and comparable wording, so the endpoint\n  cannot be used to discover which envelope ids exist.\n* **It is rate limited like any other unauthenticated request.** The limiter\n  counts traffic it cannot attribute against the peer address rather than\n  skipping it, which is what makes an unauthenticated endpoint safe to\n  expose at all.\n\nThe provider's shared secret is read from the environment (`env:`-style\nreference only, never stored) and a provider with no secret configured is\nrefused \u2014 \"not configured\" must never mean \"verification skipped\".",
+        "operationId": "provider_signature_callback_api_v1_contracts_signatures_provider_callback_post",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Tenant Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Provider Signature Callback Api V1 Contracts Signatures Provider Callback Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/contracts/{contract_id}/sign/verify": {
       "post": {
         "tags": [
           "contracts"
         ],
         "summary": "Verify Signature",
-        "description": "Apply a provider's confirmation to an open e-signature.\n\nThis is the missing half of VNT-023. It is a first-class endpoint rather than\nan out-of-band adapter call because the provider's answer has to land on the\nright row, and the only thing that can identify that row reliably is the\nenvelope id the tenant registered.",
+        "description": "Apply a provider's confirmation to an open e-signature.\n\nThis is the **operator-attested** path, not the verified one. A legal\nreviewer with `sign` authority is asserting what the provider said; the\nplatform is not checking with the provider at all. That is a legitimate and\nsometimes necessary thing to do \u2014 a provider can be unreachable, or a\nmigration can leave envelopes whose confirmations were never delivered \u2014 but\nit is a different claim from \"the provider confirmed this\", and until\nVNT-023's second half it was recorded identically.\n\nSo the row is stamped `verified_via = 'manual_reconciliation'`, the audit\nevent says so, and `ck_signature_esign_verified_via` refuses a signed e-sign\nrow with no provenance at all. A verified provider callback is the other\nroute: `POST /contracts/signatures/provider-callback`.\n\nIt is a first-class endpoint rather than an out-of-band adapter call because\nthe provider's answer has to land on the right row, and the only thing that\ncan identify that row reliably is the envelope id the tenant registered.",
         "operationId": "verify_signature_api_v1_contracts__contract_id__sign_verify_post",
         "security": [
           {

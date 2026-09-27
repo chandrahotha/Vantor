@@ -80,6 +80,15 @@ class ContractSignature(Base, TenantMixin):
     snapshot_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # VNT-023. `verified_at` answers *when*; this answers *on whose word*. Without
+    # it, a signature confirmed by a signed callback from the provider is
+    # indistinguishable from one an operator typed into an authenticated form, and
+    # a dispute over a contract has no way to resolve that question. Values:
+    #   provider_callback     - HMAC-verified callback from the e-sign provider
+    #   manual_reconciliation - a human asserted it, with a recorded reason
+    #   internal_click        - `method='internal'`; an authenticated click, not a
+    #                           provider claim at all
+    verified_via: Mapped[str] = mapped_column(String(24), default="", nullable=False)
     # The provider's own response, verbatim. Kept so a dispute can be settled
     # against what the provider actually said rather than against our summary.
     provider_payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -110,9 +119,22 @@ class ContractSignature(Base, TenantMixin):
         CheckConstraint("method in ('internal','esign')", name="ck_signature_method"),
         CheckConstraint("status in ('pending','signed','declined','voided')", name="ck_signature_status"),
         CheckConstraint(
+            # A signed row must record when it was confirmed and on whose word.
+            # `verified_via` is the load-bearing half: `verified_at` alone cannot
+            # distinguish a provider's signed callback from an operator's
+            # assertion, which is the question a contract dispute actually asks.
+            "verified_via in ('','provider_callback','manual_reconciliation','internal_click')",
+            name="ck_signature_verified_via"),
+        CheckConstraint(
             # An e-sign row is only `signed` if the provider confirmed it, and an
             # internal row is `signed` the moment it is written. This is the
             # database refusing to hold a claim nobody verified.
             "method = 'internal' or status <> 'signed' or verified_at IS NOT NULL",
             name="ck_signature_esign_verified"),
+        CheckConstraint(
+            # ...and a signed e-sign row must also say *how* it was verified. An
+            # esign row that reached `signed` with no `verified_via` is a claim
+            # that arrived from nowhere.
+            "method = 'internal' or status <> 'signed' or verified_via <> ''",
+            name="ck_signature_esign_verified_via"),
     )
