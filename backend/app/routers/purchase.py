@@ -721,6 +721,15 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
     db.add(SpendTransaction(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                             kind="actual", po_id=inv.po_id, invoice_id=iid, supplier_id=inv.supplier_id,
                             currency=inv.currency, amount_minor=inv.total_minor))
+    # VNT-033: a business counter, because "every request is 200" and "procurement
+    # is working" are different questions. A deployment where money stopped being
+    # posted would otherwise look perfectly healthy.
+    try:
+        from ..core.observe import incr
+
+        incr("vantor_money_posted", inv.currency, "actual")
+    except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+        pass
     # The PO is `invoiced` only once the goods are fully billed. Determined
     # inside the same locked transaction as the match, so a second invoice on the
     # same PO cannot also claim the PO. VNT-018: this state had no writer at all,

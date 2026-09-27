@@ -82,6 +82,14 @@ def test_ops_metrics_is_role_gated():
     r = client.get("/api/v1/ops/metrics", headers={"Authorization": f"Bearer {_tok(['Auditor'])}"})
     assert r.status_code == 200
     d = r.json()["data"]
-    assert set(d) == {"process", "requests", "latency"}
-    assert "p95Ms" in d["latency"] and "uptimeSeconds" in d["process"]
+    # VNT-033 added the per-route table, the p99, and the business counters. The
+    # assertion is a closed set on purpose: a new top-level key should be a
+    # deliberate decision here rather than something that appears unnoticed.
+    assert set(d) == {"process", "requests", "latency", "routes", "business"}
+    assert {"p50Ms", "p95Ms", "p99Ms"} <= set(d["latency"])
+    assert "uptimeSeconds" in d["process"]
+    # The business counters exist from the start, so a dashboard reading 0 is a
+    # real zero rather than a metric that has not been created yet.
+    assert "vantor_webhook_deliveries" in d["business"]
+    assert "vantor_money_posted" in d["business"]
     security.override_jwks(None)

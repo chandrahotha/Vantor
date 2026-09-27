@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from ..core.errors import envelope
-from ..core.observe import metrics_snapshot
+from ..core.observe import metrics_snapshot, prometheus_text
 from ..core.security import Actor, get_actor
 from ..core.tenant import get_session_factory
 
@@ -36,27 +36,22 @@ def ops_metrics(request: Request, actor: Actor = Depends(get_actor)) -> dict:
 
 @router.get("/ops/metrics.prom")
 def ops_metrics_prometheus(actor: Actor = Depends(get_actor)) -> Response:
-    """Prometheus exposition format for the same process-level counters. Same
-    role gate as the JSON variant — scrapes still need a service principal."""
+    """Prometheus exposition for this process. Same role gate as the JSON variant
+    — scrapes still need a service principal, because a request count by tenant is
+    a real information-leak surface.
+
+    VNT-033. The body used to be assembled by hand here, and it was invalid: every
+    line was emitted as `vantor_http_requests_total {class="5xx"} 0`, and the
+    exposition format does not allow whitespace between the metric name and the
+    label set. Prometheus rejects the *whole document* on that, so the endpoint
+    returned 200 with a body no scraper would accept — a scrape that looked
+    healthy and recorded nothing. The renderer now lives beside the counters it
+    renders, and escapes label values, because an unescaped quote in a label also
+    costs every metric rather than one.
+    """
     if not set(actor.roles or ()) & {"Super Admin", "Auditor", "Organization Admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
-    s = metrics_snapshot()
-    req = s["requests"]
-    lat = s["latency"]
-    lines = [
-        "# HELP vantor_http_requests_total Total requests by status class.",
-        "# TYPE vantor_http_requests_total counter",
-        f'vantor_http_requests_total {{class="5xx"}} {req.get("errors5xx", 0)}',
-        f'vantor_http_requests_total {{class="4xx"}} {req.get("errors4xx", 0)}',
-        f'vantor_http_requests_total {{class="total"}} {req.get("requests", 0)}',
-        "# HELP vantor_http_latency_ms Request latency percentile.",
-        "# TYPE vantor_http_latency_ms gauge",
-        f'vantor_http_latency_ms {{quantile="0.95"}} {lat["p95Ms"]}',
-        f'vantor_http_latency_ms {{quantile="max"}} {lat["maxMs"]}',
-        f'vantor_http_requests_sample_size {lat["count"]}',
-        f'vantor_process_uptime_seconds {s["process"]["uptimeSeconds"]}',
-    ]
-    return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+    return Response(prometheus_text(), media_type="text/plain; version=0.0.4")
 
 
 @router.get("/ready")

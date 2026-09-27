@@ -514,6 +514,12 @@ async def provider_signature_callback(
                  after={"status": sig.status, "envelope": sig.envelope_id,
                         "verifiedVia": sig.verified_via},
                  source="provider_webhook", created_by=f"provider:{provider}")
+    try:
+        from ..core.observe import incr
+
+        incr("vantor_esign_verifications", "provider_callback")
+    except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+        pass
     db.commit()
     return {"data": {"id": sig.id, "status": sig.status, "verifiedVia": sig.verified_via},
             "pagination": None}
@@ -579,6 +585,12 @@ def verify_signature(contract_id: str, payload: VerifySignIn, request: Request, 
     # database, in the API and in the audit chain.
     sig.verified_via = "internal_click" if sig.method == "internal" else "manual_reconciliation"
     sig.updated_by = actor.sub
+    try:
+        from ..core.observe import incr
+
+        incr("vantor_esign_verifications", sig.verified_via)
+    except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+        pass
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_SIGNATURE_VERIFIED",
                  resource="contract", resource_id=contract_id,
                  before={"status": before},

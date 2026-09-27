@@ -93,6 +93,21 @@ def sign(secret: str, body: str) -> str:
     return hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
 
 
+def _count(name: str, *labels: str) -> None:
+    """Bump a business counter. Never raises into a delivery path.
+
+    A metric must not be able to fail a webhook: if the counter is the only thing
+    that breaks, the delivery still has to happen and the operator still has to be
+    able to read about it.
+    """
+    try:
+        from .observe import incr
+
+        incr(name, *labels)
+    except Exception:  # noqa: BLE001 - telemetry is never load-bearing
+        pass
+
+
 def resolve_secret(ref: str) -> str:
     # Vault refs look like `env:NAME`; anything else is refused (never a raw secret).
     if ref.startswith("env:"):
@@ -146,22 +161,32 @@ def _attempt_delivery(delivery: WebhookDelivery, *, endpoint_url: str, secret_re
         ok, reason = _deliver_once(
             endpoint_url, body=body,
             headers={"Content-Type": "application/json", "X-Vantor-Event": event,
-                     "X-Vantor-Signature": f"sha256={sign(secret, body)}"})
+                     "X-Vantor-Signature": f"sha256={sign(secret, body)}",
+                     # The delivery's own id, so a receiver complaining about a
+                     # payload can quote it and an operator can find the row.
+                     # VNT-033: without a correlation id on the wire, a failed
+                     # delivery is a log line and a support ticket rather than a
+                     # lookup.
+                     "X-Vantor-Delivery": str(delivery.id)})
     except EgressError as exc:
         # A refused destination is permanent: retrying will not make
         # 169.254.169.254 reachable. Dead-letter it immediately rather than
         # burning five attempts on a guaranteed failure.
         delivery.status, delivery.last_error, delivery.next_attempt_at = (
             "dead", f"egress refused: {exc.code} {exc.message}"[:500], None)
+        _count("vantor_webhook_deliveries", "dead")
         return "dead", delivery.last_error
-    except Exception as exc:  # noqa: BLE001 — recorded, never raised
+    except Exception as exc:  # noqa: BLE001 - recorded, never raised
         ok, reason = False, f"{type(exc).__name__}: {exc}"[:500]
     if ok:
         delivery.status, delivery.last_error, delivery.next_attempt_at = "delivered", "", None
+        _count("vantor_webhook_deliveries", "delivered")
         return "delivered", ""
     if delivery.attempts < MAX_ATTEMPTS and _is_retryable(reason):
         delivery.status, delivery.last_error = "pending", reason[:500]
+        _count("vantor_webhook_deliveries", "retry")
         return "pending", reason[:500]
+    _count("vantor_webhook_deliveries", "failed")
     delivery.status, delivery.last_error, delivery.next_attempt_at = "dead", reason[:500], None
     return "dead", reason[:500]
 

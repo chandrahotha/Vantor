@@ -61,7 +61,7 @@
           "platform"
         ],
         "summary": "Ops Metrics Prometheus",
-        "description": "Prometheus exposition format for the same process-level counters. Same\nrole gate as the JSON variant \u2014 scrapes still need a service principal.",
+        "description": "Prometheus exposition for this process. Same role gate as the JSON variant\n\u2014 scrapes still need a service principal, because a request count by tenant is\na real information-leak surface.\n\nVNT-033. The body used to be assembled by hand here, and it was invalid: every\nline was emitted as `vantor_http_requests_total {class=\"5xx\"} 0`, and the\nexposition format does not allow whitespace between the metric name and the\nlabel set. Prometheus rejects the *whole document* on that, so the endpoint\nreturned 200 with a body no scraper would accept \u2014 a scrape that looked\nhealthy and recorded nothing. The renderer now lives beside the counters it\nrenders, and escapes label values, because an unescaped quote in a label also\ncosts every metric rather than one.",
         "operationId": "ops_metrics_prometheus_api_v1_ops_metrics_prom_get",
         "responses": {
           "200": {

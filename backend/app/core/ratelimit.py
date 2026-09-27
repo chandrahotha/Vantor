@@ -198,17 +198,15 @@ def _route_label(request: Request) -> str:
     Path parameters are replaced so `/suppliers/{id}` and `/suppliers/{other}`
     share a bucket — otherwise a caller could sidestep the limit by generating
     distinct ids, and the key space would grow without bound.
+
+    The implementation is shared with the metrics recorder (see `core/paths.py`)
+    so the two cannot disagree about which requests share a bucket and which
+    share a time series. That matters: if they disagreed, a route could dodge the
+    limiter while looking like a single route on a dashboard, or the reverse.
     """
-    parts = []
-    for segment in request.url.path.split("/"):
-        if not segment:
-            continue
-        # A UUID, an opaque hex id, or a numeric segment is a parameter.
-        if (len(segment) >= 16 and all(ch in "0123456789abcdefABCDEF-" for ch in segment)) or segment.isdigit():
-            parts.append("{id}")
-        else:
-            parts.append(segment)
-    return "/" + "/".join(parts)
+    from .paths import route_label
+
+    return route_label(request.url.path)
 
 
 def _fail_mode() -> str:
