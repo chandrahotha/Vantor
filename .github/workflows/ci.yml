@@ -113,6 +113,12 @@ jobs:
         # silently inherits its root default) and a text/background pair below
         # WCAG AA. Both are checked for all five palettes in both modes.
         run: cd frontend && python check_palette_layer.py
+      - name: Migration chain is linear with one head
+        # Catches a duplicated revision, a broken down_revision link, or a
+        # migration missing an upgrade()/downgrade(). Offline: the PostgreSQL
+        # effects are covered by the alembic step below, which needs a real
+        # database.
+        run: python scripts/audit_migrations.py
       - name: Unit gates (tenant-isolation + auth + audit chain)
         env:
           APP_ENV: test

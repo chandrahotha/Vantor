@@ -48,12 +48,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROSE: dict[str, list[str]] = {
     "README.md": [
         r"API[:\s]+(\d+)\s+operations",
-        r"(\d+)\s+pytest\s+green",
+        r"(\d+)\s+pytest\s+collected",
         r"(\d+)\s+vitest\s+green",
     ],
     "backend/README.md": [
         r"(\d+)\s+API\s+operations",
-        r"(\d+)\s+pytest\s+green",
+        r"(\d+)\s+pytest\s+collected",
     ],
     "frontend/README.md": [
         r"(\d+)\s+routes",
