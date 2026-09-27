@@ -75,6 +75,17 @@ def _public_key_for(kid: str):  # type: ignore[no-untyped-def]
 
 def verify_token(token: str) -> Actor:
     settings = get_settings()
+    if settings.demo_mode and token.startswith("demo:"):
+        body = token[5:]
+        name, sep, sig = body.rpartition(".")
+        if not sep or not name or len(sig) != 64 or not _demo_sig_ok(name, sig):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed demo token")
+        # Read-only by design: the demo role set is the one that refuses every
+        # gate's mutating detail immediately, not the empty list. Your demo walk
+        # through an app structure doesn't let _you touch anything.""
+        roles = ("Read Only",)
+        return Actor(sub=name, tenant_id="demo", email=f"{name}@demo.vantor", roles=roles,
+                     token_claims={"demo": True})
     try:
         header = jwt.get_unverified_header(token)
     except Exception as exc:
@@ -112,6 +123,20 @@ def verify_token(token: str) -> Actor:
         scopes=tuple((claims.get("scope", "") or "").split()),
         token_claims=claims,
     )
+
+
+def _demo_sig_ok(name: str, sig: str) -> bool:
+    """HMAC check for demo tokens. Fail-closed — never accepts without proof."""
+    import hashlib
+    import hmac as _hmac
+
+    settings = get_settings()
+    if not settings.demo_token:
+        return False
+    expected = _hmac.new(
+        settings.demo_token.encode(), name.encode(), hashlib.sha256
+    ).hexdigest()
+    return _hmac.compare_digest(expected, sig)
 
 
 async def get_actor(

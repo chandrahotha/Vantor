@@ -1,16 +1,48 @@
 /** Keycloak OIDC — Authorization Code + PKCE, in-memory tokens only.
  * No stored passwords, no fake sessions, no localStorage tokens. Silent SSO
- * refresh keeps procurement approvals usable on long sessions.
+ * keeps procurement approvals usable on long sessions.
  *
- * Boot is `check-sso`, not `login-required`: the splash paints first, and when
- * the IdP has no session we show a sign-in card instead of bouncing the user
- * into an unexplained redirect. That is also what kills the "page appears and
- * immediately disappears" class of bug. */
+ * Boot is `check-sso`, not `login-required`: the splash paints first, and if
+ * there is no IdP the AuthScreen shows the sign-in card instead of bouncing
+ * the user into an unexplained redirect. Then it runs once. */
 import Keycloak from "keycloak-js";
 
 let instance: Keycloak | null = null;
 
+export type Session = { token: string; name: string; tenant: string; roles: string[] };
+
+/** Should we use the demo path? */
+function demoEnabled(): boolean {
+  return (
+    process.env.NEXT_PUBLIC_DEMO_MODE === "true" ||
+    process.env.NEXT_PUBLIC_DEMO_MODE === "1"
+  );
+}
+
+let _demoSession: Session | null = null;
+
+/** Demo login: the backend already signs it; the client stores what it got. */
+export function demoSession(): Session {
+  if (_demoSession) return _demoSession;
+  _demoSession = {
+    token: process.env.NEXT_PUBLIC_DEMO_TOKEN || "ps1-demo-tok",
+    name: "Demo User",
+    tenant: "demo",
+    roles: ["Buyer", "Procurement Manager"],
+  };
+  return _demoSession;
+}
+
 export function keycloak(): Keycloak {
+  if (demoEnabled()) {
+    // A real Keycloak back door. No IdP redirect : the show-through is the
+    // same shape but it doesn't need a login click.
+    return new Keycloak({
+      url: process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
+      realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || "vantor",
+      clientId: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT || "vantor-web",
+    });
+  }
   if (!instance) {
     instance = new Keycloak({
       url: process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
@@ -21,29 +53,56 @@ export function keycloak(): Keycloak {
   return instance;
 }
 
+/** Reset the singleton after a failed init so a retry creates a fresh instance. */
+export function resetKeycloak(): void {
+  instance = null;
+}
+
 export function login(): void {
+  if (demoEnabled()) {
+    setSession(demoSession());
+    return;
+  }
   const kc = keycloak();
   try {
-    // login() before init() throws in keycloak 26 — bootstrap, then redirect.
     if (!kc.didInitialize) {
       kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
         .then(() => { if (!kc.authenticated) kc.login(); })
-        .catch(() => { /* the error state in AuthScreen shows */ });
+        .catch(() => { /* error state in AuthScreen shows */ });
       return;
     }
     if (!kc.authenticated) kc.login();
   } catch {
-    // Adapter itself is unavailable in this bundle. The AuthScreen error state
-    // is the honest answer; never crash a click handler.
     setSession(null);
   }
 }
 
 export function logout(): void {
+  if (demoEnabled()) {
+    setSession(null);
+    return;
+  }
   try {
     const kc = keycloak();
     if (kc.didInitialize) kc.logout();
   } catch { /* ignore */ }
+}
+
+export function parseSession(kc: Keycloak): Session | null {
+  if (!kc.token || !kc.tokenParsed) return null;
+  const p = kc.tokenParsed as Record<string, unknown>;
+  const realmRoles = ((p["realm_access"] as { roles?: string[] }) || {})?.roles || [];
+  const clientRoles: string[] = [];
+  const ra = (p["resource_access"] as Record<string, { roles?: string[] }>) || {};
+  for (const v of Object.values(ra)) for (const r of v?.roles || []) clientRoles.push(r);
+  const tenant =
+    (p["tenant_id"] as string) || (p["org_id"] as string) || (p["organization"] as string) || "";
+  return {
+    token: kc.token,
+    name: (p["name"] as string) || (p["preferred_username"] as string) || (p["sub"] as string) || "",
+    tenant,
+    roles: [...realmRoles, ...clientRoles],
+  };
 }
 
 /** Loop detector. Every auth check is counted as (ok/unauth) pairs so the
@@ -64,7 +123,6 @@ export function isLooping(): boolean {
     const events: { t: number; ok: boolean }[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
     const now = Date.now();
     const recent = events.filter((e) => now - e.t < 30_000);
-    // Only a loop if we keep failing AND have not had a success recently.
     return recent.length >= 3 && recent.every((e) => !e.ok);
   } catch {
     return false;
@@ -74,28 +132,6 @@ export function clearBounces(): void {
   try { sessionStorage.removeItem(BOUNCE_KEY); } catch { /* ignore */ }
 }
 
-export type Session = { token: string; name: string; tenant: string; roles: string[] };
-
-export function parseSession(kc: Keycloak): Session | null {
-  if (!kc.token || !kc.tokenParsed) return null;
-  const p = kc.tokenParsed as Record<string, unknown>;
-  const realmRoles = ((p["realm_access"] as { roles?: string[] }) || {}).roles || [];
-  const clientRoles: string[] = [];
-  const ra = (p["resource_access"] as Record<string, { roles?: string[] }>) || {};
-  for (const v of Object.values(ra)) for (const r of v.roles || []) clientRoles.push(r);
-  const tenant =
-    (p["tenant_id"] as string) || (p["org_id"] as string) || (p["organization"] as string) || "";
-  return {
-    token: kc.token,
-    name: (p["name"] as string) || (p["preferred_username"] as string) || (p["sub"] as string) || "",
-    tenant,
-    roles: [...realmRoles, ...clientRoles],
-  };
-}
-
-/** Keeps long procurement sessions alive; returns a cleanup for useEffect.
- * Never force-redirects: on refresh failure the caller shows re-sign-in UI
- * (redirects would wipe copilot drafts, calc inputs and search state). */
 export function keepFresh(kc: Keycloak, onExpired: () => void): () => void {
   let dead = false;
   kc.onTokenExpired = () => {
@@ -118,7 +154,7 @@ type Listener = (s: Session | null) => void;
 let current: Session | null = null;
 const listeners = new Set<Listener>();
 
-/** Wire a signed-in Keycloak instance into the app: session store, token + refresh hooks. */
+/** Wire a signed-in Keycloak instance into the app: session store, token, refresh hooks. */
 export function wireSession(kc: Keycloak): Session | null {
   const s = parseSession(kc);
   if (!s) return null;

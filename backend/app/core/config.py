@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     api_url: str = Field(default="http://localhost:8000", alias="API_URL")
     log_level: str = Field(default="info", alias="LOG_LEVEL")
 
+    # Demo mode. When true the API accepts a synthetic sibling identity
+    # (tenant `demo` read-only, from a signed HMAC token) so a reviewer can see
+    # the product without Keycloak running. Nothing else is faked — writes
+    # are rejected state-wide. It is refused in production by `is_prod`.
+    demo_mode: bool = Field(default=False, alias="DEMO_MODE")
+    demo_token: str = Field(default="", alias="DEMO_TOKEN")  # shared secret for the demo login
+
     database_url: str = Field(default="postgresql://vantor:change-me-in-env@postgres:5432/vantor", alias="DATABASE_URL")
 
     @property
@@ -104,6 +111,12 @@ class Settings(BaseSettings):
         """Fail-closed: production must not run on placeholder secrets."""
         if not self.is_prod:
             return
+        if self.demo_mode:
+            raise RuntimeError(
+                "DEMO_MODE=true is a refusal: production must never boot with an "
+                "open authentication neither and the IdP contract. Turn it off, or "
+                "set APP_ENV to development/test before touching this."
+            )
         placeholders = ("change-me", "generate-32-bytes-min", "")
         for name in ("DATABASE_URL", "OIDC_ISSUER", "JWT_AUDIENCE", "POSTGRES_PASSWORD",
                      "JWT_SECRET", "REFRESH_TOKEN_SECRET", "ENCRYPTION_KEY",

@@ -28,7 +28,7 @@ def get_engine():  # type: ignore[no-untyped-def]
             # Unit-test / local only: shared in-memory DB across threads
             # (StaticPool + shared cache) so TestClient sees created tables.
             _engine = create_engine(
-                "sqlite:///:memory:?cache=shared",
+                url,
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool,
             )
