@@ -6,8 +6,8 @@
  * Design constraints this component is built to:
  *
  * - **No colour as the only signal.** Each card names its palette in text and
- *   marks the selected one with a check plus `aria-pressed`, so selection is
- *   legible without colour vision and to a screen reader.
+ *   the selected one carries a check, `aria-pressed` and a heavier border, so
+ *   selection is legible without colour vision and to a screen reader.
  * - **Evidence-cited, human-review language preserved.** The card footer states
  *   what each palette is tuned for, so choosing one is an informed choice about
  *   which part of the procurement graph someone works in, not decoration.
@@ -36,8 +36,16 @@ function PaletteCard({
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={selected}
+      // A plain button with `aria-pressed`, not `role="radio"`.
+      //
+      // A `radiogroup` obliges the author to implement roving tabindex and arrow-key
+      // navigation: a screen-reader user is told "radio group" and then finds that
+      // only Tab and Enter work, which is worse than the semantics that were
+      // there before. `role="radio"` on a `<button>` also overrides the native
+      // button role, losing the activation behaviour along with it. Five
+      // independent toggles, each reachable by Tab and operable with Enter or
+      // Space, is what the interaction actually is.
+      aria-pressed={selected}
       data-palette-card={palette.key}
       data-selected={selected ? "true" : "false"}
       onClick={() => onSelect(palette.key)}
@@ -146,7 +154,7 @@ export default function PaletteSwitcher() {
       </p>
 
       <div
-        role="radiogroup"
+        role="group"
         aria-label="Colour palette"
         style={{
           display: "grid",

@@ -3,7 +3,7 @@
 
 # Frontend — VANTOR Web
 
-**Status: `IN DEVELOPMENT` — 15 routes, 92 vitest green.**
+**Status: `IN DEVELOPMENT` — 15 routes, 99 vitest green.**
 
 Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code +
 PKCE, in-memory tokens only), ESLint 9 flat config, design tokens per
