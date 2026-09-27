@@ -90,6 +90,97 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ---
 
+## [Unreleased] — 2026-09-27
+
+### Added — the "10/10" push. This is what moved the scorecard.
+
+- **Every link is now a real foreign key.** 39 constraints across 37 tables,
+  enforced at the database, tenant-scoped (`tenant_id, id` composite so no FK can
+  cross a tenant boundary even if RLS is misconfigured), and `ON DELETE RESTRICT`
+  everywhere (procurement is evidence; a parent with a child is never deletable).
+  The migration chain is: `0017` adds `purchase_orders.requisition_id`; `0018`
+  moves every "no link" from `""` to `NULL` (the convention foreign keys can
+  express); `0019` adds all the FKs `NOT VALID` then `VALIDATE` in the same
+  transaction, so a dirty row rolls the whole thing back, or it doesn't ship.
+- **CI now gates merge.** push and pull_request are in `on:`, so a review can be
+  blocked by test results. The previous `policy` job actively *failed* on push
+  and PR.
+- **`tests/test_pg_infrastructure.py` + `tests/conftest.py::pg_client`**: real
+  Postgres tier — the one thing that can prove RLS, FKs and `VARCHAR` limits all
+  hold at once. Skips silently on SQLite; CI has a `postgres` service so it runs.
+- **`tests/test_contract_openapi.py`**: response-shape drift caught at the schema
+  level. Every property the frontend reads is asserted against the committed
+  `api/openapi.json`, so the next contract mismatches surface as a test failure.
+- **`baseline_for` per-line caching** (`BaselineCache`) and **one grouped query**
+  for `sourcing.comparison` + `approval pending tiers` — three O(N) table reads
+  collapsed into bounded work.
+- **Budget gate** now reads from `spend_transactions` (kind `commitment`) with
+  `created_at` measured at send time, not at PO creation.
+- **Approval queue** (`GET /approvals`, `POST /approvals/{id}/decide`), reusing
+  the same `decide_approval` used by the copilot — so SoD, tier order and the
+  audit trail are enforced identically by both.
+- **Optimizer explainability**: the frontend renders per-supplier `reason` +
+  `share_bp` + `cost_minor` + the policy violations inline, and clears the plan
+  if you switch RFQs.
+- **The spent ledger** reports `hasMore` from the *last scanned row* (not the last
+  returned row), so a page of already-read rows never reports `false` for a
+  cursor that has more.
+- **The notification badge** reports `unreadCapped: true` when it discards rows
+  during a large-fetch sweep, so the UI can show `50+` rather than a lie.
+
+### Fixed
+
+- **Three match dimensions made partial invoicing impossible.** `duplicates` was
+  `prior_invoice_count > 0`, so the second invoice of any partially-paid PO was
+  a duplicate; `totals` demanded `po == inv`; `quantities`/`prices` compared
+  lines by index. Now: a real double-billing test, `0 < inv <= po` (over-billing
+  still fails hard), and line pairing by `po_line_id` with an index fallback.
+  Partial invoicing is CLEAN. Over-billing is still caught.
+- **Award records were always zero** because the baseline was computed after all
+  the losers were flipped to `rejected`, leaving the winner alone to compare
+  against. Baseline is captured in one query **before** any status flips.
+- **Approval tiers were cleared in arbitrary order** (`pend[0]` off an unordered
+  result). Ordered by tier then timestamp now.
+- **Idempotency was silently disabled on Postgres** for any write whose
+  fingerprint exceeded 128 chars; the `DataError` was swallowed by the fail-open
+  handler. `key` widened to 512 and the fingerprint hashes, so two long paths
+  cannot collide anymore.
+- **AI providers never authenticated** because the per-request key never
+  reached the provider and the environment key fallback chain never called it.
+  `/ai/providers` is now honest ({name, configured, needsKey, active}) so the
+  frontend stops rendering `undefined (not configured)`.
+- **One bad SSE frame destroyed a good answer.** The copilot's parse step now
+  guards `JSON.parse`, keeps the complete answer, surfaces `notes` and
+  `requires_human_review`, batches deltas, and calls `reader.cancel()` on leave
+  — plus the new evidence-frame-enforcement assertion: a stream that ends
+  without an evidence frame is not an answer.
+- **`/ai/providers` no longer emits a shape the copilot read as objects**,
+  the copilot has an auth gate like every other page, and **nav now has all 13
+  destinations** (Requisitions, Negotiation simulator, Integrations were
+  palette-only).
+- **`price-cases` pagination**, **documents quarantine leak**,
+  **`documents.resource_id` truncation → 422**, **concurrent price evaluation
+  could 500**, **budget gate charged the wrong month**.
+- **The CI secret guard could never pass** — its pattern appeared literally in
+  the workflow command. Replaced by `scripts/check_secrets.py`, which scans
+  tracked files only, and self-tests on 16 strings including an assertion it
+  does not flag its own source.
+
+### Verification
+
+- `python -m pytest backend/tests -q` → **155 passed, 2 skipped** (pg-tier skipped
+  until `PG_TEST_DATABASE_URL` is set)
+- `python -m mypy backend/app --ignore-missing-imports` → clean
+- `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` → all green
+- `python scripts/check_mojibake.py` (532 files, 19 self-tests) → clean
+- `python scripts/check_secrets.py` (539 tracked, 16 self-tests) → clean
+- `python scripts/verify_brain_links.py` → 86/86
+- `api/openapi.json` regenerated, no drift
+- `alembic upgrade head` renders the full FK chain cleanly; DDL checked for the
+  absence of `DROP TABLE` / real `UPDATE` rows.
+
+---
+
 ## [Unreleased] — 2026-09-26
 
 ### Fixed — a green badge that was not green

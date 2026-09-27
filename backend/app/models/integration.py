@@ -7,7 +7,7 @@ status/latency (retry accounting for the worker).
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, JSON
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -42,7 +42,7 @@ class WebhookEndpoint(Base, TenantMixin):
 class WebhookDelivery(Base, TenantMixin):
     __tablename__ = "webhook_deliveries"
 
-    endpoint_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(36), ForeignKey("webhook_endpoints.id", ondelete="RESTRICT"), nullable=False, index=True)
     event: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False)

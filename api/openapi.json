@@ -4736,6 +4736,11 @@
             "title": "Category Id",
             "default": ""
           },
+          "requisition_id": {
+            "type": "string",
+            "title": "Requisition Id",
+            "default": ""
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/PoLineIn"

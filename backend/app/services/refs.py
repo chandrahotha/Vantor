@@ -1,14 +1,9 @@
-"""Referential checks for the id columns that carry no database constraint.
+"""Updated refs helpers: NULL is the "no link" value, not "".
 
-There is not one FOREIGN KEY in this schema (see `docs/02-architecture/database.md`),
-so `*_id` columns are plain strings and a typo — or another tenant's id — writes
-an orphan that only surfaces months later in a cube or a match report. Most
-routers already validate their parents inline; the ones that did not share a
-single helper, which is why the coverage was uneven.
-
-`require_ref` is that one helper. It is deliberately small and tenant-scoped:
-RLS is the backstop, but RLS is not a substitute for saying "that category does
-not exist" at the point the caller can still fix it.
+The schema used "" = "no link". With FKs, `""` has to become NULL, because no
+parent row has id="". `require_ref` therefore maps a falsy input to None and
+returns None for a valid one — a nullable column stores None, a mandatory one
+must not be called with "" anyway.
 """
 from __future__ import annotations
 
@@ -20,23 +15,22 @@ from sqlalchemy.orm import Session
 
 M = TypeVar("M")
 
-
 def _exists(db: Session, model: type[M], tenant_id: str, ref_id: str) -> bool:
     return db.execute(
         select(model.id).where(model.tenant_id == tenant_id, model.id == ref_id)  # type: ignore[attr-defined]
     ).first() is not None
 
 
-def require_ref(db: Session, model: type[M], tenant_id: str, ref_id: str, *, field: str, code: str = "UNKNOWN_REFERENCE") -> str:
-    """Return the trimmed `ref_id`, or raise 422 naming the field and the parent.
+def require_ref(db: Session, model: type[M], tenant_id: str, ref_id: str | None,
+                *, field: str, code: str = "UNKNOWN_REFERENCE") -> str | None:
+    """Return the linked id, or None when the caller means "no link".
 
-    An empty id is allowed and returned as `""` — several columns use "" to mean
-    "deliberately unlinked" (an uncategorised PO, a budget that covers the whole
-    tenant). Callers that must have a parent pass `allow_empty=False`.
+    An empty string is no longer a sentinel for "no link" — a NULL foreign key
+    is. A non-empty id must reference an existing row in this tenant.
     """
     value = (ref_id or "").strip()
     if not value:
-        return ""
+        return None
     if not _exists(db, model, tenant_id, value):
         raise HTTPException(status_code=422, detail={
             "code": code,
@@ -46,10 +40,9 @@ def require_ref(db: Session, model: type[M], tenant_id: str, ref_id: str, *, fie
     return value
 
 
-def require_refs(db: Session, model: type[M], tenant_id: str, ref_ids: list[str], *, field: str,
-                 code: str = "UNKNOWN_REFERENCE") -> list[str]:
-    """Same as `require_ref` for a list; one query, 422 naming the first bad id."""
-    values = [(r or "").strip() for r in ref_ids]
+def require_refs(db: Session, model: type[M], tenant_id: str, ref_ids: list[str | None],
+                 *, field: str, code: str = "UNKNOWN_REFERENCE") -> list[str | None]:
+    values = [(r or "").strip() or None for r in ref_ids]
     wanted = [v for v in values if v]
     if not wanted:
         return values
@@ -66,33 +59,16 @@ def require_refs(db: Session, model: type[M], tenant_id: str, ref_ids: list[str]
     return values
 
 
-def require_no_cycle(db: Session, model: type[M], tenant_id: str, ref_id: str, *, field: str = "parent_id",
-                     max_depth: int = 32) -> str:
-    """Validate a self-referencing parent, refusing cycles and runaway depth.
-
-    `categories.parent_id` is the only self-reference in the schema. A→B→A was
-    accepted before this check, and any future walk up the tree would hang.
-    """
-    value = (ref_id or "").strip()
-    if not value:
-        return ""
-    seen: set[str] = set()
-    cursor = value
+def require_no_cycle(db: Session, model: type[M], tenant_id: str, ref_id: str | None, *,
+                     field: str = "parent_id", max_depth: int = 32) -> str | None:
+    """Validate a self-referencing parent, refusing cycles and runaway depth."""
+    value = require_ref(db, model, tenant_id, ref_id, field=field, code="REFERENCE_CYCLE")
+    if value is None:
+        return None
+    seen: set[str] = {value}
+    cursor: str | None = value
     depth = 0
     while cursor:
-        if cursor in seen:
-            raise HTTPException(status_code=422, detail={
-                "code": "REFERENCE_CYCLE",
-                "message": f"{field} would create a cycle in the category tree",
-                "details": {"field": field, "value": value},
-            })
-        if depth > max_depth:
-            raise HTTPException(status_code=422, detail={
-                "code": "REFERENCE_TOO_DEEP",
-                "message": f"{field} exceeds the maximum category depth ({max_depth})",
-                "details": {"field": field, "value": value},
-            })
-        seen.add(cursor)
         row = db.execute(
             select(model).where(model.tenant_id == tenant_id, model.id == cursor)  # type: ignore[attr-defined]
         ).scalar_one_or_none()
@@ -102,6 +78,17 @@ def require_no_cycle(db: Session, model: type[M], tenant_id: str, ref_id: str, *
                 "message": f"{field} does not reference an existing record in this tenant",
                 "details": {"field": field, "value": cursor},
             })
-        cursor = (getattr(row, field, "") or "").strip()
+        cursor = (getattr(row, field, None) or "").strip() or None
+        if cursor in seen:
+            raise HTTPException(status_code=422, detail={
+                "code": "REFERENCE_CYCLE",
+                "message": f"{field} would create a cycle",
+                "details": {"field": field, "value": value},
+            })
         depth += 1
+        if depth > max_depth:
+            raise HTTPException(status_code=422, detail={
+                "code": "REFERENCE_TOO_DEEP",
+                "message": f"{field} exceeds the maximum depth ({max_depth})",
+            })
     return value

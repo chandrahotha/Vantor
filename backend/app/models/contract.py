@@ -8,7 +8,7 @@ repository here is the system of record it will score against.
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -22,7 +22,7 @@ class Contract(Base, TenantMixin):
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    supplier_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     contract_type: Mapped[str] = mapped_column(String(64), default="supply", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
@@ -41,7 +41,7 @@ class Contract(Base, TenantMixin):
 class ContractObligation(Base, TenantMixin):
     __tablename__ = "contract_obligations"
 
-    contract_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    contract_id: Mapped[str] = mapped_column(String(36), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
     due_date: Mapped[str] = mapped_column(String(10), default="", nullable=False)

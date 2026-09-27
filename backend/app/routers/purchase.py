@@ -66,6 +66,9 @@ class PoIn(BaseModel):
     supplier_id: str = Field(min_length=1)
     currency: str = ""
     category_id: str = ""
+    # A PO may answer a requisition; empty means it was raised directly, which is
+    # legitimate (it just shows up correctly in spend intelligence).
+    requisition_id: str = ""
     lines: list[PoLineIn] = Field(min_length=1)
 
 
@@ -173,9 +176,16 @@ def create_po(payload: PoIn, request: Request, actor: Actor = Depends(get_actor)
     # category, because an uncategorised PO both bypasses the budget gate and
     # trips the maverick report.
     category_id = require_ref(db, Category, actor.tenant_id, payload.category_id, field="category_id", code="UNKNOWN_CATEGORY")
+    # Same for the requisition: empty means the PO was raised directly, a
+    # non-empty id has to point at a real requisition in this tenant. Buying
+    # against a requisition that does not exist used to create an orphan with
+    # the FK in place.
+    requisition_id = require_ref(db, Requisition, actor.tenant_id, payload.requisition_id,
+                                 field="requisition_id", code="UNKNOWN_REQUISITION")
     po = PurchaseOrder(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                        code=payload.code.strip().upper(), supplier_id=payload.supplier_id, status="draft",
-                       currency=payload.currency.strip().upper(), total_minor=total, category_id=category_id)
+                       currency=payload.currency.strip().upper(), total_minor=total, category_id=category_id,
+                       requisition_id=requisition_id or None)
     db.add(po)
     try:
         db.flush()
@@ -331,7 +341,9 @@ def approve_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db
     # Hard budget gate before any approval lands (Ariba-style real-time check).
     from ..routers.catalog import check_budget as _check_budget
 
-    _check_budget(db, tenant_id=actor.tenant_id, category_id=po.category_id, this_total=po.total_minor, currency=po.currency)
+    # No category => no budget gate applies ("" was the old sentinel — 0018 moved to NULL).
+    if po.category_id:
+        _check_budget(db, tenant_id=actor.tenant_id, category_id=po.category_id, this_total=po.total_minor, currency=po.currency)
     # Clear the *earliest* outstanding tier. Reading `pend[0]` off an unordered
     # result let a finance approver consume the manager's slot and skip a step.
     step = next_pending(pend)

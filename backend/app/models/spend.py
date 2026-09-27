@@ -7,7 +7,7 @@ from these rows — empty states when no data, never synthetic numbers.
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -17,9 +17,9 @@ class SpendTransaction(Base, TenantMixin):
     __tablename__ = "spend_transactions"
 
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # commitment|actual
-    po_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
-    invoice_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
-    supplier_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    po_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), default="", nullable=False)
+    invoice_id: Mapped[str] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="RESTRICT"), default="", nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
     amount_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
@@ -29,8 +29,8 @@ class SpendTransaction(Base, TenantMixin):
 class SavingsRecord(Base, TenantMixin):
     __tablename__ = "savings_records"
 
-    rfq_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
-    award_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36), ForeignKey("rfqs.id", ondelete="RESTRICT"), default="", nullable=False)
+    award_id: Mapped[str] = mapped_column(String(36), ForeignKey("awards.id", ondelete="RESTRICT"), default="", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
     saved_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     basis: Mapped[str] = mapped_column(String(64), default="max-evaluated-vs-award", nullable=False)

@@ -23,7 +23,7 @@ def get_engine():  # type: ignore[no-untyped-def]
     global _engine
     if _engine is None:
         settings = get_settings()
-        url = settings.database_url
+        url = settings.database_url_resolved
         if url.startswith("sqlite"):
             # Unit-test / local only: shared in-memory DB across threads
             # (StaticPool + shared cache) so TestClient sees created tables.

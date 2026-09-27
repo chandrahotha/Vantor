@@ -6,7 +6,7 @@ GET /suppliers/{id}/scorecard → latest snapshot or explicit empty (never fake)
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, JSON
+from sqlalchemy import ForeignKey, Index, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -15,7 +15,7 @@ from .base import Base, TenantMixin
 class SupplierScorecard(Base, TenantMixin):
     __tablename__ = "supplier_scorecards"
 
-    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     grade: Mapped[str] = mapped_column(String(2), default="", nullable=False)
     risk_tier: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)

@@ -6,7 +6,7 @@ native pgvector column lands with the embedding worker in Wave 2).
 """
 from __future__ import annotations
 
-from sqlalchemy import JSON, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, JSON, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -36,7 +36,7 @@ class Document(Base, TenantMixin):
 class DocumentChunk(Base, TenantMixin):
     __tablename__ = "document_chunks"
 
-    document_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False, index=True)
     chunk_no: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # A list of floats when a vector exists, {} when the provider was disabled

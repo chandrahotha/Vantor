@@ -75,18 +75,16 @@ def leakage(db: Session, tenant_id: str) -> list[dict]:
 def maverick(db: Session, tenant_id: str) -> list[dict]:
     """POs with no category — off-policy spend.
 
-    The `reason` used to read "uncategorized-no-requisition", which claimed a
-    requisition check that does not exist: `purchase_orders` has no
-    `requisition_id`, so nothing here can see requisition lineage. The label now
-    states exactly what was tested. Adding the lineage is real work (a migration
-    plus every write path) and is listed as remaining, not faked in a string.
+    "No link" is now NULL (0018), not the empty-string sentinel; querying
+    `category_id == ""` would now answer "none ever" because it lies in the old
+    mechanism rather than the data. NULL is the queryable truth.
     """
     return [{"id": p.id, "code": p.code, "totalMinor": p.total_minor,
              "reason": "uncategorized", "note": "no category set; requisition lineage is not tracked"}
             for p in db.execute(select(PurchaseOrder).where(
                 PurchaseOrder.tenant_id == tenant_id,
                 PurchaseOrder.status.in_(["approved", "sent", "received", "invoiced"]),
-                PurchaseOrder.category_id == "")).scalars()]
+                PurchaseOrder.category_id.is_(None))).scalars()]
 
 
 def concentration(cells: list[dict]) -> dict:

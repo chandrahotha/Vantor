@@ -21,6 +21,19 @@ class Settings(BaseSettings):
     log_level: str = Field(default="info", alias="LOG_LEVEL")
 
     database_url: str = Field(default="postgresql://vantor:change-me-in-env@postgres:5432/vantor", alias="DATABASE_URL")
+
+    @property
+    def database_url_resolved(self) -> str:
+        """DATABASE_URL with the driver pinned.
+
+        SQLAlchemy's default for a bare `postgresql://` URL is psycopg2, which
+        is not in `requirements.txt`. We ship psycopg3. Prescribe it here so the
+        app, Alembic, and any script reading the URL all use the same driver.
+        """
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
 
     # OIDC / Keycloak — required in prod/staging, optional for unit tests only.

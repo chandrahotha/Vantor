@@ -29,6 +29,8 @@ def test_score_rewards_savings():
     out = simulate(list_price_minor=1000, walk_away_minor=500, buyer_offers_minor=[900])
     # ask 1000, offer 900 < 1000 -> counter... not accepted. Use offer >= ask:
     out2 = simulate(list_price_minor=1000, walk_away_minor=500, buyer_offers_minor=[400, 1000])
+    assert out["result"] != out2["result"] and out2["score"] > out["score"]
+    assert out["rounds"][-1]["event"] == "walk_away"
     assert out2["result"] == "accepted"
     assert out2["score"] >= 0
 

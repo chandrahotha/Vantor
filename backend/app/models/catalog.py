@@ -15,7 +15,7 @@ dedicated esign adapter); the record stores provider + envelope id for audit.
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -26,7 +26,7 @@ class CatalogItem(Base, TenantMixin):
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(300), nullable=False)
-    category_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    category_id: Mapped[str] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), default="", nullable=False)
     uom: Mapped[str] = mapped_column(String(16), default="each", nullable=False)
     ref_price_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
@@ -41,7 +41,7 @@ class CatalogItem(Base, TenantMixin):
 class Budget(Base, TenantMixin):
     __tablename__ = "budgets"
 
-    category_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    category_id: Mapped[str] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), default="", nullable=False)
     period: Mapped[str] = mapped_column(String(7), nullable=False)  # YYYY-MM
     ceiling_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -52,7 +52,7 @@ class Budget(Base, TenantMixin):
 class ContractSignature(Base, TenantMixin):
     __tablename__ = "contract_signatures"
 
-    contract_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    contract_id: Mapped[str] = mapped_column(String(36), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False, index=True)
     signer: Mapped[str] = mapped_column(String(256), nullable=False)
     method: Mapped[str] = mapped_column(String(16), default="internal", nullable=False)  # internal|esign
     provider: Mapped[str] = mapped_column(String(64), default="", nullable=False)

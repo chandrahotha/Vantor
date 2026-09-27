@@ -7,7 +7,7 @@ scorecard with grade C or better (evidence-backed, never self-declared).
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, String, Text, UniqueConstraint, JSON
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -19,12 +19,12 @@ QUAL_STATUSES = {"draft", "submitted", "under_review", "qualified", "rejected"}
 class SupplierCertification(Base, TenantMixin):
     __tablename__ = "supplier_certifications"
 
-    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     issuer: Mapped[str] = mapped_column(String(200), default="", nullable=False)
     valid_until: Mapped[str] = mapped_column(String(10), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
-    document_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=True)
 
     __table_args__ = (Index("ix_cert_tenant_supplier", "tenant_id", "supplier_id"),)
 
@@ -32,7 +32,7 @@ class SupplierCertification(Base, TenantMixin):
 class SupplierQualification(Base, TenantMixin):
     __tablename__ = "supplier_qualifications"
 
-    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     checklist: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     decided_by: Mapped[str] = mapped_column(String(256), default="", nullable=False)
