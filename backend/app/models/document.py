@@ -10,6 +10,7 @@ from sqlalchemy import ForeignKey, JSON, Index, Integer, String, Text, UniqueCon
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
+from .vectortype import Vector
 
 DOC_STATUSES = {"uploaded", "quarantined", "ready"}
 
@@ -39,10 +40,17 @@ class DocumentChunk(Base, TenantMixin):
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False, index=True)
     chunk_no: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    # A list of floats when a vector exists, {} when the provider was disabled
-    # or the document quarantined — chunks are excluded from ranking, never
-    # assigned a zero vector and reported as if they matched. Both shapes live
-    # in this one JSON column, so the annotation has to admit both.
-    embedding: Mapped[dict | list[float]] = mapped_column(JSON, default=dict, nullable=False)
+    # VNT-016. Was a bare JSON column holding a list of floats, with similarity
+    # computed in Python after an ILIKE prefilter. It renders as `vector(n)` on
+    # PostgreSQL - so the index can do the work and the API process does not have
+    # to pull every candidate across the wire to score it - and as JSON on
+    # SQLite, so the portable search path and its tests are unchanged.
+    #
+    # A chunk with no vector is NULL, not a zero vector. `{}` was the old
+    # "absent" marker and a zero vector scores 0.0 against every query, which
+    # would rank an un-embedded chunk as if it weakly matched.
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector, default=None, nullable=True
+    )
 
     __table_args__ = (Index("ix_chunk_tenant_doc", "tenant_id", "document_id"),)

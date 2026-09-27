@@ -21,7 +21,13 @@ import math
 import os
 from typing import Sequence
 
-DIMS = 384  # nomic-embed-text dim; toy uses the same width so both mix cleanly.
+from ..models.vectortype import embedding_dims
+
+# The vector width, from the one place that defines it. This used to be a literal
+# here and a different literal in the column declaration, so the two could
+# disagree - and a `vector(N)` column rejects a vector of any other width, from a
+# background job, with no context. One source of truth.
+DIMS = embedding_dims()
 
 
 class EmbeddingError(ValueError):

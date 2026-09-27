@@ -259,6 +259,7 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
     is a real outcome, not a success — hence 200, not 201.
     """
     from ..models.document import DocumentChunk
+    from ..models.vectortype import validate_vector
     from ..services.embeddings import EmbeddingError, embed
     from ..services.extract import ExtractError, chunk_text, extract
 
@@ -305,13 +306,22 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
     provider_failed = False
     for i, text in enumerate(chunks):
         chunk = DocumentChunk(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
-                              document_id=doc_id, chunk_no=i, text=text, embedding={})
+                              document_id=doc_id, chunk_no=i, text=text, embedding=None)
         try:
             vec = embed(text)
-            if vec is not None:
-                chunk.embedding = vec
+            # `validate_vector` raises on a wrong-width vector rather than storing
+            # something that can never be compared. That used to be discovered by
+            # pgvector at write time, from a background job, with no context.
+            checked = validate_vector(vec)
+            if checked is not None:
+                chunk.embedding = checked
                 embedded += 1
         except EmbeddingError:
+            provider_failed = True
+        except ValueError:
+            # The provider is returning the wrong width. Store the chunk without a
+            # vector and say so, rather than failing the whole extraction or
+            # writing a vector that will not compare.
             provider_failed = True
         db.add(chunk)
     row.status = "ready"

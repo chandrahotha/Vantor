@@ -3,7 +3,7 @@
 
 # Backend — VANTOR
 
-**Status: `TESTED` — 90 API operations across 78 paths, 270 pytest green.** Not `PRODUCTION READY`
+**Status: `TESTED` — 90 API operations across 78 paths, 284 pytest green.** Not `PRODUCTION READY`
 (Phase 10 gate, see `../docs/00-plan/ROADMAP.md`).
 
 Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic**, Postgres + RLS primary, RQ + Redis
@@ -27,7 +27,7 @@ python -m pytest tests -q
 
 ## Gates
 
-- **270 tests green**, no mocks in the auth or money paths. Every API test mints a real RS256 JWT
+- **284 tests green**, no mocks in the auth or money paths. Every API test mints a real RS256 JWT
   and verifies it through the real JWKS path; `unittest.mock` appears nowhere in the suite.
 - Tenant isolation: application filters **and** the RLS backstop.
   `test_no_unpinned_sessions_outside_request_cycle` fails the build if any code opens a session
