@@ -92,11 +92,29 @@ def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = D
         "saved": _totals(saved_rows),
     }
     currencies = sorted({c for grp in by_currency.values() for c in grp})
+    # VNT-043. The single-number totals used to be emitted unconditionally, with a
+    # comment saying they were "only meaningful when there is exactly one currency
+    # in play". A comment is not enforcement: `sum()` over {INR: 1000, USD: 1000}
+    # produced 2000 and labelled it a number, and every consumer had to know to
+    # check `currencyCount` first. Any client that forgot produced a number that
+    # looked like money.
+    #
+    # So when more than one currency is in play the cross-currency total is `null`
+    # rather than a wrong figure, and `totalsArePerCurrency` says so explicitly
+    # instead of requiring the consumer to infer it. Null is the honest answer for
+    # "what is the total", which has no meaning here.
+    mixed = len(currencies) > 1
+
+    def _single(group: dict[str, int]) -> int | None:
+        if mixed:
+            return None
+        return sum(group.values())
+
     return envelope({
-        # Only meaningful when there is exactly one currency in play.
-        "poTotalMinor": sum(v for v in by_currency["committed"].values()),
-        "invoicedTotalMinor": sum(v for v in by_currency["invoiced"].values()),
-        "savedMinor": sum(v for v in by_currency["saved"].values()),
+        "poTotalMinor": _single(by_currency["committed"]),
+        "invoicedTotalMinor": _single(by_currency["invoiced"]),
+        "savedMinor": _single(by_currency["saved"]),
+        "totalsArePerCurrency": mixed,
         "byCurrency": by_currency,
         "currencies": currencies,
         "currencyCount": len(currencies),
@@ -106,13 +124,36 @@ def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = D
 
 @router.get("/spend/intelligence")
 def intelligence(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    """07 Spend Intelligence: cube + leakage + maverick + concentration in one call."""
+    """07 Spend Intelligence: cube + leakage + maverick + concentration in one call.
+
+    VNT-043: `leakageTotalMinor` and `maverickTotalMinor` summed amounts across
+    currencies into a single figure — 1000 INR plus 1000 USD rendered as "2000",
+    with no currency dimension anywhere in the response. They are now `null` when
+    more than one currency is present, and the per-currency breakdowns beside them
+    are the authoritative answer.
+    """
     cells = _cube(db, actor.tenant_id)
     leak = _leakage(db, actor.tenant_id)
     mav = _maverick(db, actor.tenant_id)
+
+    def _per_currency(rows: list[dict]) -> dict[str, int]:
+        acc: dict[str, int] = {}
+        for row in rows:
+            ccy = str(row.get("currency") or "")
+            acc[ccy] = acc.get(ccy, 0) + int(row.get("totalMinor") or 0)
+        return dict(sorted(acc.items()))
+
+    leak_by_ccy = _per_currency(leak)
+    mav_by_ccy = _per_currency(mav)
+
     return envelope({"cube": cells,
-                     "leakage": leak, "leakageTotalMinor": sum(l["totalMinor"] for l in leak),
-                     "maverick": mav, "maverickTotalMinor": sum(m["totalMinor"] for m in mav),
+                     "leakage": leak,
+                     "leakageTotalMinor": sum(leak_by_ccy.values()) if len(leak_by_ccy) <= 1 else None,
+                     "leakageByCurrency": leak_by_ccy,
+                     "maverick": mav,
+                     "maverickTotalMinor": sum(mav_by_ccy.values()) if len(mav_by_ccy) <= 1 else None,
+                     "maverickByCurrency": mav_by_ccy,
+                     "totalsArePerCurrency": len(leak_by_ccy) > 1 or len(mav_by_ccy) > 1,
                      "concentration": _concentration(cells)}, None, getattr(request.state, "request_id", ""))
 
 

@@ -4500,7 +4500,7 @@
           "spend"
         ],
         "summary": "Intelligence",
-        "description": "07 Spend Intelligence: cube + leakage + maverick + concentration in one call.",
+        "description": "07 Spend Intelligence: cube + leakage + maverick + concentration in one call.\n\nVNT-043: `leakageTotalMinor` and `maverickTotalMinor` summed amounts across\ncurrencies into a single figure \u2014 1000 INR plus 1000 USD rendered as \"2000\",\nwith no currency dimension anywhere in the response. They are now `null` when\nmore than one currency is present, and the per-currency breakdowns beside them\nare the authoritative answer.",
         "operationId": "intelligence_api_v1_spend_intelligence_get",
         "responses": {
           "200": {

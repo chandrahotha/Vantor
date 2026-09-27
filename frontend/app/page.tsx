@@ -7,7 +7,12 @@ import { api, fmtMinor } from "../lib/api";
 import { getSession } from "../lib/auth";
 
 type Summary = {
-  poTotalMinor: number; invoicedTotalMinor: number;
+  // VNT-043: nullable. When more than one currency is in play the API refuses to
+  // emit a cross-currency total, because summing INR and USD produces a number
+  // that looks like money and is not. A client that ignored the null would render
+  // NaN, so the type says `null` and every read below handles it.
+  poTotalMinor: number | null; invoicedTotalMinor: number | null; savedMinor?: number | null;
+  totalsArePerCurrency?: boolean;
   byCurrency: { committed: Record<string, number>; invoiced: Record<string, number>; saved: Record<string, number> };
   currencyCount: number;
 };
@@ -19,6 +24,7 @@ type Page<T> = { items: T[]; more: boolean };
 export default function Dashboard() {
   const [spend, setSpend] = useState<Summary | null>(null);
   const [expiring, setExpiring] = useState<Contract[]>([]);
+  const [expiringMore, setExpiringMore] = useState(false);
   const [openRfqs, setOpenRfqs] = useState<Page<Rfq>>({ items: [], more: false });
   const [orders, setOrders] = useState<Page<PO>>({ items: [], more: false });
   const [partial, setPartial] = useState("");
@@ -29,14 +35,21 @@ export default function Dashboard() {
     // Explicit tuple (not a spread) so each settled result keeps its own type.
     const [sp, ex, rqSent, rqResponse, po] = await Promise.allSettled([
       api<Summary>("/api/v1/spend/summary"),
-      api<Contract[]>("/api/v1/contracts?status=expiring&limit=5"),
+      // VNT-041: `expiring=true` is now a live 90-day calculation rather than a
+      // stored status, and `limit=100` with the hasMore flag makes the count
+      // honest — it used to fetch 5 rows and render `expiring.length` as if it
+      // were the total, so a tenant with 23 expiring contracts was told 5.
+      api<Contract[]>("/api/v1/contracts?expiring=true&limit=100"),
       api<Rfq[]>("/api/v1/rfqs?status=sent&limit=100"),
       api<Rfq[]>("/api/v1/rfqs?status=response&limit=100"),
       api<PO[]>("/api/v1/purchase-orders?limit=5"),
     ]);
     const failed: string[] = [];
     if (sp.status === "fulfilled") setSpend(sp.value.data); else failed.push("spend");
-    if (ex.status === "fulfilled") setExpiring(ex.value.data || []); else failed.push("contracts");
+    if (ex.status === "fulfilled") {
+      setExpiring(ex.value.data || []);
+      setExpiringMore(!!ex.value.pagination?.hasMore);
+    } else failed.push("contracts");
 
     // "Open RFQ" is a real count, not a 5-row sample. `limit=100` plus the
     // hasMore flag gives an exact count below 100 and "100+" above it, where the
@@ -98,14 +111,27 @@ export default function Dashboard() {
           ))
         ) : (
           <>
-            <StatCard label="Committed (POs)" value={spend ? fmtMinor(spend.poTotalMinor, ccys[0]) : "—"} />
-            <StatCard label="Invoiced (approved)" value={spend ? fmtMinor(spend.invoicedTotalMinor, ccys[0]) : "—"} />
+            {/* VNT-043: the API returns null for a cross-currency total rather
+                than a wrong number, so the null is rendered as a fact about the
+                data instead of being formatted into "NaN". */}
+            <StatCard
+              label="Committed (POs)"
+              value={!spend ? "—"
+                : spend.poTotalMinor == null ? "per currency"
+                : fmtMinor(spend.poTotalMinor, ccys[0])}
+            />
+            <StatCard
+              label="Invoiced (approved)"
+              value={!spend ? "—"
+                : spend.invoicedTotalMinor == null ? "per currency"
+                : fmtMinor(spend.invoicedTotalMinor, ccys[0])}
+            />
           </>
         )}
         <StatCard
-          label="Contracts flagged expiring"
-          value={expiring.length ? String(expiring.length) : "0"}
-          tone={expiring.length ? "bad" : "good"}
+          label="Contracts expiring (90 days)"
+          value={expiring.length ? `${expiring.length}${expiringMore ? "+" : ""}` : "0"}
+          tone={expiring.length ? "warn" : "good"}
         />
         <StatCard
           label="Open RFQs"
@@ -119,8 +145,10 @@ export default function Dashboard() {
         </p>
       ) : null}
       <p style={{ color: "var(--muted)", fontSize: 12 }}>
-        “Flagged expiring” reflects the stored contract status set by the expiry roll
-        (<code>POST /api/v1/contracts/roll-expiry</code>), not a live 90-day calculation.
+        “Expiring (90 days)” is calculated live from each contract&apos;s end date, in
+        the tenant&apos;s timezone. The daily expiry roll still runs — it writes the
+        status, notifies, and leaves an audit event — but the count here does not
+        wait for it.
       </p>
 
       <h2>What needs attention</h2>

@@ -100,6 +100,38 @@ def test_intelligence_end_to_end(client):
     assert empty["concentration"] == {"topShareBp": 0, "topSupplier": "", "singleSourceRisk": False}
 
 
+def test_intelligence_never_publishes_a_cross_currency_total(client):
+    """`leakageTotalMinor` and `maverickTotalMinor` had no currency dimension at all.
+
+    They were `sum(...)` over rows that each carried a `currency`, so a tenant
+    with 1_000 INR and 1_000 USD of leakage was told "2000" with nothing in the
+    response to indicate which currencies produced it. The per-currency maps
+    beside them are now the authoritative answer, and the flat figure is withheld
+    when more than one currency is in play.
+    """
+    c, pem = client
+    h = _h(pem, "u0", "acme")
+    inr = c.post("/api/v1/suppliers", json={"code": "L-INR", "name": "INR", "currency": "INR"}, headers=h).json()["data"]["id"]
+    usd = c.post("/api/v1/suppliers", json={"code": "L-USD", "name": "USD", "currency": "USD"}, headers=h).json()["data"]["id"]
+    _po_flow(c, pem, "acme", "u0", "L-P1", inr, 1000,
+             category=make_category(c, h, "LC-A", "Leak A"), currency="INR")
+    _po_flow(c, pem, "acme", "u0", "L-P2", usd, 1000,
+             category=make_category(c, h, "LC-B", "Leak B"), currency="USD")
+
+    data = c.get("/api/v1/spend/intelligence", headers=h).json()["data"]
+    for key, per_ccy in (("leakage", "leakageByCurrency"), ("maverick", "maverickByCurrency")):
+        total_key = f"{key}TotalMinor"
+        breakdown = data[per_ccy]
+        if len(breakdown) > 1:
+            assert data[total_key] is None, (
+                f"{total_key} published a cross-currency total: {data[total_key]}")
+            assert data["totalsArePerCurrency"] is True
+        else:
+            assert data[total_key] == sum(breakdown.values())
+        # Whatever the case, the per-currency figures are present and additive.
+        assert sum(breakdown.values()) == sum(int(r["totalMinor"]) for r in data[key])
+
+
 def test_summary_never_sums_across_currencies(client):
     """A total that mixes INR and USD minor units is not money.
 
@@ -120,9 +152,14 @@ def test_summary_never_sums_across_currencies(client):
     # Each currency carries its own total; neither is polluted by the other.
     assert s["byCurrency"]["committed"]["INR"] == 10_000
     assert s["byCurrency"]["committed"]["USD"] == 5_000
-    # The flat fields still sum, but the currency count tells the UI not to
-    # label them. This is the field the dashboard used to mislabel.
-    assert s["poTotalMinor"] == 15_000
+    # The cross-currency total is withheld rather than published and labelled by a
+    # cooperating client. It used to be 15_000 here — 10_000 INR plus 5_000 USD —
+    # and the only thing standing between that and a screenful of wrong money was
+    # every consumer remembering to check `currencyCount`. `null` is the honest
+    # answer to "what is the total" when the question has no meaning.
+    assert s["poTotalMinor"] is None, "a cross-currency total was published as a number"
+    assert s["invoicedTotalMinor"] is None
+    assert s["totalsArePerCurrency"] is True
     assert all(r["currency"] in {"INR", "USD"} for r in s["bySupplier"])
     assert len(s["bySupplier"]) == 2
 
@@ -137,5 +174,9 @@ def test_summary_never_sums_across_currencies(client):
     assert solo["byCurrency"]["committed"]["INR"] == 2_500
     # invoiced lands in the same currency bucket as its commitment
     assert solo["byCurrency"]["invoiced"]["INR"] == 2_500
+    # A single-currency tenant still gets a usable flat total, and is told the
+    # per-currency rendering is not required of them.
+    assert solo["poTotalMinor"] == 2_500
+    assert solo["totalsArePerCurrency"] is False
     # tenant isolation holds on the new breakdown too
     assert c.get("/api/v1/spend/summary", headers=_h(pem, "x", "void")).json()["data"]["currencyCount"] == 0
