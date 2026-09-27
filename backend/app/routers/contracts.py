@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -28,7 +28,8 @@ from ..models.matchrun import MatchRun
 from ..models.purchase import Invoice, InvoiceLine, PurchaseOrder, PurchaseOrderLine
 from ..models.supplier import Supplier
 from ..services.audit import record_event
-from ..services.contract import ContractError, check_dates, check_obligation, check_transition, is_due_expiring
+from ..services.contract import EXPIRY_WINDOW_DAYS, ContractError, check_dates, check_obligation, \
+    check_transition, is_due_expiring
 
 router = APIRouter(tags=["contracts"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Legal Reviewer", "Supplier Manager"}
@@ -141,7 +142,26 @@ def list_contracts(request: Request, actor: Actor = Depends(get_actor), db: Sess
     if status_:
         stmt = stmt.where(Contract.status == status_)
     if expiring:
-        stmt = stmt.where(Contract.status == "expiring")
+        # VNT-041. This used to be `status == "expiring"`, a *stored* status that
+        # only exists once the scheduled roll has run. So the dashboard's
+        # "expiring" tile showed nothing on a fresh install, nothing if the worker
+        # was down, and nothing between daily runs — the contracts were there and
+        # the answer was wrong. A buyer looking at that tile decides whether to
+        # start a renewal, so a silently empty list is worse than a slow one.
+        #
+        # The window is therefore calculated from `end_date` at query time, in the
+        # tenant's timezone, and the stored status is still included so anything
+        # the roll already moved stays visible. The roll keeps its job — writing
+        # the status, notifying, and leaving an audit event — but the question
+        # "what is expiring?" no longer depends on it having run.
+        today = _tenant_today(actor.tenant_id)
+        horizon = today + timedelta(days=EXPIRY_WINDOW_DAYS)
+        stmt = stmt.where(
+            Contract.status.in_(("active", "expiring")),
+            Contract.end_date.is_not(None),
+            Contract.end_date >= today.isoformat(),
+            Contract.end_date <= horizon.isoformat(),
+        ).order_by(asc(Contract.end_date), asc(Contract.id))
     if search:
         like = f"%{search.strip()}%"
         stmt = stmt.where(or_(Contract.title.ilike(like), Contract.code.ilike(like)))

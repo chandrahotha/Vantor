@@ -80,6 +80,80 @@ def _contract(c, pem, *, code="CT-1", sub="drafter", roles=PROCUREMENT, **overri
 # --- VNT-022: per-action authority ------------------------------------------
 
 
+def test_expiring_list_is_calculated_live_not_read_from_stored_status(client):
+    """VNT-041: the dashboard's "expiring" tile must not depend on a cron job.
+
+    `?expiring=true` used to filter on the *stored* status, which only exists
+    once the scheduled roll has run. So on a fresh install, with the worker down,
+    or between daily runs, the tile was empty while the contracts were there and
+    the expiry was real. A buyer reads that tile to decide whether to start a
+    renewal, so a silently empty list is worse than a slow one.
+
+    Nothing has run the roll in this test, and the contract is still returned.
+    """
+    c, pem = client
+    # A contract that ends in 30 days: inside the 90-day window.
+    cid, _ = _contract(c, pem, code="CT-LIVE", end_date=_days_from_now(30),
+                       sub="mgr1", roles=PROCUREMENT)
+    mgr = _h(pem, "mgr1", PROCUREMENT)
+    legal = _h(pem, "legal1", LEGAL)
+    c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "review"}, headers=mgr)
+    c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "active"}, headers=legal)
+
+    res = c.get("/api/v1/contracts?expiring=true", headers=legal)
+    assert res.status_code == 200, res.text
+    codes = [row["code"] for row in res.json()["data"]]
+    assert "CT-LIVE" in codes, (
+        f"a contract ending in 30 days was not reported as expiring without the "
+        f"roll having run: {codes}")
+
+
+def test_expiring_list_excludes_contracts_outside_the_window(client):
+    c, pem = client
+    soon = _contract(c, pem, code="CT-SOON", end_date=_days_from_now(10),
+                     sub="mgr1", roles=PROCUREMENT)[0]
+    later = _contract(c, pem, code="CT-LATER", end_date=_days_from_now(300),
+                      sub="mgr1", roles=PROCUREMENT)[0]
+    mgr = _h(pem, "mgr1", PROCUREMENT)
+    legal = _h(pem, "legal1", LEGAL)
+    for cid in (soon, later):
+        c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "review"}, headers=mgr)
+        c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "active"}, headers=legal)
+
+    codes = [r["code"] for r in c.get("/api/v1/contracts?expiring=true", headers=legal).json()["data"]]
+    assert "CT-SOON" in codes
+    assert "CT-LATER" not in codes, "a contract ending in 300 days was reported as expiring"
+
+
+def test_expiring_list_excludes_a_contract_that_already_ended(client):
+    """A past end date is not "expiring", it is a missed renewal."""
+    c, pem = client
+    past = _contract(c, pem, code="CT-PAST", end_date=_days_from_now(-5),
+                     sub="mgr1", roles=PROCUREMENT)[0]
+    mgr = _h(pem, "mgr1", PROCUREMENT)
+    legal = _h(pem, "legal1", LEGAL)
+    c.patch(f"/api/v1/contracts/{past}/status", json={"status": "review"}, headers=mgr)
+    c.patch(f"/api/v1/contracts/{past}/status", json={"status": "active"}, headers=legal)
+
+    codes = [r["code"] for r in c.get("/api/v1/contracts?expiring=true", headers=legal).json()["data"]]
+    assert "CT-PAST" not in codes
+
+
+def test_expiring_list_excludes_terminated_contracts(client):
+    """A terminated contract is not going to need a renewal."""
+    c, pem = client
+    cid = _contract(c, pem, code="CT-TERM", end_date=_days_from_now(5),
+                    sub="mgr1", roles=PROCUREMENT)[0]
+    mgr = _h(pem, "mgr1", PROCUREMENT)
+    legal = _h(pem, "legal1", LEGAL)
+    c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "review"}, headers=mgr)
+    c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "active"}, headers=legal)
+    c.patch(f"/api/v1/contracts/{cid}/status", json={"status": "terminated"}, headers=legal)
+
+    codes = [r["code"] for r in c.get("/api/v1/contracts?expiring=true", headers=legal).json()["data"]]
+    assert "CT-TERM" not in codes
+
+
 def test_two_internal_signers_do_not_collide(client):
     """Regression: a second internal signature used to be impossible.
 
@@ -271,6 +345,13 @@ def test_expiry_roll_requires_service_authority(client):
     assert refused.json()["error"]["details"]["action"] == "expire"
     admin = _h(pem, "root", ("Super Admin",))
     assert c.post("/api/v1/contracts/roll-expiry", headers=admin).status_code == 200
+
+
+def _days_from_now(days: int) -> str:
+    """An ISO date `days` from today. Negative for a past date."""
+    from datetime import date, timedelta
+
+    return (date.today() + timedelta(days=days)).isoformat()
 
 
 def test_expiry_roll_is_idempotent_and_clock_injectable(client):

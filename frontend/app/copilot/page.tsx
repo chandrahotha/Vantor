@@ -44,6 +44,11 @@ export default function Copilot() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Monotonic turn counter and the id of the turn currently streaming. VNT-037:
+  // turn ids must be unique, and the stream must address one specific turn
+  // rather than "whatever turn happens to have the ai role".
+  const seq = useRef(0);
+  const activeAiRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setProviders((await api<ProviderList>("/api/v1/ai/providers")).data);
@@ -66,7 +71,26 @@ export default function Copilot() {
     setQ("");
     setBusy(true);
     setErr("");
-    setTurns((t) => [...t, { id: "you", role: "you", text }, { id: "ai", role: "ai", text: "" }]);
+    // VNT-037. These two ids used to be the literals "you" and "ai", on every
+    // turn. That produced two distinct bugs, and the second is the serious one:
+    //
+    //   * duplicate React keys across turns, which is a reconciliation warning
+    //     and undefined behaviour for anything stateful inside a turn; and
+    //   * `patchTurn("ai", ...)` matched *every* turn with that id, so asking a
+    //     second question streamed the new answer into the first answer's turn as
+    //     well. The earlier answer was silently overwritten, on a screen whose
+    //     entire claim is that answers are evidence-cited and reviewable.
+    //
+    // A counter rather than a random id: it is stable for the life of the
+    // conversation, is readable in a DOM inspector, and cannot collide.
+    const youId = `you-${++seq.current}`;
+    const aiId = `ai-${seq.current}`;
+    activeAiRef.current = aiId;
+    setTurns((t) => [
+      ...t,
+      { id: youId, role: "you", text },
+      { id: aiId, role: "ai", text: "" },
+    ]);
     const controller = new AbortController();
     abortRef.current = controller;
     let acc = "";
@@ -77,9 +101,9 @@ export default function Copilot() {
           signal: controller.signal,
           onDelta: (d) => {
             acc += d;
-            patchTurn("ai", { text: acc });
+            patchTurn(aiId, { text: acc });
           },
-          onEvidence: (ev: StreamEvidence) => patchTurn("ai", {
+          onEvidence: (ev: StreamEvidence) => patchTurn(aiId, {
             provider: ev.provider,
             model: ev.model,
             confidence: ev.confidence,
@@ -94,9 +118,10 @@ export default function Copilot() {
       if (e instanceof DOMException && e.name === "AbortError") return;
       const msg = e instanceof Error ? e.message : "Copilot unavailable";
       setErr(msg);
-      patchTurn("ai", { role: "system", text: msg });
+      patchTurn(aiId, { role: "system", text: msg });
     } finally {
       abortRef.current = null;
+      activeAiRef.current = null;
       setBusy(false);
     }
   }
@@ -150,7 +175,7 @@ export default function Copilot() {
             {turns.length === 0 ? (
               <Empty title="Ask something" hint="Try one of the suggestions, or write your own question." />
             ) : (
-              turns.map((t) => (
+              turns.map((t, i) => (
                 <div
                   key={t.id}
                   style={{
@@ -166,7 +191,15 @@ export default function Copilot() {
                     {t.confidence != null ? <> · confidence {Math.round(t.confidence * 100)}%</> : null}
                     {t.requiresHumanReview ? <> · <Badge tone="warn">advisory</Badge></> : null}
                   </div>
-                  <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{t.text || (busy && t.role === "ai" ? "…" : "")}</div>
+                  {/* The pending-answer marker goes on the turn that is actually
+                      streaming, not on every empty AI turn. Keying it off
+                      `role === "ai"` meant a second question put a "…" in the
+                      first question's completed answer. Indexed off the end of
+                      the list rather than a ref, because a ref does not
+                      re-render. */}
+                  <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>
+                    {t.text || (busy && t.role === "ai" && i === turns.length - 1 ? "…" : "")}
+                  </div>
                   {t.streamed === false && t.role === "ai" ? (
                     <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
                       This environment is running in deterministic mode — the response is complete
