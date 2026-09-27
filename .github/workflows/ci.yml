@@ -70,6 +70,12 @@ jobs:
         run: python scripts/verify_brain_links.py
       - name: Encoding check (no mojibake in tracked text)
         run: python scripts/check_mojibake.py
+      - name: Documentation counts match the code
+        # VNT-042. The READMEs asserted hand-written numbers that had drifted into
+        # contradicting each other - three files, three different answers, none of
+        # them true. A count in prose decays silently; this fails on the push that
+        # changes reality, instead of waiting for a reader to notice.
+        run: python scripts/doc_counts.py --check
   backend:
     needs: policy
     runs-on: ubuntu-latest

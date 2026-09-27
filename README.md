@@ -5,7 +5,7 @@
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
 [![Tests: 156 backend + 48 frontend](https://img.shields.io/badge/tests-156%20backend%20%2B%2048%20frontend-brightgreen.svg)](backend/tests/)
-[![API: 68 operations](https://img.shields.io/badge/API-68%20operations-blue.svg)](api/openapi.json)
+[![API: 90 operations](https://img.shields.io/badge/API-90%20operations-blue.svg)](api/openapi.json)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
 [![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-black.svg)](frontend/)
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status: `TESTED` backend (156 pytest green, 78 API operations, all 10 products verified) + Next.js 16 app (35 vitest green) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).****
+**Status: `TESTED` backend (270 pytest green, 90 API operations, all 10 products verified) + Next.js 16 app (82 vitest green) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).****
 
 ## Why VANTOR
 
@@ -56,9 +56,9 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-    lines="- [x] Backend API (FastAPI, 68 operations, 156 pytest green): suppliers + scorecards + onboarding + qualification decide, RFQ\u001fquote\u001faward + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions\u001fPO\u001freceipt\u001finvoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks"
+    lines="- [x] Backend API (FastAPI, 90 operations, 270 pytest green): suppliers + scorecards + onboarding + qualification decide, RFQ\u001fquote\u001faward + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions\u001fPO\u001freceipt\u001finvoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks"
 - [x] AuthN/Z: Keycloak OIDC (check-sso boot, splash, loop breaker) + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
-- [x] Web app (Next.js 16 / React 19, 18 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
+- [x] Web app (Next.js 16 / React 19, 14 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
 - [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
 - [ ] Real-world providers live-checks: OCR engine not shipped, native pgvector index migration pending (cosine re-rank in-Python is the current honest path), full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
@@ -130,7 +130,7 @@ no PR or push trigger, so a red suite can sit unseen for up to a week. Run the s
 locally before you push:
 
 ```powershell
-python -m pytest backend/tests -q     # 89 tests
+python -m pytest backend/tests -q     # 270 tests
 python scripts/verify_brain_links.py  # docs brain-link gate
 cd frontend; npm run typecheck; npm run lint; npm run build
 ```
