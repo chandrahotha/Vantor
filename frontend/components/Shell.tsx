@@ -22,6 +22,11 @@ const NAV: { section?: string; items: [icon: string, label: string, href: string
     section: "Request & negotiate",
     items: [
       ["◬", "Requisitions", "/requisitions"],
+      // VNT-045. The approval queue had no route of its own and rendered only
+      // inside the copilot page. It is the surface a manager uses most, and it
+      // governs money, so it is now where it belongs - and the section order
+      // follows the process rather than the org chart: request, approve, then buy.
+      ["✓", "Approvals", "/approvals"],
       ["⇄", "Negotiation simulator", "/negosim"],
     ],
   },

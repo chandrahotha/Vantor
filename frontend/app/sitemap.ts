@@ -11,6 +11,10 @@ export const ROUTES: { path: string; priority: number; changeFrequency: "always"
   { path: "", priority: 1, changeFrequency: "daily" },
   { path: "/suppliers", priority: 0.8, changeFrequency: "daily" },
   { path: "/requisitions", priority: 0.7, changeFrequency: "daily" },
+  // VNT-045: the approval queue is a first-class route now, so it belongs in the
+  // route table. The list is documentation of the product's surfaces, and leaving
+  // a real page out of it is how the "missing surface" problem started.
+  { path: "/approvals", priority: 0.8, changeFrequency: "daily" },
   { path: "/rfqs", priority: 0.8, changeFrequency: "daily" },
   { path: "/orders", priority: 0.8, changeFrequency: "daily" },
   { path: "/contracts", priority: 0.7, changeFrequency: "weekly" },
