@@ -145,7 +145,8 @@ def test_stream_framing_live_provider(monkeypatch, client):
     response. This is the regression that made `/ai/stream` theatre."""
     c, pem = client
 
-    def fake_stream(*, prompt, system="", provider="", provider_key="", model=""):
+    def fake_stream(*, prompt, system="", provider="", provider_key="", model="",
+                    grounding="", evidence=None):
         yield "hel"
         yield "lo "
         yield "supplier"
@@ -170,11 +171,54 @@ def test_stream_framing_live_provider(monkeypatch, client):
     assert "AI_NO_EVIDENCE" not in r.text
 
 
+def test_stream_passes_the_tool_results_to_the_model(monkeypatch, client):
+    """The model must actually be shown the evidence the response cites.
+
+    This is the one that matters for the product's central claim. The streaming
+    path - the one the copilot uses - computed `grounding` and then did not pass
+    it to the provider, while the non-streaming path always had. The answer was
+    therefore produced *without* the tenant's data and then shipped with evidence
+    chips and a confidence number implying otherwise: a confident, cited-looking
+    answer to a question the model had never been given the data for.
+
+    Nothing caught it because the framing tests only asserted on the deltas and
+    the presence of an `[EVIDENCE]` frame - both of which were fine. The bug was
+    in what reached the model, which nothing looked at.
+    """
+    c, pem = client
+    seen: dict = {}
+
+    def fake_stream(*, prompt, system="", provider="", provider_key="", model="",
+                    grounding="", evidence=None):
+        seen["prompt"] = prompt
+        seen["grounding"] = grounding
+        seen["evidence"] = evidence
+        yield "ack"
+
+    monkeypatch.setattr("app.services.ai_gateway.stream", fake_stream)
+
+    c.post("/api/v1/suppliers", json={"code": "SUP-GR", "name": "Grounded Co"}, headers=_h(pem))
+    r = c.post("/api/v1/ai/stream", json={"prompt": "Who is Grounded Co?", "provider": "ollama",
+                                          "tools": [{"name": "search_suppliers",
+                                                     "args": {"q": "Grounded Co", "limit": 5}}]},
+               headers=_h(pem))
+    assert r.status_code == 200
+    assert "[EVIDENCE]" in r.text, "the turn was not groundable, so the test proves nothing"
+
+    # The tool's rows are in what the model was asked.
+    assert seen["grounding"], "grounding was computed but never passed to the model"
+    assert "Grounded Co" in seen["grounding"]
+    assert seen["evidence"], "evidence was collected but never passed to the model"
+    # And the user prompt is fenced, so tool output cannot pose as instructions.
+    assert "Grounded Co" in seen["prompt"]
+
+
 def test_stream_provider_error_is_explicit(monkeypatch, client):
     """A live provider failure must surface as an error event, never fake text."""
     c, pem = client
 
-    def boom(*, prompt, system="", provider="", provider_key="", model=""):
+    def boom(*, prompt, system="", provider="", provider_key="", model="",
+             grounding="", evidence=None):
         raise AIGatewayError("ollama", "stream failed: connection refused")
         return
         yield

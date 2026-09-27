@@ -364,6 +364,42 @@ def test_rebind_between_validation_and_dial_is_refused(client, monkeypatch):
     assert "EGRESS_ADDRESS_REFUSED" in delivery.last_error
 
 
+def test_a_public_ip_literal_url_is_accepted(client, monkeypatch):
+    """A webhook URL may legitimately be an IP literal, and that path was broken.
+
+    `validate_url` has a separate branch for IP literals that returns early - and
+    it read `port` before the line that assigned it, so registering a hook against
+    a public address raised `NameError` instead of being accepted. A linter
+    (ruff F821) found it; no test had covered the branch, because every test used
+    a hostname.
+    """
+    from app.services.egress import validate_url
+
+    monkeypatch.delenv("WEBHOOK_EGRESS_ALLOWLIST", raising=False)
+    target = validate_url("https://93.184.216.34/hooks/v1?tenant=acme")
+    assert target.host == "93.184.216.34"
+    assert target.port == 443
+    assert target.addresses == ("93.184.216.34",)
+    # The path and query survive, so a signed payload lands on the right resource.
+    assert target.path == "/hooks/v1"
+    assert target.query == "tenant=acme"
+
+    # An explicit port is honoured rather than defaulted.
+    assert validate_url("https://93.184.216.34:8443/hook").port == 8443
+
+
+def test_an_internal_ip_literal_is_still_refused(client, monkeypatch):
+    """The fix must not have loosened the address policy."""
+    from app.services.egress import EgressError, validate_url
+
+    monkeypatch.delenv("WEBHOOK_EGRESS_ALLOWLIST", raising=False)
+    for url in ("https://127.0.0.1/hook", "https://10.0.0.5/hook",
+                "https://169.254.169.254/latest/meta-data/"):
+        with pytest.raises(EgressError) as caught:
+            validate_url(url)
+        assert caught.value.code == "EGRESS_ADDRESS_REFUSED", url
+
+
 def test_duplicate_endpoint_urls_are_enqueued_once(client, monkeypatch):
     """Two registrations of the same URL must not double-fire the consumer.
 

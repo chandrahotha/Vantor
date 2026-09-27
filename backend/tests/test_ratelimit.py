@@ -92,7 +92,6 @@ def fake_redis(monkeypatch):
 
 
 def test_429_after_write_limit(client, fake_redis, monkeypatch):
-    from app.core import ratelimit
 
     c, pem = client
     monkeypatch.setenv("RATE_LIMIT_WRITE_PER_MIN", "2")
@@ -333,7 +332,6 @@ def test_peer_bucket_is_not_spoofable_by_forwarded_for(client, fake_redis, monke
     adding a header is not one.
     """
     from app.core.config import get_settings
-    from app.core import ratelimit
 
     c, _pem = client
     monkeypatch.setenv("RATE_LIMIT_READ_PER_MIN", "2")

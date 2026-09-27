@@ -4,13 +4,10 @@ The reviewer walks in as a signed demo actor (name `.sig`), carrying the same
 roles it'd have if they'd signed in. Writes are carefully gated: nothing that
 makes a *submission* (supplier form, quote entry) is reachable.
 """
-from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac as _hmac
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
@@ -40,7 +37,6 @@ def demo_client(monkeypatch, tmp_path):
     from app.main import app as fastapi_app
 
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    priv_pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     jwk = RSAAlgorithm.to_jwk(priv.public_key(), as_dict=True)
     jwk["kid"] = "demo-kid"
     from app.core import security

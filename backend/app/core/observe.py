@@ -255,8 +255,6 @@ async def _tenant_of_async(request) -> str:  # type: ignore[no-untyped-def]
     is CPU-bound, so it is handed to a worker thread rather than run inline in an
     `async def`.
     """
-    from starlette.concurrency import run_in_threadpool
-
     state_tenant = getattr(request.state, "tenant_id", "") or ""
     if state_tenant:
         return state_tenant

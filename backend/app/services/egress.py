@@ -48,7 +48,11 @@ import ipaddress
 import os
 import socket
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checkers only
+    import httpx
 
 ALLOWED_SCHEMES = frozenset({"https"})
 
@@ -124,6 +128,18 @@ def _host_allowed(host: str) -> bool:
     if not allow:
         return True
     return any(host == entry or host.endswith("." + entry) for entry in allow)
+
+
+def _port_of(parts) -> int:
+    """The URL's port, defaulting to 443.
+
+    A helper rather than an inline `parts.port or 443` because two branches of
+    `validate_url` need it, and the IP-literal branch ran before the original
+    assignment — so `port` was undefined there and registering a webhook against a
+    public IP address raised `NameError` instead of being accepted. A linter
+    found it; no test covered that branch, because every test used a hostname.
+    """
+    return parts.port or 443
 
 
 def _address_permitted(address: str) -> tuple[bool, str]:
@@ -219,7 +235,7 @@ def validate_url(url: str, *, resolve: bool = True) -> SafeTarget:
         if not ok:
             raise EgressError("EGRESS_ADDRESS_REFUSED",
                               f"Address {host} is {reason}", detail=f"address={host} reason={reason}")
-        return SafeTarget(url=raw, host=host, port=port, addresses=(host.strip("[]"),),
+        return SafeTarget(url=raw, host=host, port=_port_of(parts), addresses=(host.strip("[]"),),
                           path=parts.path or "/", query=parts.query)
 
     # A single-label name is a service name on whatever search domain the host
@@ -233,7 +249,7 @@ def validate_url(url: str, *, resolve: bool = True) -> SafeTarget:
                           f"Host {host!r} is a single-label name; internal service names are refused")
 
     try:
-        port = parts.port or 443
+        port = _port_of(parts)
     except ValueError as exc:
         raise EgressError("EGRESS_PORT_INVALID", "Port is not an integer", detail=str(exc)) from exc
     if not 1 <= port <= 65535:

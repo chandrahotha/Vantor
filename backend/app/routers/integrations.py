@@ -25,7 +25,7 @@ from ..core.tenant import get_db
 from ..models.integration import DELIVERY_STATUSES, INTEGRATION_TYPES, Integration, WebhookDelivery, WebhookEndpoint
 from ..services.audit import record_event
 from ..services.egress import EgressError, validate_url
-from ..services.integration import ADAPTERS, deliver_now, drain, fanout, replay
+from ..services.integration import ADAPTERS, deliver_now, drain, replay
 
 router = APIRouter(tags=["integrations"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer"}

@@ -353,27 +353,36 @@ def _grounded_or_refuse(text: str, *, evidence: list | None, provider: str, mode
             "refusal_reason": ""}
 
 
-def stream(*, prompt: str, system: str = "", provider: str = "", provider_key: str = "", model: str = "") -> Iterator[str]:
+def stream(*, prompt: str, system: str = "", provider: str = "", provider_key: str = "", model: str = "",
+           grounding: str = "", evidence: list | None = None) -> Iterator[str]:
     """Yield provider-side deltas as the vendor emits them.
 
     Any failure raises `AIGatewayError`; the SSE endpoint turns it into an
     explicit error frame. Never a baked answer.
+
+    `grounding` and `evidence` are here for the same reason `complete` takes them:
+    the streaming path is the one the copilot actually uses, and without them the
+    model answered *without* the tenant's tool results while the response still
+    carried evidence chips and a confidence number. That is the precise failure
+    this product exists to avoid - a confident, cited-looking answer to a question
+    the model was never shown the data for.
     """
     name = _active_provider(provider)
     if name == "disabled":
-        yield "UNKNOWN — this environment has no AI provider configured."
+        yield "UNKNOWN - this environment has no AI provider configured."
         return
 
     t = resolve(name, request_key=provider_key, model=model)
     voice = _system_prompt(system)
+    asked = _user_prompt(prompt, grounding)
     if t.kind == OLLAMA:
-        yield from _ollama_stream(t, prompt, voice)
+        yield from _ollama_stream(t, asked, voice)
     elif t.kind == ANTHROPIC:
-        yield from _anthropic_stream(t, prompt, voice)
+        yield from _anthropic_stream(t, asked, voice)
     elif t.kind == GEMINI:
-        yield from _gemini_stream(t, prompt, voice)
+        yield from _gemini_stream(t, asked, voice)
     else:
-        yield from _openai_stream(t, prompt, voice)
+        yield from _openai_stream(t, asked, voice)
 
 
 # ---------------------------------------------------------------------------

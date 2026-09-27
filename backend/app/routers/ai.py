@@ -259,11 +259,9 @@ def decide_approval(approval_id: str, payload: DecideIn, request: Request, actor
 def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> Response:
     """Provider-side streaming with optional tool grounding: distinguishes real
     token streaming from the disabled fallback, and cites tool rows as evidence."""
-    import json as _json
-
     from fastapi.responses import StreamingResponse as _SS
 
-    from ..services.ai_gateway import AIGatewayError, _active_provider, complete as _complete, stream as _stream
+    from ..services.ai_gateway import AIGatewayError, _active_provider, stream as _stream
 
     rid = getattr(request.state, "request_id", "")
     tenant, sub = actor.tenant_id, actor.sub
@@ -312,7 +310,15 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
         try:
             for delta in _stream(prompt=payload.prompt, system=payload.system,
                                  provider=payload.provider, provider_key=key,
-                                 model=payload.model):
+                                 model=payload.model,
+                                 # The streaming path is the one the copilot uses.
+                                 # It was not passing the tool results to the model,
+                                 # so a streamed answer was produced without the
+                                 # evidence the response then cited - a confident
+                                 # answer with chips behind it that the model never
+                                 # saw. The non-streaming path has always passed
+                                 # both.
+                                 grounding=grounding, evidence=evidence):
                 aggregated.append(delta)
                 yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
             answer = "".join(aggregated)

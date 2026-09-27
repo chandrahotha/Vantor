@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
 
-from .helpers import drain_notifications, open_rfq_for_bid, seed_rfq_award, submit_bid
+from .helpers import drain_notifications, open_rfq_for_bid, submit_bid
 
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"

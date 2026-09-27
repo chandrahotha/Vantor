@@ -1,0 +1,57 @@
+# ruff configuration.
+#
+# VNT-040: the backend had never been linted. The rules enabled here are the
+# correctness ones — undefined names, unused bindings, shadowing, syntax. That
+# matters, because turning the linter on immediately found two real production
+# bugs that 296 tests had missed:
+#
+#   * `egress.validate_url` read `port` before the line that assigned it, so
+#     registering a webhook against a public IP address raised `NameError`. Every
+#     existing test used a hostname, so the branch was never executed.
+#   * `ai_gateway.stream` accepted no `grounding` argument, so the streaming
+#     path — the one the copilot actually uses — never showed the model the tool
+#     results the response then cited.
+#
+# E741 is deliberately ignored, and that is a considered decision rather than a
+# suppression reflex. It objects to `l` as a name; 25 sites use it in list
+# comprehensions where the variable is a line or a label. Renaming them was
+# attempted and reverted: `l` is the *generator variable*, so renaming only the
+# `for` target orphans every use in the body and turns 25 readable comprehensions
+# into 63 undefined-name errors. Fixing it properly means renaming each
+# comprehension and its body together, which is a readability change to working
+# code with no correctness benefit. So the rule is off until someone wants to make
+# that change on purpose.
+#
+# This is a standalone config rather than a `[tool.ruff]` table in a
+# pyproject.toml, because adding a pyproject.toml to `backend/` would change
+# pytest's rootdir and import resolution for every test in the project - a
+# packaging side effect from a linting decision is not a trade worth making.
+
+line-length = 120
+target-version = "py313"
+
+[lint]
+# Only rules that indicate a *defect*, not a preference:
+#
+#   F    pyflakes — undefined names, unused bindings, redefinitions, f-string
+#                  bugs. Every finding here has been either a real bug or dead
+#                  scaffolding.
+#   E7   the pycodestyle comparison/statement rules: `== None`, `== True`,
+#        bare `except:`, lambda assignment. `E722` in particular is a swallowed
+#        exception, which in this codebase would hide exactly the kind of failure
+#        the rest of this file is about.
+#   E9   syntax and runtime errors. Non-negotiable.
+#
+# Deliberately *not* selected: E1/E2/E3 (indentation, whitespace, blank lines)
+# and E5 (line length). Those are formatting, and adopting them would mean a
+# 477-line reformat of working code in exchange for no defect being caught - the
+# diff would bury the two real bugs the linter did find.
+select = ["E7", "E9", "F"]
+# E741: see the note above. Everything else in the selected sets is enforced.
+ignore = ["E741"]
+
+[lint.per-file-ignores]
+# Tests shadow short names in fixtures, which E7 does not object to but F811
+# (redefinition) does when a module-level import is repeated inside a function.
+# Unused *bindings* are still caught everywhere, including tests.
+"tests/*" = ["F811"]

@@ -92,7 +92,7 @@ def test_caller_system_prompt_cannot_replace_the_house_policy(client, monkeypatc
     must be present whatever the caller sends.
     """
     from app.core.config import get_settings
-    from app.services.ai_gateway import VANTOR_VOICE, _system_prompt
+    from app.services.ai_gateway import VANTOR_VOICE
 
     c, pem = client
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")

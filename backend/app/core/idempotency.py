@@ -236,7 +236,9 @@ def _complete(tenant_id: str, fingerprint: str, method: str, path: str, status_c
             db.commit()
         except Exception:
             if os.getenv("VANTOR_DEBUG_IDEMPOTENCY"):
-                import traceback; traceback.print_exc()
+                import traceback
+
+                traceback.print_exc()
             db.rollback()
         finally:
             db.close()

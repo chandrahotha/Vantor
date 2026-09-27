@@ -96,7 +96,23 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install backend deps
-        run: pip install -r backend/requirements.txt
+        run: |
+          pip install -r backend/requirements.txt
+          pip install ruff
+      - name: Backend lint
+        # VNT-040: the backend was never linted. Turning this on found two real
+        # production bugs that 296 tests had missed - an undefined name on the
+        # IP-literal webhook path, and the streaming AI path never passing the
+        # tool grounding the response then cited. The selected rules are the
+        # defect-detecting ones only; see backend/ruff.toml for what is
+        # deliberately excluded and why.
+        run: cd backend && ruff check app tests alembic
+      - name: Palette contrast + cycle audit
+        # Two things no typechecker and no browser test in this suite can see:
+        # a custom-property cycle (invalid at computed-value time, so a token
+        # silently inherits its root default) and a text/background pair below
+        # WCAG AA. Both are checked for all five palettes in both modes.
+        run: cd frontend && python check_palette_layer.py
       - name: Unit gates (tenant-isolation + auth + audit chain)
         env:
           APP_ENV: test

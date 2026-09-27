@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -324,7 +324,7 @@ def _tenant_today(tenant_id: str):
     twelve hours before a UTC server does, which is exactly the kind of off-by-one
     that makes a renewal notice fire a day early or a day late.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
     from ..core.config import get_settings
 

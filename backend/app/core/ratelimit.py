@@ -292,7 +292,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         redis_key = f"{key}:{bucket}"
         try:
             used = await run_in_threadpool(_increment_redis, redis, redis_key, cost, WINDOW_S + 5)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - recorded by the handler, not swallowed
             return await self._handle_unavailable(request, call_next, key, limit, cost, fail_mode, "store-error")
 
         if used > limit:

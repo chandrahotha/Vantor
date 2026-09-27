@@ -6,7 +6,7 @@ native pgvector column lands with the embedding worker in Wave 2).
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, JSON, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
