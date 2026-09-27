@@ -1,4 +1,10 @@
-"""Notifications tests — visibility, read marking, event emission."""
+"""Notifications tests — visibility, read marking, event emission.
+
+Sourcing setup goes through `helpers.seed_rfq_award` because an award needs a
+qualified supplier and a line-mapped, currency-matched quote (VNT-020/VNT-021).
+None of these tests are about sourcing — they just need an `AWARD_DECIDED`
+broadcast to have happened.
+"""
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -7,6 +13,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from jwt.algorithms import RSAAlgorithm
+
+from .helpers import drain_notifications, open_rfq_for_bid, seed_rfq_award, submit_bid
 
 ISS = "https://issuer.test/realms/vantor"
 AUD = "vantor-web"
@@ -45,7 +53,8 @@ def client(monkeypatch):
     get_settings.cache_clear()
 
 
-def _h(pem: bytes, sub="buyer1", tenant="t1", roles=("Buyer", "Procurement Manager")):
+def _h(pem: bytes, sub="buyer1", tenant="t1",
+       roles=("Buyer", "Procurement Manager", "Compliance Reviewer")):
     now = datetime.now(timezone.utc)
     tok = jwt.encode({"iss": ISS, "aud": AUD, "sub": sub, "tenant_id": tenant,
                       "realm_access": {"roles": list(roles)},
@@ -58,14 +67,15 @@ def test_badge_read_and_visibility(client):
     c, pem = client
     h = _h(pem)
     assert c.get("/api/v1/notifications/unread-count", headers=h).json()["data"]["unread"] == 0
-    s = c.post("/api/v1/suppliers", json={"code": "SUP-N", "name": "Notify Co"}, headers=h).json()["data"]["id"]
-    r = c.post("/api/v1/rfqs", json={"code": "RFQ-N", "title": "Widgets",
-                "lines": [{"description": "Widget units", "quantity": 5}]}, headers=h).json()["data"]["id"]
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "sent"}, headers=h)
-    q = c.post(f"/api/v1/rfqs/{r}/quotes", json={"supplier_id": s, "lines": [{"unit_price_minor": 100, "quantity": 5}]}, headers=h).json()["data"]["id"]
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "response"}, headers=h)
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "evaluated"}, headers=h)
-    assert c.post(f"/api/v1/rfqs/{r}/award", json={"quote_id": q, "reason": "only bid"}, headers=h).status_code == 201
+    rfq, line, supplier = open_rfq_for_bid(c, h, code="RFQ-N", title="Widgets",
+                                           line_desc="Widget units", quantity=5,
+                                           reviewer_h=_h(pem, "reviewer", "t1"))
+    # Onboarding legitimately emits notifications, so the baseline is cleared
+    # before the award. Asserting an exact unread count against a count that
+    # drifts every time the supplier flow grows a step is how badge tests rot.
+    drain_notifications(c, h)
+    assert c.get("/api/v1/notifications/unread-count", headers=h).json()["data"]["unread"] == 0
+    submit_bid(c, h, rfq, line, supplier, quantity=5, unit_price_minor=100)
     assert c.get("/api/v1/notifications/unread-count", headers=h).json()["data"]["unread"] == 1
     feed = c.get("/api/v1/notifications", headers=h).json()["data"]
     assert feed[0]["kind"] == "AWARD_DECIDED" and feed[0]["read"] is False
@@ -91,16 +101,19 @@ def test_directed_notify_to_creator(client):
 
 
 def _award(c, pem, sub="buyer1", tenant="t1"):
-    """Drive a full RFQ→award so a broadcast notification exists."""
+    """Drive a full RFQ→award and leave exactly one unread broadcast behind.
+
+    Onboarding (certification verified, qualification decided) emits its own
+    notifications, so the feed is drained immediately before the award. Every
+    caller of this helper then gets a clean baseline of one unread, which is what
+    makes an exact badge assertion possible.
+    """
     h = _h(pem, sub, tenant)
-    s = c.post("/api/v1/suppliers", json={"code": f"SUP-{sub}", "name": "Components Co"}, headers=h).json()["data"]["id"]
-    r = c.post("/api/v1/rfqs", json={"code": f"RFQ-{sub}", "title": "Widgets",
-                "lines": [{"description": "Widget unit", "quantity": 5}]}, headers=h).json()["data"]["id"]
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "sent"}, headers=h)
-    q = c.post(f"/api/v1/rfqs/{r}/quotes", json={"supplier_id": s, "lines": [{"unit_price_minor": 100, "quantity": 5}]}, headers=h).json()["data"]["id"]
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "response"}, headers=h)
-    c.patch(f"/api/v1/rfqs/{r}/status", json={"status": "evaluated"}, headers=h)
-    assert c.post(f"/api/v1/rfqs/{r}/award", json={"quote_id": q, "reason": "only bid"}, headers=h).status_code == 201
+    rfq, line, supplier = open_rfq_for_bid(
+        c, h, code=f"RFQ-{sub}", title="Widgets", line_desc="Widget unit",
+        quantity=5, reviewer_h=_h(pem, "reviewer", tenant))
+    drain_notifications(c, h)
+    submit_bid(c, h, rfq, line, supplier, quantity=5, unit_price_minor=100)
     return h
 
 

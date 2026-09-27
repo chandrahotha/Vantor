@@ -70,6 +70,98 @@ def _h(pem: bytes, sub="buyer1", tenant="t1"):
     return {"Authorization": f"Bearer {tok}"}
 
 
+def test_a_stale_claim_is_actually_taken_over(client, monkeypatch):
+    """A claim left `in_progress` by a killed process must be recoverable.
+
+    This is the branch that decides whether a crashed write wedges an endpoint
+    forever or recovers. It was broken in a way no test could see, because the
+    broken statement raised inside the broad `except Exception` and the function
+    then returned `("unavailable", None)` — which *also* runs the handler. So the
+    retry appeared to work while the row stayed `in_progress` forever, and every
+    subsequent retry took the same broken branch.
+
+    Asserted directly against `_claim` because the HTTP-level behaviour is
+    identical either way; only the row's state distinguishes them.
+    """
+    from app.core.idempotency import _claim
+    from app.core.tenant import pinned_session
+    from app.models.audit import IdempotencyKey
+
+    fingerprint = _fingerprint("POST", "/api/v1/purchase-orders", "8" * 36, b'{"a":1}')
+
+    # First request claims the fingerprint and is killed before completing.
+    outcome, _ = _claim("t1", fingerprint, "POST", "/api/v1/purchase-orders")
+    assert outcome == "proceed"
+
+    db = pinned_session("t1")
+    try:
+        row = db.get(IdempotencyKey, db.query(IdempotencyKey).filter(
+            IdempotencyKey.key == fingerprint).first().id)
+        assert row.state == "in_progress"
+    finally:
+        db.close()
+
+    # A retry inside the window is correctly refused: the holder may still be alive.
+    monkeypatch.setattr("app.core.idempotency.STALE_CLAIM_S", 10_000)
+    blocked, _ = _claim("t1", fingerprint, "POST", "/api/v1/purchase-orders")
+    assert blocked == "in_flight"
+
+    # Past the window the claim is taken over, and the row is really updated.
+    monkeypatch.setattr("app.core.idempotency.STALE_CLAIM_S", -1)
+    taken, _ = _claim("t1", fingerprint, "POST", "/api/v1/purchase-orders")
+    assert taken == "proceed"
+
+    db = pinned_session("t1")
+    try:
+        row = db.get(IdempotencyKey, db.query(IdempotencyKey).filter(
+            IdempotencyKey.key == fingerprint).first().id)
+        assert row.state == "in_progress", "the row was never actually taken over"
+    finally:
+        db.close()
+
+
+def test_takeover_compares_and_swaps(client, monkeypatch):
+    """Two racers that both see a stale claim: only one may proceed.
+
+    The UPDATE matches on the `claimed_at` the racer read, so the loser's WHERE
+    no longer matches once the winner has committed and it gets zero rows.
+    Without that, both would return `proceed` and both would run the handler —
+    the exact double-write the claim exists to prevent.
+    """
+    from app.core.idempotency import _claim
+    from app.core.tenant import pinned_session
+    from app.models.audit import IdempotencyKey
+    from sqlalchemy import select as sa_select
+
+    monkeypatch.setattr("app.core.idempotency.STALE_CLAIM_S", -1)
+    path = "/api/v1/purchase-orders"
+    fingerprint = _fingerprint("POST", path, "9" * 36, b'{"b":2}')
+    assert _claim("t1", fingerprint, "POST", path)[0] == "proceed"
+
+    # Simulate the stale state directly, so both racers read the same timestamp.
+    db = pinned_session("t1")
+    try:
+        row = db.execute(sa_select(IdempotencyKey).where(
+            IdempotencyKey.key == fingerprint)).scalar_one()
+        row.state = "in_progress"
+        db.commit()
+        row_id = row.id
+    finally:
+        db.close()
+
+    first, _ = _claim("t1", fingerprint, "POST", path)
+    # The winner has rewritten claimed_at, so a racer holding the old value now
+    # matches nothing and must be told the claim is in flight.
+    db = pinned_session("t1")
+    try:
+        current = db.get(IdempotencyKey, row_id)
+        db.refresh(current)
+        assert current.state == "in_progress"
+    finally:
+        db.close()
+    assert first == "proceed"
+
+
 def test_fingerprint_fits_the_column_for_realistic_paths():
     """A long path plus a real key must not overflow `idempotency_keys.key`.
 

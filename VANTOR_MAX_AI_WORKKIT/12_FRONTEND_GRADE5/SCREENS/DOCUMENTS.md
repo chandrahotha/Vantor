@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Documents Screen Specification
 
 Document library with processing state, quarantine reason, source link, evidence readiness, extraction/OCR status, preview and version history.

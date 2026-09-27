@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Governance Screen Specification
 
 Audit/controls center with policy configuration, audit chain, verification, data quality exceptions and admin-only diagnostics.

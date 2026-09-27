@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Document Ai Journey
 
 User uploads document -> processing/quarantine -> extraction/OCR -> evidence -> search -> Copilot answer with citations -> human review if required.

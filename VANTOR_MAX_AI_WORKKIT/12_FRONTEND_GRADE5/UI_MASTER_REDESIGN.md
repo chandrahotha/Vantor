@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Grade-5 UI Master Redesign
 
 ## Current problem

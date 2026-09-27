@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../docs/BRAIN.md) · [Docs index](../docs/README.md)
+
 # Open Questions
 
 These are decisions the implementation agent must not invent if they materially alter business policy:

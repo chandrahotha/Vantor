@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Contracts Screen Specification
 
 Contract repository with renewal timeline, value, owner, supplier, obligation health, signature state, version history and approval status. Detail has command bar and evidence/audit panel.

@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Copilot Screen Specification
 
 AI workspace with evidence-first answers, provider health, context chips, citation drawer, human-review indicator, prompt history and no duplicate turn updates.

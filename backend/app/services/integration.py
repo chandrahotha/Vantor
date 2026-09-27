@@ -6,9 +6,23 @@ a provider SDK — adapters live here behind the interface):
 - Real ERP/email adapters arrive as separate modules implementing `Adapter`.
 
 Webhooks: HMAC-SHA256 over the canonical payload with the endpoint secret
-(resolved from env vault refs at send time, never stored). Dispatch is
-synchronous in-request for Wave 1 (worker queue in Wave 2); failures are
-recorded as failed deliveries with the error — never raised to the caller.
+(resolved from env vault refs at send time, never stored).
+
+VNT-008. Delivery used to be a synchronous `httpx.post` inside the request, with
+a 20-second budget across all endpoints and nothing after that — a slow or dead
+receiver held the caller's request open, and a failure was recorded once and
+never retried. `MAX_ATTEMPTS = 5` was defined and referenced nowhere. A signed
+payload that never arrived is indistinguishable to the receiver from one that was
+never sent, so an at-least-once guarantee needs a durable queue.
+
+Dispatch is now a **durable outbox**: `fanout` enqueues one `WebhookDelivery` per
+endpoint in state `pending` and returns immediately, and the worker
+(`worker/jobs.py::deliver`) drains the queue with exponential backoff, a bounded
+attempt count, and a dead-letter state that is replayable on demand via
+`POST /webhooks/deliveries/{id}/replay`. `send` remains available for callers
+that genuinely need synchronous delivery (the `test` endpoint), and uses exactly
+the same retry accounting so a test ping cannot tell you "delivered" while the
+real path is silently broken.
 """
 from __future__ import annotations
 
@@ -16,16 +30,31 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.integration import WebhookDelivery, WebhookEndpoint
+from ..models.integration import DELIVERY_STATUSES, WebhookDelivery, WebhookEndpoint
+from .egress import EgressError, build_pinned_request, validate_url
 
 TIMEOUT_S = 10.0
 MAX_ATTEMPTS = 5
+
+#: Exponential backoff, with full jitter, between delivery attempts. Jitter is not
+#: decoration: without it, a receiver that was briefly unreachable receives every
+#: queued delivery in the same millisecond when it returns.
+BACKOFF_BASE_S = 2.0
+BACKOFF_CAP_S = 300.0
+
+
+def backoff_seconds(attempts: int) -> float:
+    """Delay before attempt number `attempts + 1`."""
+    raw = min(BACKOFF_CAP_S, BACKOFF_BASE_S * (2 ** max(0, attempts - 1)))
+    return raw * (0.5 + random.random() / 2)  # noqa: S311 — jitter, not crypto
 
 
 class Adapter:
@@ -71,63 +100,211 @@ def resolve_secret(ref: str) -> str:
     return ""
 
 
-#: Wall-clock budget for one fanout, across all endpoints. Each delivery is a
-#: synchronous HTTP call with its own 10s timeout, so a tenant with several dead
-#: endpoints held the caller's request open for 10s * n. The remainder is
-#: reported as `deferred` rather than silently dropped.
-FANOUT_BUDGET_S = 20.0
+def _deliver_once(url: str, *, body: str, headers: dict) -> tuple[bool, str]:
+    """One HTTP attempt with the address pinned to what was validated.
+
+    VNT-007. `assert_safe_to_dial` re-resolves the host immediately before the
+    connection, so a DNS rebind between endpoint registration and delivery
+    cannot substitute a different destination. Validation alone is not enough:
+    the name is only safe at the instant it was checked.
+
+    The pinning is not optional bookkeeping. An earlier version of this function
+    called `assert_safe_to_dial`, discarded the address it returned, and then
+    posted to `target.url` — which re-resolves the name, so the socket opened
+    wherever DNS pointed at that instant. The comment claimed a guarantee the code
+    did not provide, which is the worst combination available: the audit trail
+    said the rebinding window was closed and it was open. `build_pinned_request`
+    dials the validated address directly and carries the hostname through in the
+    `Host` header and in the TLS SNI, so the certificate is still verified
+    against the real name.
+    """
+    target = validate_url(url)
+    request = build_pinned_request(
+        target, method="POST", content=body, headers=headers)
+    # `follow_redirects=False` is explicit rather than inherited from a library
+    # default, because a 302 to `http://169.254.169.254/` is the easiest SSRF in
+    # the world and the default is one library upgrade away from changing.
+    with httpx.Client(timeout=TIMEOUT_S, follow_redirects=False) as client:
+        response = client.send(request)
+    if 300 <= response.status_code < 400:
+        return False, f"redirect refused ({response.status_code}) - delivery must terminate at the registered URL"
+    response.raise_for_status()
+    return True, ""
+
+
+def _attempt_delivery(delivery: WebhookDelivery, *, endpoint_url: str, secret_ref: str,
+                      body: str, event: str) -> tuple[str, str]:
+    """Attempt one delivery and record the outcome. Returns `(status, error)`."""
+    secret = resolve_secret(secret_ref)
+    if not secret:
+        delivery.attempts += 1
+        delivery.status, delivery.last_error, delivery.next_attempt_at = (
+            "dead", "no resolvable signing secret for this endpoint", None)
+        return "dead", delivery.last_error
+    delivery.attempts += 1
+    try:
+        ok, reason = _deliver_once(
+            endpoint_url, body=body,
+            headers={"Content-Type": "application/json", "X-Vantor-Event": event,
+                     "X-Vantor-Signature": f"sha256={sign(secret, body)}"})
+    except EgressError as exc:
+        # A refused destination is permanent: retrying will not make
+        # 169.254.169.254 reachable. Dead-letter it immediately rather than
+        # burning five attempts on a guaranteed failure.
+        delivery.status, delivery.last_error, delivery.next_attempt_at = (
+            "dead", f"egress refused: {exc.code} {exc.message}"[:500], None)
+        return "dead", delivery.last_error
+    except Exception as exc:  # noqa: BLE001 — recorded, never raised
+        ok, reason = False, f"{type(exc).__name__}: {exc}"[:500]
+    if ok:
+        delivery.status, delivery.last_error, delivery.next_attempt_at = "delivered", "", None
+        return "delivered", ""
+    if delivery.attempts < MAX_ATTEMPTS and _is_retryable(reason):
+        delivery.status, delivery.last_error = "pending", reason[:500]
+        return "pending", reason[:500]
+    delivery.status, delivery.last_error, delivery.next_attempt_at = "dead", reason[:500], None
+    return "dead", reason[:500]
+
+
+def _is_retryable(reason: str) -> bool:
+    """Connection problems are worth another attempt; client errors generally are not."""
+    lowered = reason.lower()
+    permanent_markers = (
+        "400 bad request", "401 unauthorized", "403 forbidden", "404 not found",
+        "405 method not allowed", "410 gone", "422 unprocessable",
+        "redirect refused", "egress refused",
+    )
+    return not any(marker in lowered for marker in permanent_markers)
+
+
+def enqueue(db: Session, *, tenant_id: str, event: str, payload: dict,
+            endpoints: list[WebhookEndpoint], body: str) -> list[dict]:
+    """Durable enqueue. One `pending` row per endpoint; no network call."""
+    out: list[dict] = []
+    for ep in endpoints:
+        delivery = WebhookDelivery(tenant_id=tenant_id, created_by="", updated_by="",
+                                   endpoint_id=ep.id, event=event, payload=payload,
+                                   status="pending", attempts=0, body=body)
+        db.add(delivery)
+        out.append({"endpoint": ep.id, "status": "pending", "url": ep.url})
+    db.flush()
+    return out
+
+
+def drain(db: Session, *, tenant_id: str = "", limit: int = 50) -> list[dict]:
+    """Attempt due deliveries. Called by the worker; safe to call in a loop.
+
+    Rows are selected with `FOR UPDATE SKIP LOCKED` where the dialect supports
+    it, so several workers can drain concurrently without two of them picking up
+    the same delivery and signing it twice.
+    """
+    now = datetime.now(timezone.utc)
+    # Every filter before the limit. Filtering after it is at best a warning and
+    # at worst a silently unfiltered scan, and it makes the tenant predicate
+    # depend on where the call happens to put it.
+    stmt = select(WebhookDelivery).where(
+        WebhookDelivery.status == "pending",
+        (WebhookDelivery.next_attempt_at.is_(None))
+        | (WebhookDelivery.next_attempt_at <= now),
+    )
+    if tenant_id:
+        stmt = stmt.where(WebhookDelivery.tenant_id == tenant_id)
+    stmt = stmt.order_by(WebhookDelivery.created_at, WebhookDelivery.id).limit(limit)
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update(skip_locked=True)
+    rows = list(db.execute(stmt).scalars())
+    results: list[dict] = []
+    for delivery in rows:
+        endpoint = db.get(WebhookEndpoint, delivery.endpoint_id)
+        if endpoint is None or endpoint.status != "active":
+            delivery.status, delivery.last_error, delivery.next_attempt_at = (
+                "dead", "endpoint deleted or deactivated", None)
+            results.append({"delivery": delivery.id, "status": "dead"})
+            continue
+        status, error = _attempt_delivery(delivery, endpoint_url=endpoint.url,
+                                          secret_ref=endpoint.secret_ref,
+                                          body=delivery.body or "", event=delivery.event)
+        if status == "pending":
+            delivery.next_attempt_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds(delivery.attempts)))
+        results.append({"delivery": delivery.id, "status": status,
+                        "attempts": delivery.attempts, "error": error})
+    db.commit()
+    return results
 
 
 def fanout(db: Session, *, tenant_id: str, event: str, payload: dict) -> list[dict]:
-    """Deliver `event` to all active subscribed endpoints; returns per-endpoint results.
+    """Durably enqueue `event` for every active subscribed endpoint.
 
-    One delivery per distinct URL. `webhook_endpoints.url` carries no unique
-    constraint (adding one is a schema change that could fail on existing rows),
-    so a tenant that registered the same URL twice previously received the same
-    signed payload twice — a duplicate side effect for any consumer that is not
-    idempotent. Duplicates are collapsed here and the extra registration is
-    reported as `skipped_duplicate` instead of being delivered.
+    This no longer performs a network call. A caller gets `pending` rows it can
+    rely on being attempted, and the worker decides when. That is the difference
+    between "the receiver may or may not have it" and at-least-once.
     """
-    out: list[dict] = []
     endpoints = list(db.execute(select(WebhookEndpoint).where(
         WebhookEndpoint.tenant_id == tenant_id, WebhookEndpoint.status == "active")).scalars())
     body = canonical({"event": event, "tenant_id": tenant_id, "at": int(time.time()), "data": payload})
-    deadline = time.monotonic() + FANOUT_BUDGET_S
-    seen_urls: set[str] = set()
+    seen: set[str] = set()
+    targets: list[WebhookEndpoint] = []
+    skipped: list[dict] = []
     for ep in endpoints:
         if ep.events and event not in ep.events:
             continue
-        if ep.url in seen_urls:
-            out.append({"endpoint": ep.id, "status": "skipped_duplicate", "url": ep.url})
+        if ep.url in seen:
+            skipped.append({"endpoint": ep.id, "status": "skipped_duplicate", "url": ep.url})
             continue
-        seen_urls.add(ep.url)
-        out_of_budget = time.monotonic() >= deadline
-        secret = resolve_secret(ep.secret_ref)
-        delivery = WebhookDelivery(tenant_id=tenant_id, created_by="", updated_by="", endpoint_id=ep.id,
-                                   event=event, payload=payload, status="queued", attempts=0)
-        db.add(delivery)
-        db.flush()
-        if out_of_budget:
-            # Recorded rather than dropped: a deferred attempt is a fact about
-            # this fanout, and the audit trail should carry it.
-            delivery.status = "deferred"
-            delivery.last_error = f"fanout budget of {FANOUT_BUDGET_S:.0f}s exhausted before this endpoint"
-            out.append({"endpoint": ep.id, "status": "deferred", "url": ep.url, "detail": delivery.last_error})
-            continue
-        if not secret or not ep.url.startswith("https://"):
-            delivery.status, delivery.last_error = "failed", "no secret or non-https url — refused"
-            out.append({"endpoint": ep.id, "status": "failed"})
-            continue
-        try:
-            r = httpx.post(ep.url, content=body,
-                           headers={"Content-Type": "application/json", "X-Vantor-Event": event,
-                                    "X-Vantor-Signature": f"sha256={sign(secret, body)}"},
-                           timeout=TIMEOUT_S)
-            r.raise_for_status()
-            delivery.status, delivery.attempts = "delivered", 1
-            out.append({"endpoint": ep.id, "status": "delivered"})
-        except Exception as exc:  # noqa: BLE001 — recorded, never raised
-            delivery.status, delivery.attempts, delivery.last_error = "failed", 1, f"{type(exc).__name__}: {exc}"[:500]
-            out.append({"endpoint": ep.id, "status": "failed"})
+        seen.add(ep.url)
+        targets.append(ep)
+    # The skipped reports come first so the caller sees, in order, that a
+    # duplicate registration was noticed and deliberately not queued.
+    return skipped + enqueue(db, tenant_id=tenant_id, event=event, payload=payload,
+                             endpoints=targets, body=body)
+
+
+def deliver_now(db: Session, *, tenant_id: str, endpoint_id: str, event: str,
+                payload: dict) -> dict:
+    """Synchronous single-endpoint delivery with the same retry accounting.
+
+    Used by `POST /webhooks/test` only. It exists so a tenant can prove their
+    receiver and secret work; it deliberately does not enqueue, because a test
+    ping that waited for a worker would tell the operator nothing.
+    """
+    endpoint = db.execute(select(WebhookEndpoint).where(
+        WebhookEndpoint.tenant_id == tenant_id, WebhookEndpoint.id == endpoint_id)).scalar_one_or_none()
+    if endpoint is None:
+        return {"status": "failed", "error": "endpoint not found"}
+    body = canonical({"event": event, "tenant_id": tenant_id, "at": int(time.time()), "data": payload})
+    delivery = WebhookDelivery(tenant_id=tenant_id, created_by="", updated_by="",
+                               endpoint_id=endpoint.id, event=event, payload=payload,
+                               status="pending", attempts=0, body=body)
+    db.add(delivery)
     db.flush()
-    return out
+    status, error = _attempt_delivery(delivery, endpoint_url=endpoint.url,
+                                      secret_ref=endpoint.secret_ref, body=body, event=event)
+    db.commit()
+    return {"delivery": delivery.id, "status": status, "attempts": delivery.attempts,
+            "error": error, "url": endpoint.url}
+
+
+def replay(db: Session, *, tenant_id: str, delivery_id: str) -> dict:
+    """Return a dead-lettered delivery to the queue with its attempt count reset.
+
+    The attempt counter resets deliberately: a receiver that was wrong is
+    usually right now, and without a reset a replayed row is immediately
+    dead-lettered again on its first failure.
+    """
+    delivery = db.execute(select(WebhookDelivery).where(
+        WebhookDelivery.tenant_id == tenant_id, WebhookDelivery.id == delivery_id)).scalar_one_or_none()
+    if delivery is None:
+        return {"status": "failed", "error": "delivery not found"}
+    if delivery.status == "delivered":
+        return {"status": "failed", "error": "delivery already succeeded; replay would duplicate a signed payload"}
+    delivery.status, delivery.attempts, delivery.last_error = "pending", 0, ""
+    delivery.next_attempt_at = None
+    db.commit()
+    return {"status": "pending", "delivery": delivery.id, "event": delivery.event}
+
+
+assert set(("pending", "delivered", "failed", "dead")) <= DELIVERY_STATUSES, (
+    "integration.DELIVERY_STATUSES must cover the durable queue states; "
+    f"got {sorted(DELIVERY_STATUSES)}")
+

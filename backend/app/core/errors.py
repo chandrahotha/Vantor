@@ -8,6 +8,7 @@ Users never see a bare 500 without context.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -18,10 +19,32 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
+#: An inbound `X-Request-ID` was accepted verbatim, with no length bound and no
+#: character class, and was then reflected into the response header *and* every
+#: JSON envelope body. A caller could therefore inject newlines, control
+#: characters, or megabytes of text into every response and into the access log.
+#:
+#: The character class is the actual control: it admits the shapes correlation
+#: ids really use (hex, UUID, dotted and colon-separated trace ids) and excludes
+#: everything a header-splitting or log-forging attack needs. There is no
+#: minimum length — a short id is harmless, and inventing one would reject
+#: legitimate callers for no security benefit.
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\-]{0,63}$")
+REQUEST_ID_MAX = 64
+
+
+def sanitize_request_id(candidate: str | None) -> str:
+    """Return `candidate` if it is a safe, bounded correlation id, else a fresh one."""
+    if candidate:
+        value = candidate.strip()
+        if len(value) <= REQUEST_ID_MAX and REQUEST_ID_PATTERN.match(value):
+            return value
+    return uuid.uuid4().hex
+
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        rid = sanitize_request_id(request.headers.get("X-Request-ID"))
         request.state.request_id = rid
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid

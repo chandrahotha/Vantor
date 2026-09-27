@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import NegoSim from "./client";
 
 export const metadata: Metadata = {

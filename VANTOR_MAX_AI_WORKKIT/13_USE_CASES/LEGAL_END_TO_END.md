@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Legal End To End
 
 Legal: review contract -> obligations -> version -> signature -> activation -> expiry/renewal/termination.

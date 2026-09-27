@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Purchase Order State Machine
 
 Draft -> Approved -> Sent -> Received -> Invoiced -> Closed; Draft/Approved/Sent may transition to Cancelled only under explicit policy.

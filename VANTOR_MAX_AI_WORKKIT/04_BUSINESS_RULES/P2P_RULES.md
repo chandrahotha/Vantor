@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # P2P Rules.Md
 
 Define requisition -> PO -> receipt -> invoice -> spend invariants, including partial receipt/invoice, cancellation and payment states.

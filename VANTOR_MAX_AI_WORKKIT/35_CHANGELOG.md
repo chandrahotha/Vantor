@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../docs/BRAIN.md) · [Docs index](../docs/README.md)
+
 # Workkit Changelog
 
 - MAX package generated from the current VANTOR repository re-audit.

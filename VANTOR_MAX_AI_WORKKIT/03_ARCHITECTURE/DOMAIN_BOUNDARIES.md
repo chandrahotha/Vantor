@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Domain Boundaries
 
 Core domains: Supplier, Sourcing, Contract, Requisition, Purchase Order, Receipt, Invoice, Spend Ledger, Document, Approval/Governance, AI, Integration, Notification, Identity/Tenant.

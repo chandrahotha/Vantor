@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Verified Evidence Index
 
 - **VNT-001** — `backend/app/services/purchase.py:123-153 (`three_way_match`); backend/app/routers/purchase.py:455-480 (`approve_invoice`)` — Verified — High

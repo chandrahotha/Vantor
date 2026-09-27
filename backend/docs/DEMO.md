@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Demo mode: 2026-09-27. The trivial bit of housekeeping that unblocks an
 # honest bootstrap on a bare machine — no Keycloak, no Postgres.
 

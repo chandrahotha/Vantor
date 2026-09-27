@@ -206,6 +206,7 @@
           "integrations"
         ],
         "summary": "Add Endpoint",
+        "description": "Register a webhook receiver.\n\nVNT-007. The URL is validated *here*, at the point a tenant supplies it,\nrather than being stored and discovered to be a cloud-metadata address on the\nfirst delivery. `resolve=False` for the syntactic checks and a real\nresolution for the address policy: a URL that will not resolve is refused\nnow, while the operator can still fix DNS, instead of producing a permanent\n`dead` row per event.",
         "operationId": "add_endpoint_api_v1_webhooks_endpoints_post",
         "requestBody": {
           "content": {
@@ -318,13 +319,125 @@
         }
       }
     },
+    "/api/v1/webhooks/deliveries/{did}/replay": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Replay Delivery",
+        "description": "Return a dead-lettered delivery to the queue.",
+        "operationId": "replay_delivery_api_v1_webhooks_deliveries__did__replay_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "did",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Did"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Replay Delivery Api V1 Webhooks Deliveries  Did  Replay Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/drain": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Drain Queue",
+        "description": "Attempt due deliveries now. The worker calls this on a schedule; an\noperator can call it after fixing a receiver, without waiting for the tick.",
+        "operationId": "drain_queue_api_v1_webhooks_drain_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Drain Queue Api V1 Webhooks Drain Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/test": {
       "post": {
         "tags": [
           "integrations"
         ],
         "summary": "Test Ping",
+        "description": "Deliver one signed ping synchronously so a tenant can verify their receiver.\n\nThe body is the same shape the queue signs, and the retry accounting is the\nsame, so a green ping means the queue will also deliver.",
         "operationId": "test_ping_api_v1_webhooks_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -333,6 +446,16 @@
                 "schema": {
                   "type": "object",
                   "title": "Response Test Ping Api V1 Webhooks Test Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1698,6 +1821,7 @@
           "suppliers"
         ],
         "summary": "Verify Cert",
+        "description": "Verify a certification.\n\nVNT-025. Three things were missing and each of them is a control:\n\n* **Authority.** The role was a generic write role, so a `Buyer` verified\n  the certificates of their own supplier. Verification is now a distinct\n  capability.\n* **Segregation of duties.** There was none: the project's own test had the\n  submitting identity call `/verify` and get 200. The submitter is refused.\n* **Evidence.** The document behind the certification was never opened. It is\n  now loaded, and it must be readable in this tenant and not quarantined \u2014\n  otherwise \"verified\" meant \"the row said so\", which is the definition of a\n  rubber stamp.\n* **Currency.** A certification whose `valid_until` has passed cannot be\n  verified. Verifying an expired document is worse than refusing to verify a\n  current one.",
         "operationId": "verify_cert_api_v1_suppliers__supplier_id__certifications__cert_id__verify_post",
         "security": [
           {
@@ -1851,6 +1975,7 @@
           "suppliers"
         ],
         "summary": "Decide Qual",
+        "description": "Decide a supplier qualification.\n\nVNT-026. The decision used to be guarded by the flat supplier write set, so\n`Buyer`, `Category Manager` and `Supplier Manager` could all qualify a\nsupplier \u2014 including the supplier's own manager. Authority is now a distinct\n`decide_qual` capability.\n\nTwo further controls the audit named, both added because a qualified supplier\ncan bid on a contract:\n\n* A rejection needs a written reason. `reason` defaulted to `\"\"` and nothing\n  rejected the empty case, so a supplier could be refused with no explanation\n  recorded anywhere.\n* The evidence is re-checked at decision time, not only at submission. The\n  submission-time check is in `submit_qual`; repeating it here is what stops a\n  certification being withdrawn between submission and decision.",
         "operationId": "decide_qual_api_v1_suppliers__supplier_id__qualification_decide_post",
         "security": [
           {
@@ -2588,6 +2713,7 @@
           "contracts"
         ],
         "summary": "Move Contract",
+        "description": "Move a contract through its lifecycle.\n\nVNT-022: this used to be guarded by the same flat write set as drafting, so\n`Buyer` and `Supplier Manager` could take a contract to `active`. The\nauthority is now derived from the *destination* status, so activating needs\nactivation authority and moving into legal review needs legal authority.",
         "operationId": "move_contract_api_v1_contracts__contract_id__status_patch",
         "security": [
           {
@@ -2704,7 +2830,27 @@
           "contracts"
         ],
         "summary": "Roll Expiry",
+        "description": "Derive `expiring` from end dates. Idempotent, and clock-injectable.\n\nVNT-024. This used to call `date.today()` inline behind a broad write gate,\nso any of the seven write roles could trigger a bulk status change and the\ndate logic was untestable without a freezegun. Both are fixed: authority is\n`expire` (a service identity, not a tenant click), and the date is a parameter\nso a test can move the clock.\n\nIdempotency is structural rather than incidental: the query only considers\ncontracts that are currently `active`, so a second run moves nothing.",
         "operationId": "roll_expiry_api_v1_contracts_roll_expiry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "ISO date to evaluate against; defaults to today",
+              "default": "",
+              "title": "As Of"
+            },
+            "description": "ISO date to evaluate against; defaults to today"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2716,13 +2862,18 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/contracts/{contract_id}/sign": {
@@ -2731,7 +2882,7 @@
           "contracts"
         ],
         "summary": "Sign Contract",
-        "description": "Sign-off record. Internal = authenticated click; esign = external provider\nenvelope (provider + envelope_id required; delivery verified by the adapter).",
+        "description": "Record a sign-off.\n\nVNT-022/023. Two defects, both fixed here.\n\n*Authority*: this was guarded by the flat write set, so a `Buyer` could sign.\nIt now requires `sign` authority, and the drafter is excluded by\nsegregation of duties \u2014 the person who wrote the terms does not get to bind\nthem.\n\n*Verification*: an `esign` row used to be written as a completed signature\nfrom nothing more than a caller-supplied provider name and envelope id, and\nthe response said 201. There was no column in which the provider's answer\ncould even be recorded. An e-sign is now created `pending` and the contract\nis **not** treated as signed; it becomes signed only when the provider\nconfirms, either by the inbound callback below or by `POST .../sign/verify`.",
         "operationId": "sign_contract_api_v1_contracts__contract_id__sign_post",
         "security": [
           {
@@ -2767,6 +2918,114 @@
                 "schema": {
                   "type": "object",
                   "title": "Response Sign Contract Api V1 Contracts  Contract Id  Sign Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contracts/{contract_id}/sign/verify": {
+      "post": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Verify Signature",
+        "description": "Apply a provider's confirmation to an open e-signature.\n\nThis is the missing half of VNT-023. It is a first-class endpoint rather than\nan out-of-band adapter call because the provider's answer has to land on the\nright row, and the only thing that can identify that row reliably is the\nenvelope id the tenant registered.",
+        "operationId": "verify_signature_api_v1_contracts__contract_id__sign_verify_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Contract Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifySignIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Verify Signature Api V1 Contracts  Contract Id  Sign Verify Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contracts/{contract_id}/signatures": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "List Signatures",
+        "description": "Every signature on a contract, with its verification state.",
+        "operationId": "list_signatures_api_v1_contracts__contract_id__signatures_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Contract Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Signatures Api V1 Contracts  Contract Id  Signatures Get"
                 }
               }
             }
@@ -2975,6 +3234,7 @@
           "documents"
         ],
         "summary": "Download",
+        "description": "Serve the stored bytes, re-verifying the hash on every read.\n\nVNT-009: the bytes are fetched through the storage driver rather than by\ntreating `storage_key` as a filesystem path, so the same code serves a local\nvolume and an object store. The integrity re-check is kept \u2014 it is what turns\nsilent corruption into an explicit quarantine instead of a wrong document.",
         "operationId": "download_api_v1_documents__doc_id__download_get",
         "security": [
           {
@@ -3711,6 +3971,291 @@
         }
       }
     },
+    "/api/v1/purchase-orders/{pid}/cancel": {
+      "post": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "Cancel Po",
+        "description": "Cancel a PO that has not yet been invoiced.\n\nVNT-018. `cancelled` was in `PO_STATUSES` with no writer, so a PO that had to\nbe abandoned stayed `draft`/`sent` forever and kept its budget reservation\nand approval queue alive. Cancelling releases the approval queue and refuses\nif any invoice is already approved, because reversing a posted `actual` is a\nfinance action, not a status write.",
+        "operationId": "cancel_po_api_v1_purchase_orders__pid__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Cancel Po Api V1 Purchase Orders  Pid  Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/purchase-orders/{pid}/close": {
+      "post": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "Close Po",
+        "description": "Close a fully-invoiced PO. VNT-018: `closed` had no writer.",
+        "operationId": "close_po_api_v1_purchase_orders__pid__close_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Close Po Api V1 Purchase Orders  Pid  Close Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invoices/{iid}/match": {
+      "post": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "Match Invoice",
+        "description": "Run the three-way match and park the invoice in `matched`.\n\n`matched` was in `INVOICE_STATUSES`, in `INVOICE_FLOW` and in the database\nCHECK constraint, and had no writer at all: approval went straight from\n`received` to `approved`, performing the match inside the same request. Three\ndeclarations agreed that the state existed, and nothing could put an invoice\nin it, so an auditor asking \"was this matched before it was approved, and by\nwhom\" had no answer \u2014 the audit event recorded the match at approval time,\nattributed to the approver rather than to the matcher.\n\nThis makes the state real and separates the two decisions: matching is a\ncontrol, approval is a separate one, and a mismatch is recorded as a failure\nto match rather than as a rejection. The match is re-run on approval, so\nparking an invoice here never lets stale quantities through.",
+        "operationId": "match_invoice_api_v1_invoices__iid__match_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "iid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Iid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Match Invoice Api V1 Invoices  Iid  Match Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invoices/{iid}/reject": {
+      "post": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "Reject Invoice",
+        "description": "Reject an invoice, with a written reason, before it is approved.\n\nVNT-018. `rejected` was in `INVOICE_STATUSES` with no writer, so a match\nfailure was terminal and unrecorded: the supplier was never told why, and the\nPO line's received quantity stayed consumed by an invoice nobody could clear.\nRejecting releases the received quantity, so the same goods can be re-billed\ncorrectly \u2014 which is the whole point of the cumulative check.",
+        "operationId": "reject_invoice_api_v1_invoices__iid__reject_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "iid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Iid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Reject Invoice Api V1 Invoices  Iid  Reject Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/invoices/{iid}/pay": {
+      "post": {
+        "tags": [
+          "purchase"
+        ],
+        "summary": "Pay Invoice",
+        "description": "Record payment. VNT-018: `paid` was a dead state \u2014 nothing could settle.\n\nThe ledger already carries the liability as an `actual` at approval time, so\nthis records settlement *of* that row rather than moving money again. The\nreference is kept because AP reconciliation needs the payment instrument,\nnot because the number moves again.",
+        "operationId": "pay_invoice_api_v1_invoices__iid__pay_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "iid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Iid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Pay Invoice Api V1 Invoices  Iid  Pay Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/purchase-orders/{pid}/invoices": {
       "post": {
         "tags": [
@@ -4219,6 +4764,21 @@
           "ceiling_minor"
         ],
         "title": "BudgetIn"
+      },
+      "CancelIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "CancelIn"
       },
       "CategoryIn": {
         "properties": {
@@ -5279,6 +5839,20 @@
         "type": "object",
         "title": "SupplierPatch"
       },
+      "TestIn": {
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Endpoint Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint_id"
+        ],
+        "title": "TestIn"
+      },
       "ToolCallIn": {
         "properties": {
           "name": {
@@ -5335,6 +5909,39 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerifySignIn": {
+        "properties": {
+          "envelope_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Envelope Id"
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Provider",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Status"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "envelope_id",
+          "status"
+        ],
+        "title": "VerifySignIn",
+        "description": "The provider's own answer about an envelope."
       },
       "app__routers__ai__DecideIn": {
         "properties": {

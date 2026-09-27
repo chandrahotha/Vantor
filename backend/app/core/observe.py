@@ -58,16 +58,26 @@ def _is_test() -> bool:
         return os.getenv("APP_ENV") == "test"
 
 
-def _tenant_of(request) -> str:  # type: ignore[no-untyped-def]
+async def _tenant_of_async(request) -> str:  # type: ignore[no-untyped-def]
+    """Tenant for the access log, without blocking the event loop.
+
+    `request.state.tenant_id` is set by `get_actor`, so the common case is free.
+    The fallback exists for requests that reach the log without a resolved actor
+    (a 401, a 404 before routing); there the token has to be verified, and that
+    is CPU-bound, so it is handed to a worker thread rather than run inline in an
+    `async def`.
+    """
+    from starlette.concurrency import run_in_threadpool
+
     state_tenant = getattr(request.state, "tenant_id", "") or ""
     if state_tenant:
         return state_tenant
     try:
-        from .security import verify_token
+        from .security import verify_token_async
 
         auth = request.headers.get("Authorization", "")
         if auth.lower().startswith("bearer "):
-            return verify_token(auth[7:].strip()).tenant_id
+            return (await verify_token_async(auth[7:].strip())).tenant_id
     except Exception:
         pass
     return ""
@@ -87,7 +97,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             if not quiet and request.url.path not in SKIP_PATHS:
                 ms = (time.perf_counter() - start) * 1000
                 _record(status, ms)
-                tenant = _tenant_of(request)
+                tenant = await _tenant_of_async(request)
                 sys.stdout.write(json.dumps({
                     "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "requestId": getattr(request.state, "request_id", ""),

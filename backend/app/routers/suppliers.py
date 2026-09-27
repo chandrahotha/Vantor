@@ -41,6 +41,22 @@ router = APIRouter(tags=["suppliers"])
 
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Category Manager", "Supplier Manager"}
 
+#: VNT-025/026. Verifying a certification and deciding a qualification are
+#: *judgements about a third party's evidence*, and they were both guarded by the
+#: same set that lets you edit your own supplier record. That is not a separation
+#: of duties, it is a naming convention: a `Buyer` verified the certificates of
+#: the supplier they were onboarding, and a `Supplier Manager` qualified their own
+#: employer.
+#:
+#: Both are now capabilities with their own role sets, and both additionally
+#: refuse the submitter. `Compliance Reviewer` is the role a deployment assigns to
+#: whoever owns supplier risk; a tenant that has not created it yet must map the
+#: duty onto Procurement Manager, which is explicit rather than accidental.
+VERIFY_CERT_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin",
+                     "Procurement Manager", "Compliance Reviewer"}
+DECIDE_QUAL_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin",
+                     "Compliance Reviewer"}
+
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:
     yield from get_db(actor.tenant_id)
@@ -50,6 +66,17 @@ def _require_write(actor: Actor) -> None:
     # Fail-closed: empty/missing roles can never write.
     if not set(actor.roles or ()) & WRITE_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for supplier write")
+
+
+def _require(actor: Actor, action: str) -> None:
+    """Authority for one named judgement. The single gate both use."""
+    allowed = {"verify_cert": VERIFY_CERT_ROLES, "decide_qual": DECIDE_QUAL_ROLES}[action]
+    if not set(actor.roles or ()) & allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={
+            "code": "SUPPLIER_ACTION_FORBIDDEN",
+            "message": f"Role required for this supplier action: {action}",
+            "details": {"action": action, "allowedRoles": sorted(allowed)},
+        })
 
 
 class SupplierIn(BaseModel):
@@ -353,17 +380,77 @@ def add_cert(supplier_id: str, payload: CertIn, request: Request, actor: Actor =
 
 @router.post("/suppliers/{supplier_id}/certifications/{cert_id}/verify", status_code=200)
 def verify_cert(supplier_id: str, cert_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _require_write(actor)
+    """Verify a certification.
+
+    VNT-025. Three things were missing and each of them is a control:
+
+    * **Authority.** The role was a generic write role, so a `Buyer` verified
+      the certificates of their own supplier. Verification is now a distinct
+      capability.
+    * **Segregation of duties.** There was none: the project's own test had the
+      submitting identity call `/verify` and get 200. The submitter is refused.
+    * **Evidence.** The document behind the certification was never opened. It is
+      now loaded, and it must be readable in this tenant and not quarantined —
+      otherwise "verified" meant "the row said so", which is the definition of a
+      rubber stamp.
+    * **Currency.** A certification whose `valid_until` has passed cannot be
+      verified. Verifying an expired document is worse than refusing to verify a
+      current one.
+    """
+    _require(actor, "verify_cert")
     row = db.execute(select(SupplierCertification).where(
         SupplierCertification.tenant_id == actor.tenant_id, SupplierCertification.id == cert_id,
-        SupplierCertification.supplier_id == supplier_id)).scalar_one_or_none()
+        SupplierCertification.supplier_id == supplier_id).with_for_update()).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Certification not found")
+    if row.status not in {"pending", "rejected"}:
+        raise HTTPException(status_code=409, detail={
+            "code": "CERT_ALREADY_DECIDED",
+            "message": f"This certification is already {row.status}"})
+    if row.created_by and row.created_by == actor.sub:
+        raise HTTPException(status_code=403, detail={
+            "code": "CERT_SOD",
+            "message": "The submitter of a certification cannot verify it (segregation of duties)"})
+    today = _today()
+    if row.valid_until and row.valid_until < today.isoformat():
+        raise HTTPException(status_code=422, detail={
+            "code": "CERT_EXPIRED",
+            "message": f"This certification expired on {row.valid_until}",
+            "details": {"validUntil": row.valid_until, "today": today.isoformat()}})
+    if row.document_id:
+        from ..models.document import Document
+
+        evidence = db.execute(select(Document).where(
+            Document.tenant_id == actor.tenant_id, Document.id == row.document_id)).scalar_one_or_none()
+        if evidence is None:
+            raise HTTPException(status_code=422, detail={
+                "code": "CERT_EVIDENCE_MISSING",
+                "message": "The evidence document for this certification does not exist in this tenant",
+                "details": {"documentId": row.document_id}})
+        if evidence.status == "quarantined":
+            raise HTTPException(status_code=422, detail={
+                "code": "CERT_EVIDENCE_QUARANTINED",
+                "message": "The evidence document is quarantined and cannot support a verification",
+                "details": {"documentId": evidence.id, "status": evidence.status}})
     row.status, row.updated_by = "verified", actor.sub
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CERT_VERIFIED", resource="supplier",
-                 resource_id=supplier_id, after={"cert": row.name}, source="api", created_by=actor.sub)
+                 resource_id=supplier_id,
+                 after={"cert": row.name, "issuer": row.issuer, "validUntil": row.valid_until,
+                        "documentId": row.document_id or "", "asOf": today.isoformat()},
+                 source="api", created_by=actor.sub)
     db.commit()
     return envelope({"id": row.id, "status": "verified"}, None, getattr(request.state, "request_id", ""))
+
+
+def _today():
+    from datetime import date as _date
+
+    return _date.today()
+
+
+class CertDecisionIn(BaseModel):
+    reject: bool = False
+    reason: str = Field(default="", max_length=1000)
 
 
 @router.get("/suppliers/{supplier_id}/qualification")
@@ -409,22 +496,83 @@ def submit_qual(supplier_id: str, request: Request, actor: Actor = Depends(get_a
 
 @router.post("/suppliers/{supplier_id}/qualification/decide", status_code=200)
 def decide_qual(supplier_id: str, payload: DecideIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _require_write(actor)
+    """Decide a supplier qualification.
+
+    VNT-026. The decision used to be guarded by the flat supplier write set, so
+    `Buyer`, `Category Manager` and `Supplier Manager` could all qualify a
+    supplier — including the supplier's own manager. Authority is now a distinct
+    `decide_qual` capability.
+
+    Two further controls the audit named, both added because a qualified supplier
+    can bid on a contract:
+
+    * A rejection needs a written reason. `reason` defaulted to `""` and nothing
+      rejected the empty case, so a supplier could be refused with no explanation
+      recorded anywhere.
+    * The evidence is re-checked at decision time, not only at submission. The
+      submission-time check is in `submit_qual`; repeating it here is what stops a
+      certification being withdrawn between submission and decision.
+    """
+    _require(actor, "decide_qual")
     if payload.decision not in {"qualified", "rejected"}:
         raise HTTPException(status_code=422, detail="decision must be qualified|rejected")
+    if payload.decision == "rejected" and not payload.reason.strip():
+        raise HTTPException(status_code=422, detail={
+            "code": "REASON_REQUIRED",
+            "message": "A rejection needs a written reason",
+            "details": {"field": "reason"}})
     row = db.execute(select(SupplierQualification).where(
-        SupplierQualification.tenant_id == actor.tenant_id, SupplierQualification.supplier_id == supplier_id)).scalar_one_or_none()
+        SupplierQualification.tenant_id == actor.tenant_id,
+        SupplierQualification.supplier_id == supplier_id).with_for_update()).scalar_one_or_none()
     if row is None or row.status != "under_review":
         raise HTTPException(status_code=422, detail="Qualification must be under review to decide")
     if row.created_by == actor.sub:
         raise HTTPException(status_code=403, detail="Submitter cannot decide their own case (segregation of duties)")
+    if payload.decision == "qualified":
+        # Re-verify the evidence at decision time. `submit_qual` checked it
+        # earlier; a certification can be quarantined or expire in between, and a
+        # qualified supplier is one that can bid.
+        from ..models.document import Document
+
+        certs = list(db.execute(select(SupplierCertification).where(
+            SupplierCertification.tenant_id == actor.tenant_id,
+            SupplierCertification.supplier_id == supplier_id,
+            SupplierCertification.status == "verified")).scalars())
+        today = _today().isoformat()
+        current = [c for c in certs if not c.valid_until or c.valid_until >= today]
+        if not current:
+            raise HTTPException(status_code=422, detail={
+                "code": "NO_CURRENT_EVIDENCE",
+                "message": "No unexpired verified certification supports this qualification",
+                "details": {"verified": len(certs), "current": len(current), "today": today}})
+        quarantined = []
+        for cert in current:
+            if not cert.document_id:
+                continue
+            evidence = db.execute(select(Document).where(
+                Document.tenant_id == actor.tenant_id, Document.id == cert.document_id)).scalar_one_or_none()
+            if evidence is None or evidence.status == "quarantined":
+                quarantined.append(cert.id)
+        if quarantined:
+            raise HTTPException(status_code=422, detail={
+                "code": "EVIDENCE_QUARANTINED",
+                "message": "The evidence behind this qualification is missing or quarantined",
+                "details": {"certificationIds": quarantined}})
+        # The decision snapshot is frozen here, so a later edit to the underlying
+        # evidence cannot change what was decided.
+        row.checklist = {**(row.checklist or {}),
+                         "decidedAt": today,
+                         "verifiedCertifications": [c.id for c in current],
+                         "evidenceFrozen": True}
     row.status, row.decided_by, row.reason, row.updated_by = payload.decision, actor.sub, payload.reason.strip(), actor.sub
     if payload.decision == "qualified":
         sup = _supplier_or_404(db, actor.tenant_id, supplier_id)
         if sup.status == "draft":
             sup.status = "active"
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="QUALIFICATION_DECIDED", resource="supplier",
-                 resource_id=supplier_id, after={"decision": payload.decision}, source="api", created_by=actor.sub)
+                 resource_id=supplier_id,
+                 after={"decision": payload.decision, "reason": payload.reason.strip(),
+                        "checklist": row.checklist}, source="api", created_by=actor.sub)
     from ..services.notify import notify as _notify
 
     _notify(db, tenant_id=actor.tenant_id, kind="QUALIFICATION_DECIDED",

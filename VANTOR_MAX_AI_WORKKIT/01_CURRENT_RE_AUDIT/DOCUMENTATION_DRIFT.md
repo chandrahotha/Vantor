@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Documentation Drift Register
 
 The current repository contains several inconsistent counts and maturity statements. Examples observed during the re-audit include:

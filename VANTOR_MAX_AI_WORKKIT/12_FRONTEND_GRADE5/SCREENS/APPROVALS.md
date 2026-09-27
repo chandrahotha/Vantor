@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Approvals Screen Specification
 
 First-class Approval Center with grouped workload, authority badges, policy explanation, evidence, financial impact, history and approve/reject flows. This replaces Copilot-only placement.

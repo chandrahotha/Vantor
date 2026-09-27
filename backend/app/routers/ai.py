@@ -161,19 +161,35 @@ def run_complete(payload: CompleteIn, request: Request, actor: Actor = Depends(g
     rid = getattr(request.state, "request_id", "")
     _check_provider(payload)
     blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
-    system = payload.system
-    if blocks:
-        system = (system + "\n\n" if system else "") + (
-            "GROUNDING DATA (verified from the tenant's live tables just now). "
-            "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
-        )
     try:
-        result = complete(prompt=payload.prompt, system=system, provider=payload.provider,
-                          provider_key=_provider_key_of(request, payload), model=payload.model)
+        result = complete(prompt=payload.prompt, system=payload.system, provider=payload.provider,
+                          provider_key=_provider_key_of(request, payload), model=payload.model,
+                          evidence=evidence, grounding="\n\n".join(blocks))
     except AIGatewayError as exc:
         raise HTTPException(status_code=502, detail={"code": "AI_PROVIDER_FAILED", "message": exc.message, "details": {"provider": exc.provider}}) from exc
     result = dict(result)
-    result["evidence"] = evidence
+    # The gateway already decided the evidence question and encoded the verdict in
+    # `grounded` / `refusal_reason`. It is re-asserted here rather than trusted,
+    # because this is the endpoint the product advertises: if an ungrounded answer
+    # ever reached a 200 here, the claim on the landing page would be false again.
+    if not result.get("grounded") and not result.get("evidence"):
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_REFUSED",
+                     resource="ai", resource_id="complete",
+                     after={"provider": result.get("provider", ""), "reason": result.get("refusal_reason", "")},
+                     source="api", created_by=actor.sub)
+        db.commit()
+        raise HTTPException(status_code=422, detail={
+            "code": "AI_NO_EVIDENCE",
+            "message": result["answer"],
+            "details": {"reason": result.get("refusal_reason", ""),
+                        "provider": result.get("provider", ""),
+                        # The notes explain *why* there is no evidence — a tool
+                        # the copilot may not run, or a role that was refused.
+                        # Dropping them would leave the caller with a refusal and
+                        # no way to act on it.
+                        "notes": notes,
+                        "requiresHumanReview": True},
+        })
     if notes:
         result["notes"] = notes
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="AI_COMPLETED", resource="ai",
@@ -254,58 +270,88 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
 
     _check_provider(payload)
     blocks, evidence, notes = _run_copilot_tools(payload.tools, actor, db, rid)
-    system = payload.system
-    if blocks:
-        system = (system + "\n\n" if system else "") + (
-            "GROUNDING DATA (verified from the tenant's live tables just now). "
-            "Answer with only what it supports; cite the record ids.\n" + "\n\n".join(blocks)
-        )
+    grounding = "\n\n".join(blocks)
 
     provider_name = _active_provider(payload.provider)
     live = provider_name != "disabled"
     key = _provider_key_of(request, payload)
+    # A stream cannot un-send what it has already yielded, so the evidence
+    # question is settled *before* the first token. VNT-014: the old code
+    # streamed the whole answer and then shipped an `[EVIDENCE]` frame with
+    # `evidence: []`, so the UI had a complete confident sentence and nothing
+    # behind it. Refusing first means the client gets an explicit reason instead
+    # of an answer it has to be told to distrust.
+    grounded = bool([e for e in evidence if e])
 
     def _events():  # type: ignore[no-untyped-def]
+        import json as _json
+
         from ..core.tenant import pinned_session
         from ..services.audit import record_event as _rec
 
         aggregated: list[str] = []
+        if not grounded:
+            reason = ("PROVIDER_DISABLED" if not live else "NO_EVIDENCE")
+            message = ("UNKNOWN — no AI provider is configured in this environment."
+                       if not live else
+                       "I cannot answer that with evidence from your records. Run the "
+                       "corresponding lookup tool first, or narrow the question to what "
+                       "the data supports.")
+            yield f"data: {_json.dumps({'error': message, 'code': 'AI_NO_EVIDENCE',
+                                        'reason': reason, 'streamed': False})}\n\n"
+            yield f"data: [EVIDENCE] {_json.dumps({'confidence': 0.0, 'provider': provider_name,
+                                                  'model': payload.model or '', 'evidence': [],
+                                                  'notes': notes, 'grounded': False,
+                                                  'refusal_reason': reason,
+                                                  'requires_human_review': True,
+                                                  'requestId': rid, 'streamed': False})}\n\n"
+            _audit(_rec, pinned_session, tenant, sub, rid, provider_name,
+                   action="AI_REFUSED", reason=reason)
+            return
+
         try:
-            if live:
-                for delta in _stream(prompt=payload.prompt, system=system, provider=payload.provider,
-                                     provider_key=key, model=payload.model):
-                    aggregated.append(delta)
-                    yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
-                answer = "".join(aggregated)
-                evidence_payload = {"confidence": 0.55, "provider": provider_name,
-                                    "model": payload.model or "", "evidence": evidence, "notes": notes,
-                                    "requires_human_review": True, "requestId": rid, "streamed": True}
-            else:
-                result = _complete(prompt=payload.prompt, system=system, provider=payload.provider,
-                                   provider_key=key, model=payload.model)
-                answer = result.get("answer", "")
-                yield f"data: {_json.dumps({'delta': answer, 'streamed': False})}\n\n"
-                evidence_payload = {"confidence": result.get("confidence"), "provider": result.get("provider"),
-                                    "model": result.get("model", ""), "evidence": evidence, "notes": notes,
-                                    "requires_human_review": True, "requestId": rid, "streamed": False}
+            for delta in _stream(prompt=payload.prompt, system=payload.system,
+                                 provider=payload.provider, provider_key=key,
+                                 model=payload.model):
+                aggregated.append(delta)
+                yield f"data: {_json.dumps({'delta': delta, 'streamed': True})}\n\n"
+            answer = "".join(aggregated)
+            evidence_payload = {"confidence": 0.55, "provider": provider_name,
+                                "model": payload.model or "", "evidence": evidence,
+                                "notes": notes, "grounded": True, "refusal_reason": "",
+                                "requires_human_review": True, "requestId": rid,
+                                "streamed": True}
         except AIGatewayError as exc:
-            yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider, 'streamed': live})}\n\n"
+            yield f"data: {_json.dumps({'error': exc.message, 'provider': exc.provider, 'streamed': True})}\n\n"
             return
 
         yield f"data: [EVIDENCE] {_json.dumps(evidence_payload)}\n\n"
-        sdb = None
-        try:
-            sdb = pinned_session(tenant)
-            _rec(sdb, tenant_id=tenant, actor=sub, action="AI_COMPLETED", resource="ai",
-                 resource_id="stream", after={"provider": provider_name, "chars": len(answer), "live": live},
-                 source="api", created_by=sub)
-            sdb.commit()
-        except Exception:
-            if sdb is not None:
-                sdb.rollback()
-        finally:
-            if sdb is not None:
-                sdb.close()
+        _audit(_rec, pinned_session, tenant, sub, rid, provider_name,
+               action="AI_COMPLETED", answer=answer)
 
     return _SS(_events(), media_type="text/event-stream",
                headers={"X-Request-ID": rid, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _audit(record_event, session_factory, tenant: str, sub: str, rid: str,
+           provider_name: str, *, action: str, reason: str = "", answer: str = "") -> None:
+    """Best-effort audit for a streamed turn.
+
+    A failure to write the audit must not break the stream the caller is reading,
+    so this swallows and rolls back rather than raising.
+    """
+    db = None
+    try:
+        db = session_factory(tenant)
+        record_event(db, tenant_id=tenant, actor=sub, action=action, resource="ai",
+                     resource_id="stream",
+                     after={"provider": provider_name, "reason": reason,
+                            "chars": len(answer)},
+                     source="api", created_by=sub)
+        db.commit()
+    except Exception:
+        if db is not None:
+            db.rollback()
+    finally:
+        if db is not None:
+            db.close()

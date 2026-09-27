@@ -67,6 +67,22 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
     a PO raised 31 Jan and sent 2 Feb was counted against January's ceiling while
     the money never committed until February. The ledger is the same single
     source of truth the spend cube reads, so budget and actuals cannot diverge.
+
+    VNT-004. This used to be a bare read-modify-decide: a plain `SELECT` of the
+    budget row, a plain `SUM` of the ledger, and a Python `if`. Under READ
+    COMMITTED two concurrent approvals of two POs in the same category both read
+    the same `committed`, both passed, and the category finished over its
+    ceiling — the one control whose entire job is to make that impossible.
+
+    The fix is a row lock on the budget row, taken before the aggregate is read
+    and held to commit. Every approval in the category therefore queues behind
+    the one already in flight, and the second one re-reads `committed` *after*
+    the first has posted. The `UPDATE ... SET updated_at` at the end is not
+    decoration: it is a real write against the locked row, so the lock is
+    definitely acquired before the read rather than merely requested.
+
+    On SQLite (`with_for_update` renders nothing) this is a no-op, which is why
+    the concurrency proof is `tests/test_pg_concurrency.py`, not a unit test.
     """
     if not category_id:
         return {"checked": False}
@@ -76,7 +92,11 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
         # ever did fire it must not surface as a 500 on a money path.
         raise HTTPException(status_code=422, detail={"code": "BUDGET_PERIOD_INVALID",
                                                      "message": f"cannot evaluate budget period {period!r}"})
-    b = db.execute(select(Budget).where(Budget.tenant_id == tenant_id, Budget.category_id == category_id, Budget.period == period)).scalar_one_or_none()
+    b = db.execute(
+        select(Budget)
+        .where(Budget.tenant_id == tenant_id, Budget.category_id == category_id, Budget.period == period)
+        .with_for_update()
+    ).scalar_one_or_none()
     if b is None:
         return {"checked": False}
     start = datetime(int(period[:4]), int(period[5:7]), 1, tzinfo=timezone.utc)
@@ -97,7 +117,9 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
             *([SpendTransaction.currency == currency] if currency else []))).scalar() or 0
     if committed + this_total > b.ceiling_minor:
         raise HTTPException(status_code=422, detail={"code": "BUDGET_EXCEEDED",
-            "message": f"Budget exceeded: committed {committed} + this {this_total} > ceiling {b.ceiling_minor} for {period}"})
+            "message": f"Budget exceeded: committed {committed} + this {this_total} > ceiling {b.ceiling_minor} for {period}",
+            "details": {"committed": int(committed), "this": this_total,
+                        "ceiling": b.ceiling_minor, "period": period, "currency": currency}})
     return {"checked": True, "committed": int(committed), "ceiling": b.ceiling_minor}
 
 

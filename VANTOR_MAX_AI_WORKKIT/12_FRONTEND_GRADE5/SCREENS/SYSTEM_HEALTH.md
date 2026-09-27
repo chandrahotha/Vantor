@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # System Health Screen Specification
 
 Add a dedicated system health view: API/DB/Redis/object-store/worker/Keycloak/AI/webhook health, queue latency and SLOs.

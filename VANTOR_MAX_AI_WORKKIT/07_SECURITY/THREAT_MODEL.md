@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Threat Model
 
 Threat actors: tenant user with legitimate access, compromised tenant admin, malicious supplier/integration endpoint, malicious uploaded document, compromised third-party AI/integration, external attacker.

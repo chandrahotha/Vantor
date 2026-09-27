@@ -101,16 +101,54 @@ def test_budget_hard_gate_on_approve(client):
 
 def test_contract_signoff(client):
     c, pem = client
-    h = _h(pem, roles=("Legal Reviewer",))
-    ct = c.post("/api/v1/contracts", json={"code": "CT-S", "title": "Sign me"}, headers=h).json()["data"]["id"]
+    drafter = _h(pem, sub="drafter", roles=("Legal Reviewer",))
+    signer = _h(pem, sub="signer", roles=("Legal Reviewer",))
+    ct = c.post("/api/v1/contracts", json={"code": "CT-S", "title": "Sign me"}, headers=drafter).json()["data"]["id"]
     # draft cannot be signed
-    assert c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "internal"}, headers=h).status_code == 422
-    c.patch(f"/api/v1/contracts/{ct}/status", json={"status": "review"}, headers=h)
-    s1 = c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "internal"}, headers=h)
+    assert c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "internal"}, headers=signer).status_code == 422
+    c.patch(f"/api/v1/contracts/{ct}/status", json={"status": "review"}, headers=drafter)
+    # VNT-022: the drafter cannot sign their own contract.
+    assert c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "internal"}, headers=drafter).status_code == 403
+    s1 = c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "internal"}, headers=signer)
     assert s1.status_code == 201 and len(s1.json()["data"]["snapshotHash"]) == 64
+    # An internal signature is complete on arrival: it is an authenticated click.
+    assert s1.json()["data"]["signed"] is True
+    assert s1.json()["data"]["status"] == "signed"
     # esign without envelope refused
-    assert c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "esign", "provider": "docusign"}, headers=h).status_code == 422
-    s2 = c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "esign", "provider": "docusign", "envelope_id": "env-1"}, headers=h)
+    assert c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "esign", "provider": "docusign"}, headers=signer).status_code == 422
+    s2 = c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "esign", "provider": "docusign", "envelope_id": "env-1"}, headers=signer)
     assert s2.status_code == 201
-    got = c.get(f"/api/v1/contracts/{ct}", headers=h).json()["data"]
+    # VNT-023: an e-sign is a *claim*, not a completed signature. It reports
+    # signed:false until the provider confirms, which is the whole point.
+    assert s2.json()["data"]["signed"] is False
+    assert s2.json()["data"]["status"] == "pending"
+    assert s2.json()["data"]["pendingVerification"] is True
+    got = c.get(f"/api/v1/contracts/{ct}", headers=signer).json()["data"]
     assert got["obligationCount"] == 0
+
+    # The same envelope cannot be opened twice.
+    dupe = c.post(f"/api/v1/contracts/{ct}/sign", json={"method": "esign", "provider": "docusign", "envelope_id": "env-1"}, headers=signer)
+    assert dupe.status_code == 409
+    assert dupe.json()["error"]["code"] == "ENVELOPE_ALREADY_OPEN"
+
+    # VNT-023: nothing is signed until the provider says so.
+    listed = c.get(f"/api/v1/contracts/{ct}/signatures", headers=signer).json()["data"]
+    esign = [s for s in listed if s["method"] == "esign"][0]
+    assert esign["status"] == "pending" and esign["verifiedAt"] is None
+
+    confirmed = c.post(f"/api/v1/contracts/{ct}/sign/verify",
+                       json={"envelope_id": "env-1", "provider": "docusign", "status": "signed",
+                             "payload": {"documentHash": "abc"}}, headers=signer)
+    assert confirmed.status_code == 200
+    assert confirmed.json()["data"]["signed"] is True
+
+    listed = c.get(f"/api/v1/contracts/{ct}/signatures", headers=signer).json()["data"]
+    esign = [s for s in listed if s["method"] == "esign"][0]
+    assert esign["status"] == "signed"
+    assert esign["verifiedAt"] is not None
+
+    # A terminal envelope cannot be flipped afterwards.
+    flip = c.post(f"/api/v1/contracts/{ct}/sign/verify",
+                  json={"envelope_id": "env-1", "status": "voided"}, headers=signer)
+    assert flip.status_code == 409
+    assert flip.json()["error"]["code"] == "SIGNATURE_ALREADY_TERMINAL"

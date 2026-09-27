@@ -9,14 +9,14 @@
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..core.errors import envelope
 from ..core.security import Actor, get_actor
@@ -25,13 +25,13 @@ from ..models.document import DOC_STATUSES, Document
 from ..services.audit import record_event
 from ..services.document import (
     DocumentError,
-    check_size,
+    get_storage,
+    ingest,
     sha256_hex,
-    sniff_kind,
-    storage_path,
+    storage_key,
     validate_filename,
-    verify_bytes,
 )
+from ..services.refs import require_ref
 
 router = APIRouter(tags=["documents"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Category Manager", "Supplier Manager"}
@@ -44,6 +44,64 @@ def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, 
 def _write(actor: Actor) -> None:
     if not set(actor.roles or ()) & WRITE_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for document write")
+
+
+#: VNT-013. `documents.resource`/`resource_id` are a polymorphic pointer, and the
+#: old code validated only the *length* of `resource_id` — with a comment
+#: explaining that there was no parent to validate against. There is: a `resource`
+#: name maps to exactly one model, so the reference is checkable. The registry is
+#: the mapping, which turns "we cannot validate this" into "we can validate every
+#: value of it". A document attached to a `purchase_order` id from another tenant
+#: used to be accepted with 201.
+RESOURCE_MODELS: dict[str, tuple[type, str]] = {}
+
+
+def _resource_model(resource: str):  # type: ignore[no-untyped-def]
+    """Resolve `resource` to its model, or None when the name is not known."""
+    if not RESOURCE_MODELS:
+        from ..models.contract import Contract
+        from ..models.purchase import Invoice, PurchaseOrder, Requisition
+        from ..models.sourcing import Rfq
+        from ..models.supplier import Supplier
+
+        RESOURCE_MODELS.update({
+            "contract": (Contract, "UNKNOWN_CONTRACT"),
+            "invoice": (Invoice, "UNKNOWN_INVOICE"),
+            "purchase_order": (PurchaseOrder, "UNKNOWN_PURCHASE_ORDER"),
+            "requisition": (Requisition, "UNKNOWN_REQUISITION"),
+            "rfq": (Rfq, "UNKNOWN_RFQ"),
+            "supplier": (Supplier, "UNKNOWN_SUPPLIER"),
+        })
+    return RESOURCE_MODELS.get(resource)
+
+
+def _resolve_resource(db: Session, tenant_id: str, resource: str, resource_id: str) -> tuple[str, str | None]:
+    """Validate a polymorphic reference. Returns `(resource, resource_id)`.
+
+    Empty is legitimate: a document may be uploaded before the record it belongs
+    to exists, and the workkit's DOCUMENT.md treats that as a valid state. But if
+    a resource *name* is given, it must be one this build knows, and the id must
+    point at a real record in this tenant.
+    """
+    name = (resource or "").strip()
+    ref = (resource_id or "").strip()
+    if not name and not ref:
+        return "", None
+    if bool(name) != bool(ref):
+        raise DocumentError(
+            "REFERENCE_INCOMPLETE",
+            "resource and resource_id must be given together",
+            {"resource": name, "resourceId": ref})
+    model = _resource_model(name)
+    if model is None:
+        raise DocumentError(
+            "REFERENCE_UNKNOWN_RESOURCE",
+            f"resource {name!r} is not an attachable type",
+            {"resource": name, "attachable": sorted(RESOURCE_MODELS)})
+    # `require_ref` is the same validator every other link uses; it checks
+    # existence *within the tenant*, which is the property that matters.
+    require_ref(db, model[0], tenant_id, ref, field="resource_id", code=model[1])
+    return name, ref
 
 
 @router.post("/documents", status_code=201)
@@ -59,49 +117,58 @@ async def upload(
     try:
         filename = validate_filename(file.filename or "")
     except DocumentError as exc:
-        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
-    data = await file.read()
+        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message,
+                                                      "details": exc.details}) from exc
+    # VNT-010. `ingest` refuses on a declared Content-Length over the cap before
+    # reading a byte, then re-checks the running total after every chunk, so the
+    # peak allocation is bounded by the cap rather than by the request.
     try:
-        check_size(len(data))
+        ingested = await run_in_threadpool(
+            ingest, file.file, filename=filename,
+            declared_mime=file.content_type or "")
     except DocumentError as exc:
-        raise HTTPException(status_code=422 if exc.code != "DOC_TOO_LARGE" else 413,
-                            detail={"code": exc.code, "message": exc.message}) from exc
-    kind = sniff_kind(data[:16], filename)
-    if kind == "unknown":
-        raise HTTPException(status_code=422, detail={"code": "DOC_TYPE_UNVERIFIED", "message": "Content does not match an allowed type"})
-    digest = sha256_hex(data)
+        raise HTTPException(
+            status_code=413 if exc.code == "DOC_TOO_LARGE" else 422,
+            detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    data, digest = ingested.data, ingested.digest
     existing = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.sha256 == digest)).scalar_one_or_none()
     if existing is not None:
         record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_UPLOADED", resource="document",
                      resource_id=existing.id, after={"filename": filename, "sha256": digest, "deduped": True}, source="api",
                      ip=request.client.host if request.client else "", created_by=actor.sub)
         db.commit()
-        return envelope({"id": existing.id, "deduped": True, "sha256": digest}, None, getattr(request.state, "request_id", ""))
-    dest = storage_path(actor.tenant_id, digest)
-    if not dest.exists():
-        tmp = dest.with_suffix(dest.suffix + ".tmp")
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, dest)
-    # `resource`/`resource_id` are a polymorphic pointer (the target table comes
-    # from `resource`), so there is no parent to validate against. What we can
-    # refuse is a value that does not fit: the old code truncated to the column
-    # width, which silently stored an id that matches no record at all.
-    if len(resource_id.strip()) > 36:
-        raise HTTPException(status_code=422, detail={
-            "code": "REFERENCE_TOO_LONG",
-            "message": "resource_id must be at most 36 characters",
-            "details": {"length": len(resource_id.strip())},
-        })
-    if len(resource.strip()) > 64:
-        raise HTTPException(status_code=422, detail={
-            "code": "REFERENCE_TOO_LONG",
-            "message": "resource must be at most 64 characters",
-            "details": {"length": len(resource.strip())},
-        })
+        return envelope({"id": existing.id, "deduped": True, "sha256": digest, "kind": ingested.kind},
+                        None, getattr(request.state, "request_id", ""))
+    try:
+        resource_name, resource_ref = _resolve_resource(db, actor.tenant_id, resource, resource_id)
+    except DocumentError as exc:
+        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message,
+                                                      "details": exc.details}) from exc
+
+    # VNT-009. Bytes go through the configured storage driver, not a fixed local
+    # path. A storage failure is reported, not swallowed: the previous write
+    # returned 201 and audited a success for bytes that a redeploy destroyed.
+    key = storage_key(actor.tenant_id, digest)
+    try:
+        storage = get_storage()
+        if not storage.exists(key):
+            await run_in_threadpool(storage.write, key, data)
+    except DocumentError:
+        raise
+    except Exception as exc:
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_STORAGE_FAILED",
+                     resource="document", after={"sha256": digest, "driver": "unknown"},
+                     reason=f"{type(exc).__name__}", source="api", created_by=actor.sub)
+        db.commit()
+        raise HTTPException(status_code=503, detail={
+            "code": "DOC_STORAGE_UNAVAILABLE",
+            "message": "Document storage is not available; the upload was not stored",
+            "details": {"error": type(exc).__name__}}) from exc
+
     row = Document(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, filename=filename,
-                   content_type=file.content_type or "application/octet-stream", size_bytes=len(data), sha256=digest,
-                   storage_key=str(dest), status="uploaded", resource=resource.strip(), resource_id=resource_id.strip())
+                   content_type=file.content_type or "application/octet-stream", size_bytes=ingested.size, sha256=digest,
+                   storage_key=key, status="uploaded", resource=resource_name, resource_id=resource_ref or "")
     db.add(row)
     try:
         db.flush()
@@ -110,11 +177,13 @@ async def upload(
         existing = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.sha256 == digest)).scalar_one_or_none()
         return envelope({"id": existing.id if existing else "", "deduped": True, "sha256": digest}, None, getattr(request.state, "request_id", ""))
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_UPLOADED", resource="document",
-                 resource_id=row.id, after={"filename": filename, "sha256": digest, "bytes": len(data)}, source="api",
+                 resource_id=row.id, after={"filename": filename, "sha256": digest, "bytes": ingested.size,
+                                            "kind": ingested.kind}, source="api",
                  ip=request.client.host if request.client else "", created_by=actor.sub)
     db.commit()
     db.refresh(row)
-    return envelope({"id": row.id, "deduped": False, "sha256": digest}, None, getattr(request.state, "request_id", ""))
+    return envelope({"id": row.id, "deduped": False, "sha256": digest, "kind": ingested.kind},
+                    None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/documents")
@@ -142,21 +211,41 @@ def list_docs(request: Request, actor: Actor = Depends(get_actor), db: Session =
 
 
 @router.get("/documents/{doc_id}/download")
-def download(doc_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> FileResponse:
-    from pathlib import Path
+def download(doc_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> Response:
+    """Serve the stored bytes, re-verifying the hash on every read.
 
+    VNT-009: the bytes are fetched through the storage driver rather than by
+    treating `storage_key` as a filesystem path, so the same code serves a local
+    volume and an object store. The integrity re-check is kept — it is what turns
+    silent corruption into an explicit quarantine instead of a wrong document.
+    """
     row = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.id == doc_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    path = Path(row.storage_key)
-    if not path.exists() or not verify_bytes(path, row.sha256):
+    try:
+        payload = get_storage().read(row.storage_key)
+    except Exception as exc:
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_QUARANTINED",
+                     resource="document", resource_id=row.id,
+                     after={"reason": "storage-unreadable"}, source="system", created_by=actor.sub)
+        row.status = "quarantined"
+        db.commit()
+        raise HTTPException(status_code=503, detail={
+            "code": "DOC_STORAGE_UNAVAILABLE",
+            "message": "Document bytes could not be read",
+            "details": {"error": type(exc).__name__}}) from exc
+    if sha256_hex(payload) != row.sha256:
         row.status = "quarantined"
         record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_QUARANTINED", resource="document",
                      resource_id=row.id, after={"reason": "integrity-check-failed"}, source="system", created_by=actor.sub)
         db.commit()
         raise HTTPException(status_code=409, detail="Stored bytes failed integrity check — quarantined")
     safe = row.filename.replace('"', "")
-    return FileResponse(path, media_type=row.content_type, filename=safe, headers={"X-SHA256": row.sha256})
+    return Response(content=payload, media_type=row.content_type, headers={
+        "Content-Disposition": f'attachment; filename="{safe}"',
+        "X-SHA256": row.sha256,
+        "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.post("/documents/{doc_id}/extract")
@@ -169,8 +258,6 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
     it requires the same write roles as upload. A 200 with `quarantined: true`
     is a real outcome, not a success — hence 200, not 201.
     """
-    from pathlib import Path
-
     from ..models.document import DocumentChunk
     from ..services.embeddings import EmbeddingError, embed
     from ..services.extract import ExtractError, chunk_text, extract
@@ -179,13 +266,27 @@ def extract_doc(doc_id: str, request: Request, actor: Actor = Depends(get_actor)
     row = db.execute(select(Document).where(Document.tenant_id == actor.tenant_id, Document.id == doc_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    path = Path(row.storage_key)
-    if not path.exists() or not verify_bytes(path, row.sha256):
+    # Bytes come from the storage driver, not from treating `storage_key` as a
+    # filesystem path, so extraction works identically on a volume or a bucket.
+    try:
+        payload = get_storage().read(row.storage_key)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "DOC_STORAGE_UNAVAILABLE",
+            "message": "Document bytes could not be read",
+            "details": {"error": type(exc).__name__}}) from exc
+    if sha256_hex(payload) != row.sha256:
+        row.status = "quarantined"
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_QUARANTINED",
+                     resource="document", resource_id=row.id,
+                     after={"reason": "integrity-check-failed"}, source="system", created_by=actor.sub)
+        db.commit()
         raise HTTPException(status_code=409, detail="Stored bytes failed integrity check")
     try:
-        result = extract(row.filename, path.read_bytes())
+        result = extract(row.filename, payload)
     except ExtractError as exc:
-        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
+        raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message,
+                                                      "details": exc.details}) from exc
     if result.scanned:
         row.status = "quarantined"
         record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="DOCUMENT_QUARANTINED", resource="document",

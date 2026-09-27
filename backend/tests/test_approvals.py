@@ -1,4 +1,4 @@
-﻿"""Approvals queue, tier ordering, and referential validation.
+"""Approvals queue, tier ordering, and referential validation.
 
 Three regressions are covered here:
 
@@ -9,8 +9,13 @@ Three regressions are covered here:
    could consume the manager's tier and skip a step.
 3. `*_id` columns carry no FOREIGN KEY, so the routers now validate the parent
    themselves. A dangling id used to be stored silently.
+4. A quote line with no `rfq_line_id` was accepted and then vanished from the
+   coverage check that decides whether a bid prices the whole RFQ, so an
+   incomplete bid could be evaluated and awarded (VNT-020).
 """
 from datetime import datetime, timedelta, timezone
+
+from .helpers import REVIEWER_ROLES, qualified_supplier, rfq_line_ids
 
 import jwt
 import pytest
@@ -297,17 +302,34 @@ def test_certification_document_must_exist(client):
 def test_quote_and_invoice_lines_must_belong_to_their_parent(client):
     c, pem = client
     h = _h(pem)
-    sup = _supplier(c, pem, h, "SUP-Q")
+    # A qualified supplier, so the assertions below are about line mapping and
+    # currency rather than tripping the eligibility gate first (VNT-020).
+    sup = qualified_supplier(c, h, "SUP-Q", "Acme Parts",
+                             reviewer_h=_h(pem, sub="reviewer1", roles=REVIEWER_ROLES))
     rfq = c.post("/api/v1/rfqs", json={"code": "RFQ-Q", "title": "Quote test", "currency": "USD",
                 "lines": [{"description": "Bolt", "quantity": 10}]}, headers=h).json()["data"]["id"]
     c.patch(f"/api/v1/rfqs/{rfq}/status", json={"status": "sent"}, headers=h)
+    (line_id,) = rfq_line_ids(c, h, rfq)
     bad = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": sup, "currency": "USD",
                  "lines": [{"rfq_line_id": "not-a-line", "quantity": 1, "unit_price_minor": 100}]}, headers=h)
     assert bad.status_code == 422
     assert bad.json()["error"]["code"] == "QUOTE_LINE_NOT_ON_RFQ"
 
+    # VNT-020/VNT-021. An empty rfq_line_id used to be *accepted* and the quote
+    # then disappeared from the coverage check that decides whether a bid prices
+    # the whole RFQ — so an incomplete bid could be evaluated and awarded. The
+    # field is now required, and the currency must be the RFQ's.
+    unmapped = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": sup, "currency": "USD",
+                      "lines": [{"rfq_line_id": "", "quantity": 1, "unit_price_minor": 100}]}, headers=h)
+    assert unmapped.status_code == 422
+    assert unmapped.json()["error"]["code"] == "QUOTE_LINE_NOT_ON_RFQ"
+    wrong_ccy = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": sup, "currency": "INR",
+                      "lines": [{"rfq_line_id": line_id, "quantity": 1, "unit_price_minor": 100}]}, headers=h)
+    assert wrong_ccy.status_code == 422
+    assert wrong_ccy.json()["error"]["code"] == "QUOTE_CURRENCY_MISMATCH"
+
     ok = c.post(f"/api/v1/rfqs/{rfq}/quotes", json={"supplier_id": sup, "currency": "USD",
-                "lines": [{"rfq_line_id": "", "quantity": 1, "unit_price_minor": 100}]}, headers=h)
+                "lines": [{"rfq_line_id": line_id, "quantity": 1, "unit_price_minor": 100}]}, headers=h)
     assert ok.status_code == 201
 
     # invoice line must reference a line of *this* PO

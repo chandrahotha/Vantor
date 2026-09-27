@@ -33,6 +33,47 @@ from ..services.contract import ContractError, check_dates, check_obligation, ch
 router = APIRouter(tags=["contracts"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Legal Reviewer", "Supplier Manager"}
 
+#: VNT-022. One flat seven-role write set guarded every action: drafting a
+#: contract, moving it through the lifecycle, activating it, and signing it. A
+#: `Buyer` could activate and sign, which is the opposite of the separation the
+#: `Legal Reviewer` role exists to provide.
+#:
+#: Authority is now per action, and every route names which one it needs:
+#:
+#:   edit   — draft the terms. Commercial/procurement.
+#:   review — send it into legal review, and move it out of review. Legal.
+#:   activate/terminate/renew — make it binding. Legal plus procurement manager.
+#:   sign   — sign on the organisation's behalf. Legal only, and never the drafter.
+#:   expire — the server-derived expiry roll. A service identity, not a human.
+ACTION_ROLES: dict[str, set[str]] = {
+    "edit": {"Super Admin", "Organization Admin", "Procurement Admin",
+             "Procurement Manager", "Buyer", "Legal Reviewer"},
+    "review": {"Super Admin", "Organization Admin", "Procurement Admin",
+               "Procurement Manager", "Legal Reviewer"},
+    "activate": {"Super Admin", "Organization Admin", "Procurement Admin",
+                 "Procurement Manager", "Legal Reviewer"},
+    "terminate": {"Super Admin", "Organization Admin", "Procurement Admin", "Legal Reviewer"},
+    "renew": {"Super Admin", "Organization Admin", "Procurement Admin",
+              "Procurement Manager", "Legal Reviewer"},
+    "sign": {"Super Admin", "Organization Admin", "Procurement Admin", "Legal Reviewer"},
+    "obligation": {"Super Admin", "Organization Admin", "Procurement Admin",
+                   "Procurement Manager", "Buyer", "Legal Reviewer"},
+    # The expiry roll is derived from dates, not a judgement. It runs on a
+    # schedule through a service identity; a tenant's procurement manager must not
+    # be able to trigger a bulk status change with a click.
+    "expire": {"Super Admin"},
+}
+
+#: The destination status decides which authority the transition needs.
+TRANSITION_ACTION: dict[str, str] = {
+    "review": "review",
+    "active": "activate",
+    "renewed": "renew",
+    "expired": "expire",
+    "terminated": "terminate",
+    "expiring": "expire",
+}
+
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:
     yield from get_db(actor.tenant_id)
@@ -42,6 +83,17 @@ def _write(actor: Actor) -> None:
     # Fail-closed: empty/missing roles can never write.
     if not set(actor.roles or ()) & WRITE_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for contract write")
+
+
+def _require(actor: Actor, action: str) -> None:
+    """Authority for one named action. The single gate every contract write uses."""
+    allowed = ACTION_ROLES[action]
+    if not set(actor.roles or ()) & allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={
+            "code": "CONTRACT_ACTION_FORBIDDEN",
+            "message": f"Role required for this contract action: {action}",
+            "details": {"action": action, "allowedRoles": sorted(allowed)},
+        })
 
 
 class ContractIn(BaseModel):
@@ -150,10 +202,17 @@ def get_contract(contract_id: str, request: Request, actor: Actor = Depends(get_
 
 @router.patch("/contracts/{contract_id}/status")
 def move_contract(contract_id: str, payload: ContractStatusIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _write(actor)
-    c = db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.id == contract_id)).scalar_one_or_none()
+    """Move a contract through its lifecycle.
+
+    VNT-022: this used to be guarded by the same flat write set as drafting, so
+    `Buyer` and `Supplier Manager` could take a contract to `active`. The
+    authority is now derived from the *destination* status, so activating needs
+    activation authority and moving into legal review needs legal authority.
+    """
+    c = db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.id == contract_id).with_for_update()).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Contract not found")
+    _require(actor, TRANSITION_ACTION.get(payload.status, "edit"))
     try:
         check_transition(c.status, payload.status)
     except ContractError as exc:
@@ -189,11 +248,24 @@ def add_obligation(contract_id: str, payload: ObligationIn, request: Request, ac
 
 
 @router.post("/contracts/roll-expiry")
-def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _write(actor)
-    today = date.today()
+def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                as_of: str = Query(default="", description="ISO date to evaluate against; defaults to today")) -> dict:
+    """Derive `expiring` from end dates. Idempotent, and clock-injectable.
+
+    VNT-024. This used to call `date.today()` inline behind a broad write gate,
+    so any of the seven write roles could trigger a bulk status change and the
+    date logic was untestable without a freezegun. Both are fixed: authority is
+    `expire` (a service identity, not a tenant click), and the date is a parameter
+    so a test can move the clock.
+
+    Idempotency is structural rather than incidental: the query only considers
+    contracts that are currently `active`, so a second run moves nothing.
+    """
+    _require(actor, "expire")
+    today = _parse_day(as_of) if as_of else _tenant_today(actor.tenant_id)
     moved: list[str] = []
-    for c in db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.status == "active")).scalars():
+    for c in db.execute(select(Contract).where(
+            Contract.tenant_id == actor.tenant_id, Contract.status == "active").with_for_update()).scalars():
         try:
             due = is_due_expiring(c.status, c.end_date, today)
         except ContractError:
@@ -201,7 +273,7 @@ def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session
         if due:
             c.status, c.updated_by = "expiring", actor.sub
             record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_EXPIRING", resource="contract",
-                         resource_id=c.id, after={"end_date": c.end_date}, source="system", created_by=actor.sub)
+                         resource_id=c.id, after={"end_date": c.end_date, "as_of": today.isoformat()}, source="system", created_by=actor.sub)
             moved.append(c.id)
     if moved:
         from ..services.notify import notify as _notify
@@ -209,7 +281,43 @@ def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session
         _notify(db, tenant_id=actor.tenant_id, kind="CONTRACT_EXPIRING",
                 title=f"{len(moved)} contract(s) expiring within 90 days", link="/contracts", created_by=actor.sub)
     db.commit()
-    return envelope({"moved": moved, "count": len(moved)}, None, getattr(request.state, "request_id", ""))
+    return envelope({"moved": moved, "count": len(moved), "asOf": today.isoformat()},
+                    None, getattr(request.state, "request_id", ""))
+
+
+def _parse_day(value: str):
+    from datetime import date as _date
+
+    try:
+        return _date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "AS_OF_INVALID",
+            "message": f"as_of must be an ISO date (YYYY-MM-DD), got {value!r}"}) from exc
+
+
+def _tenant_today(tenant_id: str):
+    """Today in the tenant's timezone, falling back to UTC.
+
+    VNT-041: "within 90 days" is a business judgement made in the buyer's
+    working day, not the server's. A tenant at UTC-12 reaches its own 1 January
+    twelve hours before a UTC server does, which is exactly the kind of off-by-one
+    that makes a renewal notice fire a day early or a day late.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from ..core.config import get_settings
+
+    tz_name = (get_settings().contract_timezone or "UTC").strip()
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        # An unknown zone must not stop the roll; UTC is the safe default and the
+        # response reports the zone actually used.
+        tz = timezone.utc
+    return datetime.now(tz).date()
 
 
 class SignIn(BaseModel):
@@ -220,17 +328,38 @@ class SignIn(BaseModel):
 
 @router.post("/contracts/{contract_id}/sign", status_code=201)
 def sign_contract(contract_id: str, payload: SignIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    """Sign-off record. Internal = authenticated click; esign = external provider
-    envelope (provider + envelope_id required; delivery verified by the adapter)."""
-    _write(actor)
+    """Record a sign-off.
+
+    VNT-022/023. Two defects, both fixed here.
+
+    *Authority*: this was guarded by the flat write set, so a `Buyer` could sign.
+    It now requires `sign` authority, and the drafter is excluded by
+    segregation of duties — the person who wrote the terms does not get to bind
+    them.
+
+    *Verification*: an `esign` row used to be written as a completed signature
+    from nothing more than a caller-supplied provider name and envelope id, and
+    the response said 201. There was no column in which the provider's answer
+    could even be recorded. An e-sign is now created `pending` and the contract
+    is **not** treated as signed; it becomes signed only when the provider
+    confirms, either by the inbound callback below or by `POST .../sign/verify`.
+    """
+    from datetime import datetime, timezone
+
     import hashlib
     import json as _json
 
-    c = db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.id == contract_id)).scalar_one_or_none()
+    _require(actor, "sign")
+    c = db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.id == contract_id).with_for_update()).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Contract not found")
     if c.status not in {"review", "active", "expiring"}:
         raise HTTPException(status_code=422, detail="Only review/active/expiring contracts can be signed")
+    # Segregation of duties: the drafter does not sign.
+    if c.created_by and c.created_by == actor.sub:
+        raise HTTPException(status_code=403, detail={
+            "code": "SIGNATURE_SOD",
+            "message": "The author of a contract cannot sign it (segregation of duties)"})
     if payload.method not in {"internal", "esign"}:
         raise HTTPException(status_code=422, detail="method must be internal|esign")
     if payload.method == "esign" and not (payload.provider.strip() and payload.envelope_id.strip()):
@@ -239,16 +368,112 @@ def sign_contract(contract_id: str, payload: SignIn, request: Request, actor: Ac
                             "start": c.start_date, "end": c.end_date, "status": c.status},
                            sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(snapshot.encode()).hexdigest()
+    # An internal signature is an authenticated click and is complete on arrival.
+    # An external one is a *claim* that someone else has to confirm.
+    now = datetime.now(timezone.utc)
     sig = ContractSignature(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, contract_id=contract_id,
                             signer=actor.sub, method=payload.method, provider=payload.provider.strip(),
-                            envelope_id=payload.envelope_id.strip(), snapshot_hash=digest)
+                            envelope_id=payload.envelope_id.strip(), snapshot_hash=digest,
+                            status="signed" if payload.method == "internal" else "pending",
+                            verified_at=now if payload.method == "internal" else None)
     db.add(sig)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": "ENVELOPE_ALREADY_OPEN",
+            "message": "This provider envelope already has an open signature request"}) from exc
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_SIGNED", resource="contract",
-                 resource_id=contract_id, after={"method": payload.method, "snapshot": digest}, source="api", created_by=actor.sub)
+                 resource_id=contract_id, after={"method": payload.method, "snapshot": digest,
+                                                 "signatureStatus": sig.status}, source="api", created_by=actor.sub)
     db.commit()
     db.refresh(sig)
-    return envelope({"id": sig.id, "snapshotHash": digest}, None, getattr(request.state, "request_id", ""))
+    return envelope({
+        "id": sig.id,
+        "snapshotHash": digest,
+        # `signed: false` for an e-sign is the honest answer. A client that only
+        # checked for a 2xx used to believe these were complete.
+        "signed": sig.status == "signed",
+        "status": sig.status,
+        "pendingVerification": sig.status == "pending",
+    }, None, getattr(request.state, "request_id", ""))
+
+
+class VerifySignIn(BaseModel):
+    """The provider's own answer about an envelope."""
+    envelope_id: str = Field(min_length=1, max_length=128)
+    provider: str = Field(default="", max_length=64)
+    status: str = Field(min_length=1, max_length=16)  # signed | declined | voided | pending
+    payload: dict = Field(default_factory=dict)
+
+
+@router.post("/contracts/{contract_id}/sign/verify", status_code=200)
+def verify_signature(contract_id: str, payload: VerifySignIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Apply a provider's confirmation to an open e-signature.
+
+    This is the missing half of VNT-023. It is a first-class endpoint rather than
+    an out-of-band adapter call because the provider's answer has to land on the
+    right row, and the only thing that can identify that row reliably is the
+    envelope id the tenant registered.
+    """
+    from datetime import datetime, timezone
+
+    _require(actor, "sign")
+    c = db.execute(select(Contract).where(Contract.tenant_id == actor.tenant_id, Contract.id == contract_id)).scalar_one_or_none()
+    if c is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    target = payload.status.strip().lower()
+    if target not in {"signed", "declined", "voided", "pending"}:
+        raise HTTPException(status_code=422, detail={
+            "code": "SIGNATURE_STATUS_INVALID",
+            "message": "status must be one of signed, declined, voided, pending"})
+    stmt = select(ContractSignature).where(
+        ContractSignature.tenant_id == actor.tenant_id,
+        ContractSignature.contract_id == contract_id,
+        ContractSignature.envelope_id == payload.envelope_id,
+        # An internal signature has no envelope, so this also keeps internal rows
+        # out of the match when `envelope_id` is empty.
+        ContractSignature.envelope_id != "")
+    if payload.provider.strip():
+        stmt = stmt.where(ContractSignature.provider == payload.provider.strip())
+    sig = db.execute(stmt.with_for_update()).scalar_one_or_none()
+    if sig is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "SIGNATURE_ENVELOPE_NOT_FOUND",
+            "message": "No open signature for that envelope on this contract"})
+    if sig.status in {"signed", "declined", "voided"} and target != sig.status:
+        raise HTTPException(status_code=409, detail={
+            "code": "SIGNATURE_ALREADY_TERMINAL",
+            "message": f"This envelope is already {sig.status}",
+            "details": {"status": sig.status}})
+    before = sig.status
+    sig.status = target
+    sig.provider_payload = payload.payload or {}
+    sig.verified_at = datetime.now(timezone.utc) if target == "signed" else sig.verified_at
+    sig.updated_by = actor.sub
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="CONTRACT_SIGNATURE_VERIFIED",
+                 resource="contract", resource_id=contract_id,
+                 before={"status": before}, after={"status": target, "envelope": payload.envelope_id},
+                 source="api", created_by=actor.sub)
+    db.commit()
+    db.refresh(sig)
+    return envelope({"id": sig.id, "status": sig.status, "signed": sig.status == "signed"},
+                    None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/contracts/{contract_id}/signatures")
+def list_signatures(contract_id: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Every signature on a contract, with its verification state."""
+    rows = list(db.execute(select(ContractSignature).where(
+        ContractSignature.tenant_id == actor.tenant_id,
+        ContractSignature.contract_id == contract_id).order_by(ContractSignature.created_at)).scalars())
+    return envelope([{
+        "id": s.id, "signer": s.signer, "method": s.method, "status": s.status,
+        "provider": s.provider, "envelopeId": s.envelope_id, "snapshotHash": s.snapshot_hash,
+        "verifiedAt": s.verified_at.isoformat() if s.verified_at else None,
+        "createdAt": s.created_at.isoformat() if s.created_at else "",
+    } for s in rows], None, getattr(request.state, "request_id", ""))
 
 
 class MatchIn(BaseModel):

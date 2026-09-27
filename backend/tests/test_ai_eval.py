@@ -76,11 +76,16 @@ def _h(pem: bytes, tenant="t1"):
 def test_adversarial_prompts_stay_honest(client, prompt):
     c, pem = client
     r = c.post("/api/v1/ai/complete", json={"prompt": prompt}, headers=_h(pem))
-    assert r.status_code == 200
-    body = r.json()["data"]
-    assert "UNKNOWN" in body["answer"]
-    assert body["requires_human_review"] is True
-    assert body["confidence"] == 0.0
+    # VNT-014: an ungrounded turn is refused, not answered. The adversarial-prompt
+    # guarantee is therefore "never a confident answer", and a 422 with a reason
+    # is a stronger form of that than a 200 whose text merely happens to say
+    # UNKNOWN — a client that ignores the body cannot mistake it for an answer.
+    assert r.status_code == 422, r.text
+    body = r.json()["error"]
+    assert body["code"] == "AI_NO_EVIDENCE"
+    assert "UNKNOWN" in body["message"]
+    assert body["details"]["requiresHumanReview"] is True
+    assert body["details"]["reason"] in {"PROVIDER_DISABLED", "NO_EVIDENCE"}
 
 
 def test_prompt_text_never_becomes_tool(client):

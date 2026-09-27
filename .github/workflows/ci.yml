@@ -33,10 +33,27 @@ jobs:
         # and had been failing on every run — no one saw it because CI was weekly.
         run: python scripts/check_secrets.py
       - name: Validate compose + env example
+        # VNT-034/035: compose now uses `${VAR:?message}` for every secret, which
+        # means it refuses to render without them — that is the point, and it also
+        # means CI has to supply throwaway values to validate the file at all.
+        # `docker compose config` is a parse-and-interpolate check, so these never
+        # leave the runner.
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-not-a-real-secret
+          REDIS_PASSWORD: ci-not-a-real-secret
+          KEYCLOAK_ADMIN_PASSWORD: ci-not-a-real-secret
+          SERVICE_CLIENT_SECRET: ci-not-a-real-secret
+          S3_ACCESS_KEY: ci
+          S3_SECRET_KEY: ci-not-a-real-secret
         run: |
           test -f .env.example
-          grep -q SERVICE_API_TOKEN .env.example
-          docker compose config
+          grep -q SERVICE_CLIENT_SECRET .env.example
+          docker compose config > /dev/null
+      - name: Images are digest-pinned (offline structural gate)
+        # Catches a service reverted to a mutable tag, which is the thing that
+        # makes two runs of the same commit differ. Needs no network and no .env.
+        run: python scripts/pin_digests.py --check
   docs:
     needs: policy
     runs-on: ubuntu-latest

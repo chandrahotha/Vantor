@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Dashboard Screen Specification
 
 Overview dashboard: KPI strip, spend trend, commitments, invoice exceptions, contract renewals, RFQ pipeline, approval workload, risk, data freshness, recent changes.

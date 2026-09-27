@@ -18,6 +18,7 @@ import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.concurrency import run_in_threadpool
 
 from .config import get_settings
 
@@ -44,6 +45,14 @@ def override_jwks(keys: dict | None) -> None:
 
 
 def _fetch_jwks() -> dict:
+    """Return the provider's signing keys, from cache when warm.
+
+    VNT-029. This performs a blocking `httpx.get` and was reached from `async
+    def` request paths with no offload, so on a cache miss the event loop sat
+    through a 5-second network timeout — taking every concurrent request with it.
+    Callers on the async path must use `fetch_jwks_async`; this sync form remains
+    for startup, scripts and synchronous callers.
+    """
     if _jwks_override is not None:
         return _jwks_override
     now = time.time()
@@ -59,6 +68,40 @@ def _fetch_jwks() -> dict:
     keys = {k["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(k) for k in data.get("keys", []) if k.get("kid")}
     _jwks_cache.update(keys=keys, fetched_at=now)
     return keys
+
+
+async def fetch_jwks_async() -> dict:
+    """`fetch_jwks` without blocking the event loop.
+
+    The cache check and the fetch are both fast paths we would rather not pay a
+    thread hop for, so the TTL check happens inline and only a cold fetch is
+    handed to a worker thread.
+    """
+    if _jwks_override is not None:
+        return _jwks_override
+    if _jwks_cache["keys"] and (time.time() - _jwks_cache["fetched_at"]) < _JWKS_TTL_S:
+        return _jwks_cache["keys"]
+    return await run_in_threadpool(_fetch_jwks)
+
+
+async def verify_token_async(token: str) -> Actor:
+    """`verify_token`, off the event loop only where it can actually block.
+
+    VNT-029. The blocking part is the JWKS *fetch* — a network call with a 5s
+    timeout, reached on a cache miss and on a key rotation, straight from an
+    `async def` on every request. RSA verification is CPU-bound but short
+    (~sub-millisecond for RSA-2048), and offloading it would cost a thread hop on
+    every single request in exchange for nothing, which is why the whole suite
+    roughly doubled in wall time the first time this was written that way.
+
+    So: warm cache and test override are handled inline, and the cold path is
+    handed to a worker thread.
+    """
+    if _jwks_override is not None or (
+        _jwks_cache["keys"] and (time.time() - _jwks_cache["fetched_at"]) < _JWKS_TTL_S
+    ):
+        return verify_token(token)
+    return await run_in_threadpool(verify_token, token)
 
 
 def _public_key_for(kid: str):  # type: ignore[no-untyped-def]
@@ -145,7 +188,9 @@ async def get_actor(
 ) -> Actor:
     if creds is None or not creds.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
-    actor = verify_token(creds.credentials)
+    # VNT-029: verification is CPU-bound (RSA) and may need the network (JWKS),
+    # and this is an `async def` on every authenticated request.
+    actor = await verify_token_async(creds.credentials)
     request.state.actor = actor
     request.state.tenant_id = actor.tenant_id
     return actor

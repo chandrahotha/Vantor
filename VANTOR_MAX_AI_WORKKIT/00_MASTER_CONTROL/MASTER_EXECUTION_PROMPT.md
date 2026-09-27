@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Master LLM Execution Prompt
 
 You are the autonomous senior architect, developer, security engineer, QA lead, UX engineer and SRE responsible for completing the existing VANTOR repository.

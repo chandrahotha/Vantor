@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Purchase Orders Screen Specification
 
 PO list with lifecycle filters, budget/approval/receipt/invoice status. PO detail has line quantities, receipt progress, invoicing progress, commitments, documents, approvals and actions.

@@ -23,6 +23,7 @@ from ..core.tenant import get_db
 from ..models.sourcing import Award, Quote, QuoteLine, Rfq, RfqLine
 from ..models.spend import SavingsRecord
 from ..models.supplier import Category, Supplier
+from ..models.onboarding import SupplierQualification
 from ..services.audit import record_event
 from ..services.refs import require_ref
 from ..services.sourcing import SourcingError, check_quote_transition, check_rfq_transition, line_total
@@ -159,7 +160,7 @@ def get_rfq(rfq_id: str, request: Request, actor: Actor = Depends(get_actor), db
 @router.patch("/rfqs/{rfq_id}/status")
 def move_rfq(rfq_id: str, payload: RfqStatusIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
-    r = db.execute(select(Rfq).where(Rfq.tenant_id == actor.tenant_id, Rfq.id == rfq_id)).scalar_one_or_none()
+    r = db.execute(select(Rfq).where(Rfq.tenant_id == actor.tenant_id, Rfq.id == rfq_id).with_for_update()).scalar_one_or_none()
     if r is None:
         raise HTTPException(status_code=404, detail="RFQ not found")
     try:
@@ -167,6 +168,14 @@ def move_rfq(rfq_id: str, payload: RfqStatusIn, request: Request, actor: Actor =
     except SourcingError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
     before = r.status
+    # VNT-020. `response -> evaluated` used to flip every submitted quote's
+    # status and nothing else, so an RFQ could be evaluated with one quote, or
+    # with quotes that priced only some of the RFQ's lines, or from suppliers
+    # that were never qualified. All four gates are checked here, and the refusal
+    # names which one failed — a sourcing control that only says "no" is not a
+    # control an auditor can rely on.
+    if payload.status == "evaluated":
+        _assert_evaluable(db, actor.tenant_id, r)
     r.status, r.updated_by = payload.status, actor.sub
     if payload.status == "evaluated":
         # Evaluation phase evaluates every submitted quote server-side.
@@ -180,6 +189,77 @@ def move_rfq(rfq_id: str, payload: RfqStatusIn, request: Request, actor: Actor =
     return envelope(_rfq_dto(r), None, getattr(request.state, "request_id", ""))
 
 
+def _assert_evaluable(db: Session, tenant_id: str, r: Rfq) -> None:
+    """The bid-evaluation gate. Raises 422 naming the first unmet condition.
+
+    Four independent conditions, each a real procurement control:
+
+    1. **Minimum quote count** — a single bid is not a competitive process.
+       `min_quotes` defaults to 1 so an RFQ may deliberately be sole-sourced,
+       but it is now an explicit, per-RFQ, recorded number rather than an
+       accident of how many suppliers happened to respond.
+    2. **Quote completeness** — every RFQ line must be priced by at least one
+       quote. A quote that omitted `rfq_line_id` entirely used to be accepted
+       (`QuoteLine.rfq_line_id` defaults to ""), and the omission was invisible
+       to evaluation.
+    3. **Currency consistency** — see VNT-021; a mixed-currency comparison is
+       meaningless and the savings figure derived from it is fabricated.
+    4. **Supplier eligibility** — a quote from a supplier that is not qualified
+       is not a bid. `submit_quote` now refuses such a bid outright, so this
+       re-checks the invariant at evaluation rather than trusting it: a row
+       inserted by a migration, a script, or an older release must not slip a
+       disqualified supplier into an award.
+    """
+    quotes = list(db.execute(select(Quote).where(
+        Quote.tenant_id == tenant_id, Quote.rfq_id == r.id,
+        Quote.status.in_(("submitted", "evaluated")))).scalars())
+    eligible: list[Quote] = []
+    for q in quotes:
+        sup = db.get(Supplier, q.supplier_id)
+        qualified = db.execute(select(func.count(SupplierQualification.id)).where(
+            SupplierQualification.tenant_id == tenant_id, SupplierQualification.supplier_id == q.supplier_id,
+            SupplierQualification.status == "qualified")).scalar_one()
+        if qualified and sup is not None and sup.status == "active":
+            eligible.append(q)
+
+    min_quotes = max(1, int(getattr(r, "min_quotes", 1) or 1))
+    if len(eligible) < min_quotes:
+        raise HTTPException(status_code=422, detail={
+            "code": "RFQ_TOO_FEW_ELIGIBLE_QUOTES",
+            "message": f"Evaluation needs at least {min_quotes} eligible quote(s); "
+                       f"{len(eligible)} of {len(quotes)} received bid(s) qualify",
+            "details": {"received": len(quotes), "eligible": len(eligible), "required": min_quotes}})
+    if len(eligible) != len(quotes):
+        raise HTTPException(status_code=422, detail={
+            "code": "RFQ_SUPPLIER_INELIGIBLE",
+            "message": f"{len(quotes) - len(eligible)} bid(s) came from a blocked or unqualified supplier",
+            "details": {"supplierIds": sorted({q.supplier_id for q in quotes if q not in eligible})[:20]}})
+
+    rfq_line_ids = [ln.id for ln in db.execute(select(RfqLine).where(
+        RfqLine.tenant_id == tenant_id, RfqLine.rfq_id == r.id)).scalars()]
+    priced: set[str] = set()
+    if rfq_line_ids:
+        for qid, line_id in db.execute(
+                select(QuoteLine.quote_id, QuoteLine.rfq_line_id).where(
+                    QuoteLine.tenant_id == tenant_id,
+                    QuoteLine.quote_id.in_([q.id for q in quotes]))).all():
+            if str(line_id) in rfq_line_ids:
+                priced.add(str(line_id))
+        missing = sorted(set(rfq_line_ids) - priced)
+        if missing:
+            raise HTTPException(status_code=422, detail={
+                "code": "RFQ_LINES_UNPRICED",
+                "message": f"{len(missing)} RFQ line(s) were priced by no quote",
+                "details": {"unpricedLineIds": missing[:20], "unpricedCount": len(missing)}})
+
+    wrong_currency = sorted({(q.currency or "").upper() for q in quotes} - {(r.currency or "").upper()})
+    if wrong_currency:
+        raise HTTPException(status_code=422, detail={
+            "code": "RFQ_CURRENCY_MISMATCH",
+            "message": f"Quotes are not in the RFQ currency {r.currency}",
+            "details": {"rfqCurrency": r.currency, "quoteCurrencies": wrong_currency}})
+
+
 @router.post("/rfqs/{rfq_id}/quotes", status_code=201)
 def submit_quote(rfq_id: str, payload: QuoteIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
@@ -191,20 +271,52 @@ def submit_quote(rfq_id: str, payload: QuoteIn, request: Request, actor: Actor =
     sup = db.execute(select(Supplier).where(Supplier.tenant_id == actor.tenant_id, Supplier.id == payload.supplier_id)).scalar_one_or_none()
     if sup is None:
         raise HTTPException(status_code=422, detail="Unknown supplier for this tenant")
+    # VNT-020. Eligibility belongs at bid *submission*, not only at evaluation.
+    # Checking it at evaluation meant the whole evaluation was blocked by one
+    # ineligible bid; checking it here means the bid never enters the comparison
+    # set in the first place, which is what a supplier-qualification regime
+    # actually promises. `blocked` and `on_hold` are explicit non-bidding states.
+    if sup.status != "active":
+        raise HTTPException(status_code=422, detail={
+            "code": "SUPPLIER_NOT_ACTIVE",
+            "message": f"Supplier is {sup.status}; only active suppliers may bid",
+            "details": {"supplierId": sup.id, "status": sup.status}})
+    if not db.execute(select(func.count(SupplierQualification.id)).where(
+            SupplierQualification.tenant_id == actor.tenant_id,
+            SupplierQualification.supplier_id == sup.id,
+            SupplierQualification.status == "qualified")).scalar_one():
+        raise HTTPException(status_code=422, detail={
+            "code": "SUPPLIER_NOT_QUALIFIED",
+            "message": "Supplier holds no approved qualification and may not bid",
+            "details": {"supplierId": sup.id}})
     # A quote line must point at a line of *this* RFQ. Unvalidated, a quote could
     # cite an arbitrary (or another tenant's) rfq_line id, and since award totals
     # and savings are derived from these lines, that poisons the money chain.
     rfq_line_ids = [ln.id for ln in db.execute(select(RfqLine).where(
         RfqLine.tenant_id == actor.tenant_id, RfqLine.rfq_id == rfq_id)).scalars()]
     for ln in payload.lines:
-        if (ln.rfq_line_id or "").strip() and ln.rfq_line_id.strip() not in rfq_line_ids:
+        # VNT-020/VNT-021. `rfq_line_id` used to be optional (`if ... and not in`),
+        # and `QuoteLine.rfq_line_id` defaults to "". A quote could therefore be
+        # submitted with no line mapping at all and still be awarded, which made
+        # the RFQ line-coverage gate unverifiable. It is now mandatory, and the
+        # currency is asserted equal to the RFQ's rather than merely defaulting to
+        # it: a USD quote on an INR RFQ used to rank against INR totals and could
+        # be awarded with a fabricated INR savings figure.
+        if (ln.rfq_line_id or "").strip() not in rfq_line_ids:
             raise HTTPException(status_code=422, detail={
                 "code": "QUOTE_LINE_NOT_ON_RFQ",
-                "message": "lines[].rfq_line_id must reference a line of this RFQ",
+                "message": "every lines[].rfq_line_id is required and must reference a line of this RFQ",
                 "details": {"rfqLineId": ln.rfq_line_id, "rfqId": rfq_id},
             })
+    quote_currency = (payload.currency or r.currency).strip().upper()
+    if quote_currency != (r.currency or "").strip().upper():
+        raise HTTPException(status_code=422, detail={
+            "code": "QUOTE_CURRENCY_MISMATCH",
+            "message": f"A quote on this RFQ must be in {r.currency}, not {quote_currency}",
+            "details": {"rfqCurrency": r.currency, "quoteCurrency": quote_currency},
+        })
     q = Quote(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, rfq_id=rfq_id,
-              supplier_id=payload.supplier_id, status="submitted", currency=(payload.currency or r.currency).strip().upper())
+              supplier_id=payload.supplier_id, status="submitted", currency=quote_currency)
     db.add(q)
     try:
         db.flush()
@@ -260,7 +372,15 @@ def comparison(rfq_id: str, request: Request, actor: Actor = Depends(get_actor),
 @router.post("/rfqs/{rfq_id}/award", status_code=201)
 def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
-    r = db.execute(select(Rfq).where(Rfq.tenant_id == actor.tenant_id, Rfq.id == rfq_id)).scalar_one_or_none()
+    # VNT-019. Two changes, both required:
+    #   1. lock the RFQ row, so two awarders serialise instead of both clearing
+    #      the `exists` pre-check below;
+    #   2. wrap the flush in the same `IntegrityError -> 409` pattern every other
+    #      route in this file already uses (lines 131 and 210). The award's
+    #      `uq_award_tenant_rfq` is the real authority; before, the loser of the
+    #      race got an unhandled IntegrityError, which `install_error_handlers`
+    #      turned into a 500. A duplicate award is a 409, not a server fault.
+    r = db.execute(select(Rfq).where(Rfq.tenant_id == actor.tenant_id, Rfq.id == rfq_id).with_for_update()).scalar_one_or_none()
     if r is None:
         raise HTTPException(status_code=404, detail="RFQ not found")
     exists = db.execute(select(Award).where(Award.tenant_id == actor.tenant_id, Award.rfq_id == rfq_id)).scalar_one_or_none()
@@ -297,7 +417,13 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
     a = Award(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, rfq_id=rfq_id,
               quote_id=q.id, reason=payload.reason.strip(), awarded_total_minor=server_total)
     db.add(a)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": "RFQ_ALREADY_AWARDED",
+            "message": "This RFQ was awarded by a concurrent request"}) from exc
     q.status = "awarded"
     r.status = "awarded"
     # Reject all other submitted/evaluated quotes on this RFQ.

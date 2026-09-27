@@ -32,7 +32,9 @@ def verdict_hash(cells: list[dict]) -> str:
 
 def evaluate(*, contract: dict, po: dict, invoice: dict,
              prior_invoice_lines: list[dict] | None = None,
-             po_line_quantities: dict[str, int] | None = None) -> dict:
+             po_line_quantities: dict[str, int] | None = None,
+             received_quantities: dict[str, int] | None = None,
+             prior_approved_quantities: dict[str, int] | None = None) -> dict:
     """All amounts integer minor units. Returns {cells, overall, hold_amount_minor, hash}.
 
     `prior_invoice_lines` are the `(po_line_id, quantity, unit_price_minor)`
@@ -45,6 +47,19 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
     That distinction matters: partial invoicing is normal procurement, and the
     old check failed the second invoice of every partially-paid PO, holding
     legitimate money for ever.
+
+    `received_quantities` and `prior_approved_quantities` are what make this the
+    *three*-way match rather than a two-way one. They are the cumulative
+    goods-received and the cumulative already-approved-invoice quantity per PO
+    line, both excluding the invoice under evaluation. The `quantities`
+    dimension then enforces the real procurement invariant:
+
+        approved_prior_qty + current_qty <= received_qty <= ordered_qty
+
+    Both are optional so the advisory `/contracts/{id}/match` endpoint can run
+    without receipts. The money path (`services.purchase.three_way_match`) always
+    supplies both — which is the point: there is one engine, and the approval
+    path cannot accidentally use the weaker form.
     """
     for doc, name in ((contract, "contract"), (po, "po"), (invoice, "invoice")):
         if not isinstance(doc, dict):
@@ -61,10 +76,18 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
     else:
         cell("parties", "fail", "supplier mismatch across documents")
     # 2 currency
-    if contract.get("currency") == po.get("currency") == invoice.get("currency") and po.get("currency"):
+    # A *mismatch* is a hard fail. An *unspecified* currency is missing data, not
+    # a disagreement, so it is a flag a human sees rather than a hold. The old
+    # form (`... and po.get("currency")`) failed every document that simply had
+    # not been given a currency, which meant routing the money path through this
+    # engine started holding invoices that were in fact fine.
+    _currencies = {contract.get("currency") or "", po.get("currency") or "", invoice.get("currency") or ""}
+    if not _currencies - {""}:
+        cell("currency", "pass", "not specified on any document")
+    elif len(_currencies) == 1:
         cell("currency", "pass")
     else:
-        cell("currency", "fail", "currency mismatch or missing")
+        cell("currency", "fail", f"currency mismatch across documents: {sorted(_currencies)}")
     # 3 po arithmetic
     po_lines = po.get("lines", [])
     if po_lines and all(isinstance(l, dict) for l in po_lines):
@@ -105,14 +128,41 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
         return [(po_l[i], il) for i, il in enumerate(inv_l)]
 
     pairs = _pairs(po_lines, inv_lines)
+    # The cumulative three-way quantities, resolved once. `prior_approved` is what
+    # earlier invoices have already been approved for; `received` is what goods
+    # have actually come in. VNT-001: only the *current* invoice's quantity was
+    # ever compared against `received`, so 60 + 60 invoiced against 100 received
+    # passed — the same goods billed twice, and two `actual` ledger rows for it.
+    received = received_quantities or {}
+    prior_approved = prior_approved_quantities or {}
     if pairs is None:
         cell("quantities", "fail", "invoice lines do not map onto PO lines")
         cell("prices", "fail", "invoice lines do not map onto PO lines")
     else:
-        bad_qty = [str(p.get("po_line_id", i)) for i, (p, il) in enumerate(pairs)
-                   if il.get("quantity", 0) > p.get("quantity", -1)]
+        bad_qty: list[str] = []
+        for p, il in pairs:
+            line_id = str(p.get("po_line_id", ""))
+            qty = int(il.get("quantity", 0) or 0)
+            ordered_qty = p.get("quantity", -1)
+            why: list[str] = []
+            if qty > ordered_qty:
+                why.append(f"invoiced {qty} > ordered {ordered_qty}")
+            # Over-receipt means the goods themselves were recorded against the
+            # PO beyond what was ordered, which invalidates every invoice against
+            # it. Caught here as well as at the receipt, because a bad receipt
+            # written before this check existed must not be silently honoured.
+            recv = received.get(line_id)
+            if recv is not None and recv > ordered_qty:
+                why.append(f"received {recv} > ordered {ordered_qty}")
+            # The load-bearing one: cumulative approved + current <= received.
+            if recv is not None:
+                approved_so_far = int(prior_approved.get(line_id, 0) or 0)
+                if approved_so_far + qty > recv:
+                    why.append(f"cumulative invoiced {approved_so_far}+{qty} > received {recv}")
+            if why:
+                bad_qty.append(f"{line_id}: " + "; ".join(why))
         cell("quantities", "fail" if bad_qty else "pass",
-             "" if not bad_qty else f"invoiced qty exceeds ordered on {', '.join(bad_qty)}")
+             "" if not bad_qty else " | ".join(bad_qty))
         bad_price = [str(p.get("po_line_id", i)) for i, (p, il) in enumerate(pairs)
                      if il.get("unit_price_minor") != p.get("unit_price_minor")]
         cell("prices", "fail" if bad_price else "pass",
@@ -131,9 +181,13 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
     # 10 line count
     cell("line_count", "pass" if 0 < len(inv_lines) <= len(po_lines) else "fail", f"po={len(po_lines)} inv={len(inv_lines)}")
     # 11 duplicates — real double-billing, not "another invoice exists".
-    # Fail only when this invoice pushes cumulative invoiced quantity past what
-    # was ordered, or re-bills a (po_line, qty, price) triple another invoice
-    # already paid for. Partial invoicing must stay CLEAN.
+    # The hard fail is cumulative quantity past what was ordered; the
+    # cumulative-received invariant itself lives in `quantities`, which is the
+    # dimension that has the receipts. An identical `(line, qty, price)` triple
+    # repeating is a *flag*, not a fail: two separate deliveries of 10 bolts at
+    # the same price produce exactly that pair of lines and are perfectly
+    # legitimate, so failing it would hold real money for ever over a shape the
+    # data cannot distinguish from fraud.
     prior_lines = prior_invoice_lines or []
     ordered = po_line_quantities or {}
     prior_by_line: dict[str, int] = {}
@@ -155,7 +209,9 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
     if over_ordered:
         cell("duplicates", "fail", f"invoiced beyond ordered on po line(s) {', '.join(sorted(set(over_ordered)))}")
     elif repeated:
-        cell("duplicates", "fail", f"identical line already invoiced: {', '.join(sorted(set(repeated)))}")
+        cell("duplicates", "flag",
+             f"line/qty/price repeats an earlier invoice on {', '.join(sorted(set(repeated)))} — "
+             f"verify these are separate deliveries, not a re-bill")
     elif prior_lines:
         cell("duplicates", "pass", f"partial invoicing within ordered quantity ({len(prior_lines)} prior line(s))")
     else:

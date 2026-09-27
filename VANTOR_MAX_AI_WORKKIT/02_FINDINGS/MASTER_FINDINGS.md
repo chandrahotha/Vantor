@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Master Findings Register
 
 The table below is the re-audit source of truth for the current archive. “Verified” means directly established from source or an executed reproduction. “Strong static finding” is an evidence-backed architecture/code risk that still requires a production-style test to prove exploitability. No finding below should be ignored because a unit test is green.

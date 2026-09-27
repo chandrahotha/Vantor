@@ -12,7 +12,7 @@ checked before a write can ever reach Postgres's `RESTRICT` fails.
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -21,6 +21,25 @@ REQ_STATUSES = {"draft", "submitted", "approved", "rejected", "ordered"}
 PO_STATUSES = {"draft", "approved", "sent", "received", "invoiced", "closed", "cancelled"}
 INVOICE_STATUSES = {"received", "matched", "approved", "paid", "rejected"}
 APPROVAL_STATUSES = {"requested", "approved", "rejected"}
+
+TIER_STATUSES = {"manager", "finance", "legal"}
+
+
+def _in(column: str, allowed: set[str]) -> str:
+    """Render a status-domain CHECK from the single source of truth.
+
+    VNT-028: these four sets were module-level literals that *nothing imported*.
+    The state machines in the workkit described transitions, the routers
+    enforced them in Python, and the database would have happily stored
+    `"banana"` in `purchase_orders.status` — after which every read path 422s
+    on a value no code could have written through the API. Rendering the CHECK
+    from the same set means the domain and the constraint cannot drift.
+
+    Sorted so the DDL string is byte-identical on every build; `alembic check`
+    compares the rendered string, and an unsorted set would make it flap.
+    """
+    values = ", ".join(f"'{s}'" for s in sorted(allowed))
+    return f"{column} in ({values})"
 
 
 class Requisition(Base, TenantMixin):
@@ -35,6 +54,7 @@ class Requisition(Base, TenantMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_req_tenant_code"),
         Index("ix_req_tenant_status", "tenant_id", "status"),
+        CheckConstraint(_in("status", REQ_STATUSES), name="ck_requisition_status"),
     )
 
 
@@ -47,7 +67,9 @@ class RequisitionLine(Base, TenantMixin):
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     est_price_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    __table_args__ = (UniqueConstraint("tenant_id", "requisition_id", "line_no", name="uq_reql_tenant_req_no"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "requisition_id", "line_no", name="uq_reql_tenant_req_no"),
+                      CheckConstraint("quantity > 0", name="ck_reql_qty_pos"),
+                      CheckConstraint("est_price_minor >= 0", name="ck_reql_price_nonneg"))
 
 
 class PurchaseOrder(Base, TenantMixin):
@@ -68,6 +90,8 @@ class PurchaseOrder(Base, TenantMixin):
         UniqueConstraint("tenant_id", "code", name="uq_po_tenant_code"),
         Index("ix_po_tenant_status", "tenant_id", "status"),
         Index("ix_po_tenant_req", "tenant_id", "requisition_id"),
+        CheckConstraint(_in("status", PO_STATUSES), name="ck_po_status"),
+        CheckConstraint("total_minor >= 0", name="ck_po_total_nonneg"),
     )
 
 
@@ -81,7 +105,10 @@ class PurchaseOrderLine(Base, TenantMixin):
     unit_price_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     line_total_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    __table_args__ = (UniqueConstraint("tenant_id", "po_id", "line_no", name="uq_pol_tenant_po_no"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "po_id", "line_no", name="uq_pol_tenant_po_no"),
+                      CheckConstraint("quantity > 0", name="ck_pol_qty_pos"),
+                      CheckConstraint("unit_price_minor > 0", name="ck_pol_price_pos"),
+                      CheckConstraint("line_total_minor = unit_price_minor * quantity", name="ck_pol_line_math"))
 
 
 class Receipt(Base, TenantMixin):
@@ -101,7 +128,8 @@ class ReceiptLine(Base, TenantMixin):
     po_line_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_order_lines.id", ondelete="RESTRICT"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    __table_args__ = (Index("ix_receiptline_tenant_receipt", "tenant_id", "receipt_id"),)
+    __table_args__ = (Index("ix_receiptline_tenant_receipt", "tenant_id", "receipt_id"),
+                      CheckConstraint("quantity > 0", name="ck_receiptline_qty_pos"))
 
 
 class Invoice(Base, TenantMixin):
@@ -117,6 +145,9 @@ class Invoice(Base, TenantMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_inv_tenant_code"),
         Index("ix_inv_tenant_status", "tenant_id", "status"),
+        CheckConstraint(_in("status", INVOICE_STATUSES), name="ck_invoice_status"),
+        CheckConstraint("total_minor > 0", name="ck_invoice_total_pos"),
+        CheckConstraint("(currency = '' OR length(currency) = 3)", name="ck_invoice_currency_iso3"),
     )
 
 
@@ -131,6 +162,9 @@ class InvoiceLine(Base, TenantMixin):
 
     __table_args__ = (
         Index("ix_invline_tenant_inv", "tenant_id", "invoice_id"),
+        CheckConstraint("quantity > 0", name="ck_invline_qty_pos"),
+        CheckConstraint("unit_price_minor > 0", name="ck_invline_price_pos"),
+        CheckConstraint("line_total_minor = unit_price_minor * quantity", name="ck_invline_line_math"),
     )
 
 
@@ -145,4 +179,12 @@ class Approval(Base, TenantMixin):
     decided_by: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
-    __table_args__ = (Index("ix_approval_tenant_res", "tenant_id", "resource", "resource_id"),)
+    __table_args__ = (Index("ix_approval_tenant_res", "tenant_id", "resource", "resource_id"),
+                      CheckConstraint(_in("status", APPROVAL_STATUSES), name="ck_approval_status"),
+                      CheckConstraint(_in("tier", TIER_STATUSES), name="ck_approval_tier"),
+                      # One approval per (resource, resource_id, tier). The tier
+                      # ordering rule assumes exactly one outstanding slot per
+                      # tier; without this, two files of the same tier both
+                      # return from `order_pending` and the queue is ambiguous.
+                      UniqueConstraint("tenant_id", "resource", "resource_id", "tier",
+                                       name="uq_approval_tenant_res_tier"))

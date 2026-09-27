@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Invoice Matching
 
 Canonical invoice matching must combine PO, receipts, current invoice, and every prior approved/accepted invoice line.

@@ -1,0 +1,112 @@
+{
+  "realm": "vantor",
+  "displayName": "VANTOR",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 3600,
+  "ssoSessionMaxLifespan": 36000,
+  "clientSessionIdleTimeout": 1800,
+  "clientSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {"name": "Super Admin", "description": "Unrestricted. Deployment owner."},
+      {"name": "Organization Admin", "description": "Administers one tenant's configuration."},
+      {"name": "Procurement Admin", "description": "Administers procurement policy and integrations."},
+      {"name": "Procurement Manager", "description": "Runs the sourcing and buying process."},
+      {"name": "Buyer", "description": "Raises requisitions and purchase orders."},
+      {"name": "Category Manager", "description": "Owns a category's catalogue and budget."},
+      {"name": "Supplier Manager", "description": "Vendor-side: maintains one supplier's own record."},
+      {"name": "Compliance Reviewer", "description": "Owns supplier risk: verifies certifications and decides qualifications."},
+      {"name": "Legal Reviewer", "description": "Reviews, activates, terminates and signs contracts."},
+      {"name": "Finance Reviewer", "description": "Second-tier financial approver and spend analyst."},
+      {"name": "Approver", "description": "Decides approvals in the queue."},
+      {"name": "Auditor", "description": "Read-only across audit events and operations metrics."},
+      {"name": "Read Only", "description": "No write capability anywhere."}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "vantor-web",
+      "name": "VANTOR web application",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:3000",
+      "baseUrl": "/",
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "vantor-service",
+      "name": "VANTOR worker (machine identity)",
+      "description": "Client-credentials identity for the RQ worker. VNT-044: the worker previously needed a hand-pasted bearer token that expired silently and could not be rotated. The secret is NOT set here and is never stored in this file: provision.py sets it from the environment on every start, which is also what makes rotation work. This client therefore cannot authenticate until provision.py has run.",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "attributes": {
+        "access.token.lifespan": "3600"
+      }
+    },
+    {
+      "clientId": "vantor-admin",
+      "name": "Keycloak admin console",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:8080"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@vantor.local",
+      "firstName": "Platform",
+      "lastName": "Administrator",
+      "realmRoles": ["Super Admin", "Organization Admin", "Procurement Admin",
+                      "Procurement Manager", "Buyer", "Category Manager",
+                      "Supplier Manager", "Compliance Reviewer", "Legal Reviewer",
+                      "Finance Reviewer", "Approver", "Auditor"],
+      "attributes": {"tenant_id": ["acme"]},
+      "credentials": [{"type": "password", "value": "admin", "temporary": false}]
+    }
+  ]
+}

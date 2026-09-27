@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Integrations Screen Specification
 
 Integration center with adapters, health, secret status, webhook endpoints, delivery queue, retry/DLQ/replay and event trace.

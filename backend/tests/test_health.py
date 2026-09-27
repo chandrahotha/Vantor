@@ -24,7 +24,38 @@ def test_health_envelope_and_request_id():
 
 def test_health_respects_incoming_request_id():
     r = client.get("/api/v1/health", headers={"X-Request-ID": "abc123"})
-    assert r.json()["requestId"] == "abc123"
+    # VNT-030. An inbound id used to be echoed verbatim with no length bound and
+    # no character class, and it lands in the response header and every JSON body.
+    # A short, well-formed id is still honoured so a caller's correlation id
+    # survives; anything else is replaced rather than rejected, because refusing a
+    # request over a malformed log field would trade a logging concern for an
+    # availability one.
+    assert r.json()["requestId"] == "abc123", r.text
+
+
+def test_malformed_request_ids_are_replaced_not_reflected():
+    """The injection vector: control characters and unbounded length."""
+    from app.core.errors import REQUEST_ID_MAX, sanitize_request_id
+
+    for hostile in (
+        "abc\r\nX-Injected: yes",
+        "abc\ndef",
+        "x" * (REQUEST_ID_MAX + 1),
+        "has space",
+        "",
+        "!!!",
+    ):
+        got = sanitize_request_id(hostile)
+        assert got != hostile or not hostile
+        assert len(got) <= REQUEST_ID_MAX
+        assert "\n" not in got and "\r" not in got
+
+    r = client.get("/api/v1/health", headers={"X-Request-ID": "abc\r\nX-Injected: yes"})
+    assert r.status_code == 200
+    # The header value is whatever the sanitiser produced, never the raw input.
+    assert "\n" not in r.headers["X-Request-ID"]
+    assert "X-Injected" not in r.headers.get("X-Request-ID", "")
+    assert r.json()["requestId"] == r.headers["X-Request-ID"]
 
 
 def _tok(roles):

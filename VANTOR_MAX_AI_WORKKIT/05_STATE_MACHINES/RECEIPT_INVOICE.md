@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Receipt and Invoice State Machine
 
 Receipt is append-only; each line is cumulative against ordered quantity. Invoice: Received -> Matched -> Approved -> Paid, with Rejected/Hold paths. Matching is a prerequisite, not the approval itself.

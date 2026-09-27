@@ -43,6 +43,46 @@ class Settings(BaseSettings):
         return url
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
 
+    # Document ingestion and storage — VNT-009/010/012.
+    max_upload_mb: int = Field(default=50, alias="MAX_UPLOAD_MB", ge=1, le=1024)
+    allowed_upload_ext: str = Field(
+        default="pdf,docx,xlsx,csv,txt,md,png,jpg,jpeg,tiff",
+        alias="ALLOWED_UPLOAD_EXT")
+    upload_dir: str = Field(default="uploads", alias="UPLOAD_DIR")
+    # Object storage. When S3_ENDPOINT and S3_BUCKET are both set they are used;
+    # otherwise the filesystem driver is selected, which `get_storage()` refuses
+    # in production rather than writing into a container layer.
+    s3_endpoint: str = Field(default="", alias="S3_ENDPOINT")
+    s3_bucket: str = Field(default="", alias="S3_BUCKET")
+    s3_region: str = Field(default="us-east-1", alias="S3_REGION")
+    s3_access_key: str = Field(default="", alias="S3_ACCESS_KEY")
+    s3_secret_key: str = Field(default="", alias="S3_SECRET_KEY")
+    s3_prefix: str = Field(default="", alias="S3_PREFIX")
+
+    # Archive-bomb limits — VNT-011. A 50 MB upload that decompresses to 50 GB is
+    # a one-request denial of service, so the parse is bounded independently of
+    # the upload size.
+    max_archive_entries: int = Field(default=10_000, alias="MAX_ARCHIVE_ENTRIES", ge=1)
+    max_archive_bytes: int = Field(
+        default=200 * 1024 * 1024, alias="MAX_ARCHIVE_BYTES", ge=1024)
+    max_entry_bytes: int = Field(
+        default=32 * 1024 * 1024, alias="MAX_ENTRY_BYTES", ge=1024)
+    max_compression_ratio: int = Field(
+        default=200, alias="MAX_COMPRESSION_RATIO", ge=1)
+
+    # Rate limiting — VNT-032. These were read straight from `os.environ` at
+    # import time, which meant they could not be overridden by a test, were not
+    # visible in the settings dump used by /ready, and could not be changed
+    # without a restart of the module graph. As fields they are validated,
+    # discoverable, and cache-clearable.
+    rate_limit_write_per_min: int = Field(default=120, alias="RATE_LIMIT_WRITE_PER_MIN", ge=1)
+    rate_limit_read_per_min: int = Field(default=600, alias="RATE_LIMIT_READ_PER_MIN", ge=1)
+    # AI and upload are priced separately: a completion costs a provider call and
+    # an upload costs disk plus (later) a parse. Sharing the write budget with a
+    # catalogue edit means a chatty copilot can lock a buyer out of their data.
+    rate_limit_ai_per_min: int = Field(default=30, alias="RATE_LIMIT_AI_PER_MIN", ge=1)
+    rate_limit_upload_per_min: int = Field(default=20, alias="RATE_LIMIT_UPLOAD_PER_MIN", ge=1)
+
     # OIDC / Keycloak — required in prod/staging, optional for unit tests only.
     keycloak_url: str = Field(default="http://keycloak:8080", alias="KEYCLOAK_URL")
     keycloak_realm: str = Field(default="vantor", alias="KEYCLOAK_REALM")
@@ -58,6 +98,11 @@ class Settings(BaseSettings):
     ai_default_model: str = Field(default="", alias="AI_DEFAULT_MODEL")  # empty = the provider's own default
     # empty = VANTOR_VOICE in ai_gateway. Set it to pin a house style.
     ai_system_prompt: str = Field(default="", alias="AI_SYSTEM_PROMPT")
+
+    # Contract expiry is a business judgement made in the buyer's working day, not
+    # the server's (VNT-041). IANA zone name; an unknown value falls back to UTC and
+    # the roll reports the zone it actually used.
+    contract_timezone: str = Field(default="UTC", alias="CONTRACT_TIMEZONE")
 
     # Self-hosted.
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")

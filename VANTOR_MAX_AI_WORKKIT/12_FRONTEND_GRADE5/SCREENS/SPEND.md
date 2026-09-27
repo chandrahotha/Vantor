@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Spend Screen Specification
 
 Spend command center: currency-separated KPI, trend charts, category/supplier concentration, leakage, price cases, drilldowns and export controls.

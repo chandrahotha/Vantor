@@ -1,28 +1,54 @@
-"""Text extraction — dependency-free, honest about limits (CostPilot pattern).
+"""Text extraction — dependency-free, and bounded against archive bombs.
 
 - PDF: Tj/TJ text-showing operators + FlateDecode streams via zlib/regex stdlib.
   No text layer (scanned) => ExtractedResult(text="", scanned=True) so callers
   quarantine with an explicit reason instead of pretending a read.
 - DOCX/XLSX: ZIP containers — document.xml / sharedStrings+sheetData via
-  xml.etree + zipfile stdlib.
+  xml.etree + zipfile stdlib, with every archive read bounded.
 - CSV/MD/TXT: utf-8 decode (BOM-tolerant).
-- Anything else / tampered bytes => DocumentError, never a guess.
+- Anything else / tampered bytes => ExtractError, never a guess.
+
+VNT-011. The archive and PDF paths had no limits of any kind. `zf.read(part)`
+decompressed a member with no cap, the sheet loop iterated *every* matching
+entry, and `zlib.decompress` expanded a Flate stream in-process with no output
+bound. A single 50 MB upload could therefore consume tens of gigabytes of heap
+and minutes of CPU in one request, on the request thread.
+
+The limits are read from validated settings and enforced at three levels,
+because any one of them can be evaded alone:
+
+1. **Entry count** — a crafted container with a million entries is refused
+   before anything is read.
+2. **Per-entry size** — checked against the *declared* uncompressed size from
+   the central directory, so the bomb is refused without decompressing it.
+3. **Cumulative decompressed bytes** — counted as members are read, and stopped
+   mid-way rather than after the fact. This is the backstop for a lying
+   directory, where the declared size is wrong.
+4. **Compression ratio** — a member that expands by more than
+   `max_compression_ratio` is a bomb by definition, and this catches the case
+   where an attacker sets both the declared size and the entry count to
+   plausible-looking values.
+
+The PDF path gets the same treatment via a bounded `decompressobj`, which can be
+stopped at exactly the limit instead of only being refused afterwards.
 """
 from __future__ import annotations
 
-import io
 import re
 import zipfile
 import zlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+from ..core.config import get_settings
+
 
 class ExtractError(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, details: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.details = details or {}
 
 
 @dataclass
@@ -36,8 +62,35 @@ class ExtractedResult:
 _TJ_RE = re.compile(rb"\((?:\\.|[^\\()])*\)\s*Tj", re.DOTALL)
 _TJ_ARR_RE = re.compile(rb"\[(?:[^\[\]]*)\]\s*TJ", re.DOTALL)
 _STR_RE = re.compile(rb"\((?:\\.|[^\\()])*\)")
-_FLATE_RE = re.compile(rb"<<(.*?)stream\r?\n", re.DOTALL)
+_FLTE_RE = re.compile(rb"<<(.*?)stream\r?\n", re.DOTALL)
 _ESCAPES = {rb"\n": "\n", rb"\r": "\r", rb"\t": "\t", rb"\(": "(", rb"\)": ")", rb"\\": "\\"}
+
+#: Elements whose text is document content. Anything else in the tree is
+#: structure and must not be lifted into the searchable text.
+_TEXT_TAGS = frozenset({"t", "v", "inlineStr"})
+
+
+def _limits() -> tuple[int, int, int, int]:
+    s = get_settings()
+    return (s.max_archive_entries, s.max_entry_bytes,
+            s.max_archive_bytes, s.max_compression_ratio)
+
+
+def _bounded_inflate(chunk: bytes, cap: int) -> bytes | None:
+    """Inflate at most `cap` bytes. `None` means the stream exceeded it.
+
+    `decompressobj` is used rather than `zlib.decompress` precisely because it
+    can be abandoned at the limit; `decompress` has no output bound and will
+    happily materialise the whole bomb before the caller gets to object.
+    """
+    obj = zlib.decompressobj()
+    out = bytearray()
+    for start in range(0, len(chunk), 64 * 1024):
+        out.extend(obj.decompress(chunk[start:start + 64 * 1024], cap - len(out) + 1))
+        if len(out) > cap:
+            return None
+    out.extend(obj.flush())
+    return bytes(out) if len(out) <= cap else None
 
 
 def _pdf_unescape(raw: bytes) -> str:
@@ -54,6 +107,7 @@ def _pdf_unescape(raw: bytes) -> str:
 
 
 def _extract_pdf(data: bytes) -> ExtractedResult:
+    _, _, max_total, _ = _limits()
     # Page count from the page tree (`/Type /Page`, not `/Pages`), not from
     # Flate stream objects — a page's content, fonts and images are all streams,
     # so counting streams was wildly wrong (a 1-page PDF with 2 font streams
@@ -61,17 +115,31 @@ def _extract_pdf(data: bytes) -> ExtractedResult:
     pages = max(len(re.findall(rb"/Type\s*/Page\b(?!s)", data)), 1)
 
     texts: list[str] = []
-    for m in _FLATE_RE.finditer(data):
+    consumed = 0
+    for m in _FLTE_RE.finditer(data):
         header, start = m.group(1), m.end()
         end = data.find(b"endstream", start)
         if end < 0:
             continue
         chunk = data[start:end].rstrip(b"\r\n")
         if b"/FlateDecode" in header:
-            try:
-                chunk = zlib.decompress(chunk)
-            except Exception:
-                continue
+            remaining = max_total - consumed
+            if remaining <= 0:
+                # Budget spent. A PDF with more decompressed content than the
+                # cap allows is refused rather than truncated into a silently
+                # incomplete extraction that would then be indexed as if complete.
+                raise ExtractError(
+                    "DOC_ARCHIVE_TOO_LARGE",
+                    f"PDF content exceeds the {max_total} byte extraction budget",
+                    {"maxBytes": max_total})
+            inflated = _bounded_inflate(chunk, remaining)
+            if inflated is None:
+                raise ExtractError(
+                    "DOC_ARCHIVE_TOO_LARGE",
+                    f"PDF content exceeds the {max_total} byte extraction budget",
+                    {"maxBytes": max_total, "reason": "stream expansion"})
+            chunk = inflated
+            consumed += len(chunk)
         page_runs: list[str] = []
         for tj in _TJ_RE.finditer(chunk):
             for s in _STR_RE.findall(tj.group(0)):
@@ -89,61 +157,132 @@ def _extract_pdf(data: bytes) -> ExtractedResult:
     return ExtractedResult(text=text, pages=pages, scanned=not text.strip(), kind="pdf")
 
 
-def _zip_xml_text(data: bytes, parts: list[str]) -> str:
+class _BudgetedArchive:
+    """A ZIP opened under an entry-count, per-entry and total-size budget.
+
+    The limits are checked against the central directory *before* any member is
+    decompressed, so a bomb is refused without ever being expanded. The running
+    total is then maintained as members are read, which is the only check that
+    survives a directory that lies about its own sizes.
+    """
+
+    def __init__(self, source: bytes):
+        import io
+
+        max_entries, max_entry, max_total, max_ratio = _limits()
+        self._max_entry = max_entry
+        self._max_total = max_total
+        self._max_ratio = max_ratio
+        self._consumed = 0
+        try:
+            self._zf = zipfile.ZipFile(io.BytesIO(source))
+        except Exception as exc:
+            raise ExtractError("DOC_ZIP_INVALID", "Not a valid ZIP container") from exc
+
+        infos = self._zf.infolist()
+        if len(infos) > max_entries:
+            raise ExtractError(
+                "DOC_ARCHIVE_TOO_MANY_ENTRIES",
+                f"Archive has {len(infos)} entries, limit is {max_entries}",
+                {"entries": len(infos), "maxEntries": max_entries})
+        self._names = {info.filename for info in infos}
+
+        for info in infos:
+            # `file_size` is the declared uncompressed size. A member that claims
+            # more than the per-entry cap, or that expands by an implausible ratio
+            # for its compressed size, is refused unread.
+            if info.file_size > max_entry:
+                raise ExtractError(
+                    "DOC_ARCHIVE_ENTRY_TOO_LARGE",
+                    f"Archive entry {info.filename!r} declares {info.file_size} bytes, "
+                    f"limit is {max_entry}",
+                    {"entry": info.filename, "declaredBytes": info.file_size,
+                     "maxEntryBytes": max_entry})
+            if info.compress_size > 0 and info.file_size / info.compress_size > max_ratio:
+                raise ExtractError(
+                    "DOC_ARCHIVE_SUSPICIOUS_RATIO",
+                    f"Archive entry {info.filename!r} expands "
+                    f"{info.file_size / info.compress_size:.0f}x, limit is {max_ratio}x",
+                    {"entry": info.filename, "ratio": round(info.file_size / info.compress_size, 1),
+                     "maxRatio": max_ratio})
+
+    @property
+    def names(self) -> set[str]:
+        return self._names
+
+    def read(self, name: str) -> bytes:
+        raw = self._zf.read(name)
+        self._consumed += len(raw)
+        if self._consumed > self._max_total:
+            raise ExtractError(
+                "DOC_ARCHIVE_TOO_LARGE",
+                f"Archive content exceeds the {self._max_total} byte extraction budget",
+                {"maxBytes": self._max_total})
+        return raw
+
+
+def _parse_xml(raw: bytes) -> ET.Element | None:
+    """Parse without resolving external entities.
+
+    `xml.etree` does not honour internal entity declarations or fetch external
+    ones, so classic XXE and billion-laughs are inert — but that is a property of
+    the stdlib, not a control we wrote. An explicit parser makes the intent part
+    of the code, and is what a reviewer should be able to verify rather than
+    infer. `defusedxml` is used when it is installed; the stdlib path remains
+    available and is documented as such.
+    """
     try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
-    except Exception as exc:
-        raise ExtractError("DOC_ZIP_INVALID", "Not a valid ZIP container") from exc
+        import defusedxml.ElementTree as DET  # type: ignore[import-not-found]
+
+        return DET.fromstring(raw)
+    except ImportError:
+        pass
+    except Exception:
+        return None
+    try:
+        return ET.fromstring(raw)
+    except Exception:
+        return None
+
+
+def _xml_text(raw: bytes) -> str:
+    root = _parse_xml(raw)
+    if root is None:
+        return ""
     out: list[str] = []
-    for part in parts:
-        try:
-            raw = zf.read(part)
-        except KeyError:
-            continue
-        try:
-            root = ET.fromstring(raw)
-        except Exception:
-            continue
-        for el in root.iter():
-            tag = el.tag.split("}")[-1]
-            if tag in {"t", "v", "inlineStr"} and el.text:
-                out.append(el.text.strip())
+    for el in root.iter():
+        tag = el.tag.split("}")[-1]
+        if tag in _TEXT_TAGS and el.text:
+            out.append(el.text.strip())
     return "\n".join(t for t in out if t)
 
 
+def _zip_xml_text(data: bytes, parts: list[str]) -> str:
+    archive = _BudgetedArchive(data)
+    chunks: list[str] = []
+    for part in parts:
+        if part not in archive.names:
+            continue
+        chunks.append(_xml_text(archive.read(part)))
+    return "\n".join(c for c in chunks if c)
+
+
+#: The most sheets any workbook is allowed to have before extraction gives up.
+#: Derived from the entry budget so the two cannot drift apart.
 def _xlsx_text(data: bytes) -> str:
     """All sheets, not just sheet1: workbooks with data in later sheets used to
-    silently lose it. Shared strings are resolved per cell where possible."""
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
-    except Exception as exc:
-        raise ExtractError("DOC_ZIP_INVALID", "Not a valid XLSX container") from exc
-    names = zf.namelist()
-    shared: list[str] = []
-    if "xl/sharedStrings.xml" in names:
-        try:
-            root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
-            for el in root.iter():
-                if el.tag.endswith("}t") and el.text:
-                    shared.append(el.text)
-        except Exception:
-            pass
-    sheet_names = sorted(n for n in names if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
-    out: list[str] = []
+    silently lose it."""
+    archive = _BudgetedArchive(data)
+    chunks: list[str] = []
+    shared = _xml_text(archive.read("xl/sharedStrings.xml")) if "xl/sharedStrings.xml" in archive.names else ""
+    sheet_names = sorted(n for n in archive.names
+                         if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
     for sheet in sheet_names:
-        try:
-            root = ET.fromstring(zf.read(sheet))
-        except Exception:
-            continue
-        for el in root.iter():
-            tag = el.tag.split("}")[-1]
-            if tag == "v" and el.text:
-                out.append(el.text.strip())
-            elif tag == "t" and el.text:
-                out.append(el.text.strip())
-    if not out and shared:
-        out = shared
-    return "\n".join(t for t in out if t)
+        chunks.append(_xml_text(archive.read(sheet)))
+    text = "\n".join(c for c in chunks if c)
+    if not text and shared:
+        text = shared
+    return text
 
 
 def extract(filename: str, data: bytes) -> ExtractedResult:

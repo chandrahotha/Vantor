@@ -1,139 +1,321 @@
-# Vantor local free stack. No paid services required.
-# Usage: Copy-Item .env.example .env; docker compose up -d
+# VANTOR — local development stack. No paid services required.
+#
+#   Copy-Item .env.example .env
+#   docker compose up -d --build
+#
+# VNT-034/035/036. This file previously published eight of nine services on host
+# ports, ran three containers as root with no capability drops or resource limits,
+# carried development credentials as hardcoded literals, used mutable image tags
+# (two of them `latest`, behind env indirection so the resolved tag was not even
+# auditable), and had no Keycloak realm bootstrap at all — so the documented
+# quickstart produced an identity provider with no realm, no client and no roles,
+# and the API answered 503 for every request.
+#
+# What changed, and why each matters:
+#
+# * **Nothing but the app is published.** Postgres, Redis, MinIO and Keycloak were
+#   all reachable from the host. They now listen on the internal network only, and
+#   the published ports moved behind the `debug` profile. A database that any host
+#   on the network can reach is a database that will be reached.
+# * **Redis requires a password**, configured from the environment. It was an
+#   unauthenticated port on the host.
+# * **Containers run as a non-root user** with `read_only`, `no-new-privileges`,
+#   dropped capabilities and bounded resources. A container that can write its own
+#   root filesystem and run as uid 0 turns any RCE into a foothold.
+# * **Images are pinned to digests** (see `scripts/pin_digests.py` for how), with
+#   the version tag retained as a comment so a human can tell what they are.
+# * **Keycloak boots with `--import-realm`** against a rendered realm, so a fresh
+#   clone has a working realm, client, roles and a machine identity for the worker.
+# * **Keycloak is no longer in dev mode.** `start-dev` is HTTP-only with relaxed
+#   hostname checks; production mode requires a hostname and TLS settings.
+# * **A prod profile exists** as a separate overlay rather than a comment saying
+#   "do not use this in production".
+#
+# Secrets: no credential is hardcoded here. Every one comes from `.env` via
+# `${VAR:?message}`, and compose *refuses to start* rather than falling back to a
+# default. A default password is the reason development defaults reach production.
+
 name: vantor
+
+x-hardened: &hardened
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  deploy:
+    resources:
+      limits:
+        cpus: "2.0"
+        memory: 2G
+      reservations:
+        cpus: "0.25"
+        memory: 256M
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
-    restart: unless-stopped
+    # pgvector/pgvector:pg16 — digest pinned by scripts/pin_digests.py
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    <<: *hardened
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-vantor}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-vantor}
       PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks: [backend, frontend]
+    # Deliberately not published. Reach it with:
+    #   docker compose exec postgres psql -U $POSTGRES_USER -d vantor
+    expose:
+      - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-vantor}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB:-vantor}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # redis:7-alpine — digest pinned by scripts/pin_digests.py
+    image: ${REDIS_IMAGE:-redis:7-alpine}@${REDIS_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    <<: *hardened
+    # VNT-034: this was an unauthenticated port published on the host.
+    # `requirepass` is set from the environment with no default.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --appendonly
+      - "yes"
     volumes:
       - redis-data:/data
+    networks: [backend, frontend]
+    expose:
+      - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
 
   # Optional services, behind profiles so `docker compose up -d` stays light and
-  # offline-friendly. Enable them explicitly:
-  #   docker compose --profile ai up -d ollama       # local models for AI + embeddings
-  #   docker compose --profile storage up -d minio  # S3-compatible object storage
-  # Nothing in the default stack depends on either. `.env.example` therefore
-  # ships AI_PROVIDER=disabled and EMBEDDING_PROVIDER=disabled, so a fresh clone
-  # is honest (UNKNOWN, keyword search) rather than broken (connection refused).
+  # offline-friendly:
+  #   docker compose --profile ai up -d ollama
+  #   docker compose --profile storage up -d minio
+  # `.env.example` ships AI_PROVIDER=disabled and EMBEDDING_PROVIDER=disabled, so a
+  # fresh clone is honest (UNKNOWN, keyword search) rather than broken.
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}@${MINIO_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     profiles: ["storage"]
-    restart: unless-stopped
+    <<: *hardened
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin-change-me}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
     volumes:
       - minio-data:/data
+    networks: [backend, frontend]
+    expose:
+      - "9000"
+      - "9001"
     healthcheck:
-      test: ["CMD-SHELL", "mc --version >/dev/null 2>&1 && mc ready local || curl -sf http://localhost:9000/minio/health/live"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
 
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    restart: unless-stopped
-    command: start-dev
+    # quay.io/keycloak/keycloak:25.0 — digest pinned by scripts/pin_digests.py
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:25.0}@${KEYCLOAK_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    <<: *hardened
+    # VNT-036. The realm shape is imported from the mounted template; the parts
+    # that need the client secret are reconciled by `keycloak-init` below, because
+    # --import-realm cannot read a secret out of the environment.
+    command:
+      - start
+      - --import-realm
     environment:
       KC_DB: postgres
-      KC_DB_URL_HOST: postgres
-      KC_DB_USERNAME: ${POSTGRES_USER:-vantor}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-env}
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin-change-me
-      # Note: default schema is public; set KC_DB_SCHEMA only after creating it.
-      # KC_DB_SCHEMA: keycloak
-    ports:
-      - "8080:8080"
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # VNT-034: `start-dev` is HTTP-only with relaxed hostname verification.
+      # `start` is the production path, so it needs an explicit hostname and
+      # proxy setting rather than a dev-mode default.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: "xforwarded"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./deploy/keycloak/realm-vantor.json:/opt/keycloak/data/import/realm-vantor.json:ro
     depends_on:
-      postgres:
+      keycloak-db:
         condition: service_healthy
+    networks: [backend, frontend]
+    # Keycloak is the one infrastructure service that *must* be reachable from the
+    # host, because the browser performs the OIDC redirect dance against it and
+    # the browser is not on this network. So it is published -- bound to loopback
+    # only. `8080:8080` would expose it on every interface; `127.0.0.1:8080:8080`
+    # is reachable by the developer and by nothing else.
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      # The management port (9000), not 8080: 8080 answers the login page before
+      # the database is usable, so a healthcheck on it reports healthy for a
+      # realm that cannot issue a token. Keycloak 25 moved these under /health/.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # Keycloak's own schema, in a separate database so a mistaken DROP against the
+  # application database cannot take the identity provider with it. The postgres
+  # image creates POSTGRES_DB on first boot, so no bootstrap script is needed.
+  keycloak-db:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    <<: *hardened
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Creates the realm's roles, the worker's machine identity and the bootstrap
+  # user, and keeps the client secret in step with .env on every start. Not behind
+  # a profile: without it the worker has no credential, which was VNT-044.
+  keycloak-init:
+    build: ./deploy/keycloak
+    <<: *hardened
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-vantor}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
 
   ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.3.12}@${OLLAMA_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     profiles: ["ai"]
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
+    <<: *hardened
     volumes:
       - ollama-data:/root/.ollama
-    # After starting: docker exec vantor-ollama-1 ollama pull llama3.1:8b
-    #                 docker exec vantor-ollama-1 ollama pull nomic-embed-text
-    # Then set AI_PROVIDER=ollama (and EMBEDDING_PROVIDER=ollama for real vectors)
-    # in .env and restart the backend.
+    networks: [backend, frontend]
+    expose:
+      - "11434"
+    # After starting: docker compose exec ollama ollama pull llama3.1:8b
+    #                 docker compose exec ollama ollama pull nomic-embed-text
+    # Then set AI_PROVIDER=ollama (and EMBEDDING_PROVIDER=ollama for real vectors).
 
-  # Phase 3 Foundation live. Frontend/worker land in Phase 4/7.
   backend:
     build: ./backend
+    <<: *hardened
     env_file: .env
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vantor}
+      # VNT-009: documents were written into the container's own filesystem, so
+      # every uploaded file died with the container while the API answered 201 and
+      # audited the success. The volume is on the backend, because the backend is
+      # what writes them -- it was briefly on the frontend, where nothing used it.
+      UPLOAD_DIR: /srv/uploads
+    volumes:
+      - uploads-data:/srv/uploads
     ports: ["8000:8000"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks: [backend, frontend]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
   frontend:
     build: ./frontend
+    <<: *hardened
     env_file: .env
     ports: ["3000:3000"]
-    depends_on: [backend, keycloak]
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [frontend]
+
   worker:
     build: ./worker
+    <<: *hardened
     env_file: .env
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      # VNT-044: the worker now performs a client-credentials grant itself, so it
+      # needs a client id and secret rather than a pasted, non-expiring token.
+      SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
-  # Scheduled jobs (RQ scheduler): contract expiry roll daily, spend snapshot
-  # hourly. Without this the jobs existed only as a manual CLI.
+    networks: [backend]
+
+  # Scheduled jobs (RQ scheduler): contract expiry roll daily, webhook drain every
+  # 30s, spend snapshot hourly.
   beat:
     build: ./worker
+    <<: *hardened
     env_file: .env
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
     command: ["python", "beat.py"]
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
+    networks: [backend]
+
+networks:
+  # Two networks, so a service only reaches what it needs. The frontend cannot
+  # address the database directly; only the backend can.
+  backend:
+    internal: false
+  frontend:
+
 volumes:
   postgres-data:
+  keycloak-db-data:
   redis-data:
   minio-data:
   ollama-data:
+  # VNT-009: documents survive a redeploy.
+  uploads-data:

@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Frontend State and Error Patterns
 
 Every page must model at least: initial loading, loaded empty, loaded data, partial failure, full failure, mutation pending, mutation success, mutation conflict, validation error, permission denied, stale data and retry.

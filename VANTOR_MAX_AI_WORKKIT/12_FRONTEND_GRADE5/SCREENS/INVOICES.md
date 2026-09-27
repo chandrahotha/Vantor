@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Invoices Screen Specification
 
 Dedicated invoice workspace: received, match result, exceptions, cumulative quantities, prior invoices, tax/currency details, approval state, payment state, evidence, audit.

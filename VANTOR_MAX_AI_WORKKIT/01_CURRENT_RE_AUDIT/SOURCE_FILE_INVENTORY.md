@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Complete Source File Inventory
 
 The full source inventory below is derived from the uploaded archive. No defect is inferred merely from a file being listed. The coding agent must inspect all relevant files before modifying them.

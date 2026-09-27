@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Canonical Service Rule
 
 When two code paths enforce the same rule, one must become canonical. VNT-001 and VNT-013 demonstrate the danger of keeping `matching.py` and `purchase.py` as independently evolving matchers.

@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Autonomous Build Phase Index
 
 - **Phase 00: BASELINE** — Re-read repo; verify baseline/tests; create issue map; no feature changes.

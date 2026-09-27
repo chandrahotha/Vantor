@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Rfqs Screen Specification
 
 RFQ workbench: creation stepper, requirements matrix, supplier invitations, quote completeness, comparison matrix, evaluation record, award wizard, split allocation, savings baseline and audit.

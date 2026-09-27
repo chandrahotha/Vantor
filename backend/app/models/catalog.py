@@ -10,12 +10,16 @@ Over-budget => 422 with the numbers (never silent squeeze).
 
 ContractSignature: sign-off records. Internal method = authenticated user click
 (actor + timestamp + hash of contract snapshot). External e-sign providers plug
-in via the integrations adapter interface (integrations.itype=email/notify or a
-dedicated esign adapter); the record stores provider + envelope id for audit.
+in via the integrations adapter interface; the record stores provider + envelope
+id, and VNT-023 added the state that makes the claim checkable: an e-sign row
+is `pending` until a provider callback or status poll confirms it, and the
+database refuses an e-sign row that is `signed` without a `verified_at`.
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin
@@ -50,6 +54,22 @@ class Budget(Base, TenantMixin):
 
 
 class ContractSignature(Base, TenantMixin):
+    """A sign-off record. VNT-023: this had no state at all.
+
+    An e-signature row recorded a caller-supplied `provider` and `envelope_id`
+    and nothing else, so the API returned 201 and wrote a hash-chained, audited
+    "signed" record for a claim nobody had verified. There was no way to record
+    the provider's answer, which means there was no way to check it.
+
+    `status` is therefore the point of the row: `pending` when an envelope is
+    dispatched, `signed` only once the provider has confirmed (by inbound
+    callback or by an outbound status poll), and `declined`/`voided` for the
+    other terminal answers. A signature may only be created `pending` for
+    `esign`; `internal` is an authenticated click and is `signed` immediately.
+    `verified_at` and `provider_payload` record when and how it was confirmed,
+    so the audit trail answers "on whose word" as well as "when".
+    """
+
     __tablename__ = "contract_signatures"
 
     contract_id: Mapped[str] = mapped_column(String(36), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False, index=True)
@@ -58,5 +78,41 @@ class ContractSignature(Base, TenantMixin):
     provider: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     envelope_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     snapshot_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The provider's own response, verbatim. Kept so a dispute can be settled
+    # against what the provider actually said rather than against our summary.
+    provider_payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
-    __table_args__ = (Index("ix_sig_tenant_contract", "tenant_id", "contract_id"),)
+    __table_args__ = (
+        Index("ix_sig_tenant_contract", "tenant_id", "contract_id"),
+        # One open envelope per provider: re-dispatching the same envelope would
+        # create a second pending claim for one document.
+        #
+        # This is a *partial* index, restricted to e-sign rows, and it has to be.
+        # `provider` and `envelope_id` are NOT NULL with a `""` default, so every
+        # internal signature carries the literal pair ('', ''). A plain unique
+        # constraint over (tenant_id, provider, envelope_id) therefore collides on
+        # the *second* internal signature in a tenant — a contract signed by its
+        # drafter and then by legal would be rejected by the database for no
+        # reason a reader of the schema could predict. Internal signatures are
+        # legitimately repeatable (one row per signer); envelope uniqueness is
+        # only a meaningful claim for rows that actually have an envelope.
+        Index(
+            "uq_sig_tenant_provider_envelope",
+            "tenant_id",
+            "provider",
+            "envelope_id",
+            unique=True,
+            postgresql_where=text("method = 'esign'"),
+            sqlite_where=text("method = 'esign'"),
+        ),
+        CheckConstraint("method in ('internal','esign')", name="ck_signature_method"),
+        CheckConstraint("status in ('pending','signed','declined','voided')", name="ck_signature_status"),
+        CheckConstraint(
+            # An e-sign row is only `signed` if the provider confirmed it, and an
+            # internal row is `signed` the moment it is written. This is the
+            # database refusing to hold a claim nobody verified.
+            "method = 'internal' or status <> 'signed' or verified_at IS NOT NULL",
+            name="ck_signature_esign_verified"),
+    )

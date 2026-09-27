@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
+
 # Region Matrix
 
 | Region | Locale | Currency | Timezone | Tax | Address | Language/RTL | Data residency | Feature flags |

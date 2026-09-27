@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Admin Settings Screen Specification
 
 Add role/permission, approval policy, region/currency/timezone, notification and security settings surfaces.

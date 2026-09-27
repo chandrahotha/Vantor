@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Requisitions Screen Specification
 
 Requester work queue: drafts, submitted, pending approval, rejected, ordered. Creation form shows approval impact before submit.

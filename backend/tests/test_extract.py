@@ -56,6 +56,175 @@ def test_chunk_windows():
         chunk_text("hello world", size=50, overlap=50)
 
 
+# --- VNT-011: archive bombs ---------------------------------------------------
+
+
+def _zip_with(entries: dict[str, bytes], *, compresslevel: int = 9) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=compresslevel) as z:
+        for name, payload in entries.items():
+            z.writestr(name, payload)
+    return buf.getvalue()
+
+
+def test_archive_with_too_many_entries_is_refused(monkeypatch):
+    """A million-entry container is refused from the central directory, unread."""
+    from app.core.config import get_settings
+    from app.services.extract import ExtractError
+
+    monkeypatch.setenv("MAX_ARCHIVE_ENTRIES", "5")
+    get_settings.cache_clear()
+    bomb = _zip_with({f"word/part{i}.xml": b"<a/>" for i in range(50)})
+    with pytest.raises(ExtractError) as caught:
+        extract("bomb.docx", bomb)
+    assert caught.value.code == "DOC_ARCHIVE_TOO_MANY_ENTRIES"
+    assert caught.value.details["maxEntries"] == 5
+    get_settings.cache_clear()
+
+
+def test_oversized_entry_is_refused_before_it_is_decompressed(monkeypatch):
+    from app.core.config import get_settings
+    from app.services.extract import ExtractError
+
+    monkeypatch.setenv("MAX_ENTRY_BYTES", "4096")
+    get_settings.cache_clear()
+    # 200 KB of zeroes compresses to a few hundred bytes: a textbook bomb.
+    bomb = _zip_with({"word/document.xml": b"a" * 200_000})
+    assert len(bomb) < 4096, "the compressed form must be small for this to be a bomb"
+    with pytest.raises(ExtractError) as caught:
+        extract("bomb.docx", bomb)
+    assert caught.value.code in {"DOC_ARCHIVE_ENTRY_TOO_LARGE", "DOC_ARCHIVE_SUSPICIOUS_RATIO"}
+    get_settings.cache_clear()
+
+
+def test_implausible_compression_ratio_is_refused(monkeypatch):
+    """Even with plausible-looking declared sizes, a 1000x ratio is a bomb."""
+    from app.core.config import get_settings
+    from app.services.extract import ExtractError
+
+    monkeypatch.setenv("MAX_COMPRESSION_RATIO", "50")
+    get_settings.cache_clear()
+    bomb = _zip_with({"word/document.xml": b"\0" * 500_000})
+    with pytest.raises(ExtractError) as caught:
+        extract("bomb.docx", bomb)
+    assert caught.value.code == "DOC_ARCHIVE_SUSPICIOUS_RATIO"
+    get_settings.cache_clear()
+
+
+def test_a_lying_uncompressed_size_cannot_exceed_the_declared_cap(monkeypatch):
+    """The per-entry check and the read must trust the *same* field.
+
+    Every limit in `_BudgetedArchive` is derived from `ZipInfo.file_size`, and
+    `ZipFile.read()` is expected to stop at that same number. If either side
+    instead drained the real stream, the check would be decorative — an attacker
+    would declare a 1 KB member and expand 48 MiB.
+
+    This is the assumption the whole design rests on, so it is asserted rather
+    than trusted: a standard library change that made `read()` honour the real
+    stream would turn every limit here into a comment.
+    """
+    import io
+    import struct
+    import zipfile
+
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MAX_ENTRY_BYTES", "4096")
+    get_settings.cache_clear()
+
+    # An honest archive of 48 MiB of zeroes: ~48 KiB on the wire.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        zf.writestr("word/document.xml", b"\0" * (48 * 1024 * 1024))
+    blob = buf.getvalue()
+    # deflate tops out near 1032:1, so 48 MiB of zeroes is ~48 KiB on the wire:
+    # small enough to be a bomb, which is the whole point.
+    assert len(blob) < 64 * 1024, f"expected a small archive, got {len(blob)} bytes"
+    assert len(blob) * 100 < 48 * 1024 * 1024, "the compression must be implausible"
+
+    # Now rewrite the uncompressed-size field in both the local header and the
+    # central directory, so the archive claims to be tiny.
+    patched = bytearray(blob)
+    local = patched.find(b"PK\x03\x04")
+    central = patched.find(b"PK\x01\x02")
+    struct.pack_into("<I", patched, local + 22, 1024)
+    struct.pack_into("<I", patched, central + 24, 1024)
+    lying = bytes(patched)
+
+    with zipfile.ZipFile(io.BytesIO(lying)) as zf:
+        assert zf.getinfo("word/document.xml").file_size == 1024
+        try:
+            data = zf.read("word/document.xml")
+        except zipfile.BadZipFile:
+            # CPython stops at the declared size and then fails the CRC check.
+            # Failing closed is the acceptable outcome: nothing is returned.
+            data = b""
+        assert len(data) <= 1024, (
+            f"read() returned {len(data)} bytes for a member declaring 1024; "
+            "the per-entry cap can be lied past")
+
+    get_settings.cache_clear()
+
+
+def test_cumulative_budget_is_enforced_across_many_valid_members(monkeypatch):
+    """The backstop for a directory that lies: every member individually passes,
+    and the total does not.
+
+    Uses a workbook, because the sheet loop is the one that iterates *every*
+    matching entry — a DOCX reads a single named part, so it could not exercise
+    a cumulative budget at all.
+    """
+    from app.core.config import get_settings
+    from app.services.extract import ExtractError
+
+    monkeypatch.setenv("MAX_ENTRY_BYTES", str(64 * 1024))
+    monkeypatch.setenv("MAX_COMPRESSION_RATIO", "100000")
+    monkeypatch.setenv("MAX_ARCHIVE_BYTES", str(200 * 1024))
+    monkeypatch.setenv("MAX_ARCHIVE_ENTRIES", "1000")
+    get_settings.cache_clear()
+    # A repeating byte ramp: 51 KB per sheet, each under the per-entry cap.
+    payload = bytes(range(256)) * 200
+    bomb = _zip_with({f"xl/worksheets/sheet{i}.xml": payload for i in range(20)})
+    with pytest.raises(ExtractError) as caught:
+        extract("bomb.xlsx", bomb)
+    assert caught.value.code == "DOC_ARCHIVE_TOO_LARGE"
+    get_settings.cache_clear()
+
+
+def test_pdf_flate_bomb_is_refused(monkeypatch):
+    """The PDF path expanded a Flate stream with no output bound at all."""
+    import zlib
+
+    from app.core.config import get_settings
+    from app.services.extract import ExtractError
+
+    monkeypatch.setenv("MAX_ARCHIVE_BYTES", str(64 * 1024))
+    get_settings.cache_clear()
+    payload = zlib.compress(b"BT (aaaa bbbb cccc dddd) Tj ET " * 20_000, 9)
+    pdf = (b"%PDF-1.4\n1 0 obj\n<< /Filter /FlateDecode >>\nstream\n"
+           + payload + b"\nendstream\nendobj\ntrailer\n<<>>\n")
+    assert len(pdf) < 200 * 1024, "the compressed PDF must be small"
+    with pytest.raises(ExtractError) as caught:
+        extract("bomb.pdf", pdf)
+    assert caught.value.code == "DOC_ARCHIVE_TOO_LARGE"
+    get_settings.cache_clear()
+
+
+def test_limits_come_from_settings_not_hardcoded(monkeypatch):
+    """A generous limit must let a large-but-legitimate document through."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MAX_ENTRY_BYTES", str(8 * 1024 * 1024))
+    monkeypatch.setenv("MAX_ARCHIVE_BYTES", str(64 * 1024 * 1024))
+    monkeypatch.setenv("MAX_COMPRESSION_RATIO", "10000")
+    get_settings.cache_clear()
+    big = b"word text " * 20_000  # ~200 KB of real content
+    out = extract("big.docx", _zip_with({"word/document.xml":
+                                         b'<w:document xmlns:w="x"><w:t>' + big + b"</w:t></w:document>"}))
+    assert "word text" in out.text
+    get_settings.cache_clear()
+
+
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_ENV", "test")

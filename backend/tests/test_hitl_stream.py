@@ -126,13 +126,18 @@ def test_stream_framing_disabled(client):
     assert "text/event-stream" in r.headers["content-type"]
     assert "[EVIDENCE]" in r.text
     assert "UNKNOWN" in r.text
+    # VNT-014: the disabled path is a refusal frame, not an answer frame. It is
+    # emitted before any token because a stream cannot un-send what it has already
+    # written to the client, so the decision has to come first.
+    assert "AI_NO_EVIDENCE" in r.text
+    assert '"grounded": false' in r.text or '"grounded":false' in r.text
     # The disabled path is one complete frame, flagged as not live-streamed so a
     # client cannot mistake it for token streaming.
     assert '"streamed": false' in r.text or '"streamed":false' in r.text
-    # And the completion is audited: an unpinned session is rejected by the
+    # And the refusal is audited: an unpinned session is rejected by the
     # audit_events RLS policy on Postgres, which used to drop the write silently.
-    feed = c.get("/api/v1/audit-events?action=AI_COMPLETED", headers=_h(pem)).json()["data"]
-    assert any(e["action"] == "AI_COMPLETED" for e in feed)
+    feed = c.get("/api/v1/audit-events?action=AI_REFUSED", headers=_h(pem)).json()["data"]
+    assert any(e["action"] == "AI_REFUSED" for e in feed), feed
 
 
 def test_stream_framing_live_provider(monkeypatch, client):
@@ -149,12 +154,20 @@ def test_stream_framing_live_provider(monkeypatch, client):
     monkeypatch.setattr("app.services.ai_gateway.stream", fake_stream)
     monkeypatch.setattr("app.services.ai_gateway.complete", lambda **kw: {"answer": ""})  # not reached
 
-    r = c.post("/api/v1/ai/stream", json={"prompt": "Hello", "provider": "ollama"}, headers=_h(pem))
+    # A tool is supplied so the turn is groundable: since VNT-014 an ungrounded
+    # stream is refused before its first token, which would make this test pass
+    # without ever exercising the delta framing it is about.
+    c.post("/api/v1/suppliers", json={"code": "SUP-ST", "name": "Stream Co"}, headers=_h(pem))
+    r = c.post("/api/v1/ai/stream", json={"prompt": "Hello", "provider": "ollama",
+                                          "tools": [{"name": "search_suppliers",
+                                                     "args": {"q": "Stream Co", "limit": 5}}]},
+               headers=_h(pem))
     assert r.status_code == 200
     frames = [json_mod.loads(l[5:]) for l in r.text.split("\n\n") if l.startswith("data: ") and not l.startswith("data: [EVIDENCE]")]
     assert "".join(f["delta"] for f in frames) == "hello suppliers"
     assert all(f["streamed"] for f in frames)
     assert "[EVIDENCE]" in r.text
+    assert "AI_NO_EVIDENCE" not in r.text
 
 
 def test_stream_provider_error_is_explicit(monkeypatch, client):

@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](../../../docs/BRAIN.md) · [Docs index](../../../docs/README.md)
+
 # Suppliers Screen Specification
 
 Supplier list with saved filters, risk/status chips, score, spend, certification expiry, onboarding status, bulk actions. Supplier detail becomes a 360 workspace with overview, commercial, qualification, certs, documents, scorecards, risk, activity.

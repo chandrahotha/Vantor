@@ -31,6 +31,53 @@ from ..services.purchase import APPROVER_ROLES, PurchaseError, check_sod, decide
 router = APIRouter(tags=["purchase"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer", "Finance Reviewer", "Approver"}
 
+#: The purchase-order lifecycle, in one place. VNT-018: `PO_STATUSES` listed
+#: seven states and nothing enforced the edges — three of them (`invoiced`,
+#: `closed`, `cancelled`) had no writer at all, so they were unreachable in
+#: practice while the workkit's PURCHASE_ORDER.md described transitions between
+#: them. Every command below now reads its allowed successors from here, and the
+#: DB CHECK constraint renders the same domain, so the model, the API and the
+#: schema cannot disagree about what a PO may be.
+PO_FLOW: dict[str, set[str]] = {
+    "draft": {"approved", "cancelled"},
+    "approved": {"sent", "cancelled"},
+    "sent": {"received", "cancelled"},
+    "received": {"invoiced", "cancelled"},
+    "invoiced": {"closed"},
+    "closed": set(),
+    "cancelled": set(),
+}
+
+#: Invoice lifecycle. `matched` is the state a clean three-way match parks an
+#: invoice in before payment is authorised; it is a real transition, not a
+#: bookkeeping label, so the audit trail can distinguish "failed the match" from
+#: "matched but not yet approved".
+INVOICE_FLOW: dict[str, set[str]] = {
+    "received": {"matched", "approved", "rejected"},
+    "matched": {"approved", "rejected"},
+    "approved": {"paid", "rejected"},
+    "paid": set(),
+    "rejected": {"received"},  # re-submitted after correction
+}
+
+
+def _check_invoice_transition(old: str, new: str) -> None:
+    """Refuse an invoice transition the declared lifecycle does not allow.
+
+    This was a decoration. `INVOICE_FLOW` and `INVOICE_STATUSES` were checked by
+    a test that only compared the two against each other, and the status CHECK
+    constraint listed `matched`, so all three agreed that `matched` existed — but
+    no code path ever read `INVOICE_FLOW`, and `matched` had no writer. A test
+    that compares a declaration with another declaration proves the declarations
+    agree, not that anything obeys them.
+    """
+    if new not in INVOICE_FLOW.get(old, set()):
+        allowed = sorted(INVOICE_FLOW.get(old, set())) or ["(terminal)"]
+        raise HTTPException(status_code=422, detail={
+            "code": "INVOICE_TRANSITION_INVALID",
+            "message": f"An invoice in {old!r} cannot move to {new!r}",
+            "details": {"from": old, "to": new, "allowed": allowed}})
+
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:
     yield from get_db(actor.tenant_id)
@@ -40,6 +87,24 @@ def _write(actor: Actor) -> None:
     # Fail-closed: empty/missing roles can never write.
     if not set(actor.roles or ()) & WRITE_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for purchase write")
+
+
+def _decide(actor: Actor) -> None:
+    """Authority to *decide* a financial control — narrower than write.
+
+    VNT-002 / VNT-003. The direct `approve` routes used to be guarded by
+    `WRITE_ROLES`, which contains `Buyer`. A buyer could therefore approve a PO
+    or an invoice while being refused `GET /approvals` and
+    `POST /approvals/{id}/decide`, because those require `APPROVER_ROLES`, which
+    does not. Two live implementations of one policy, the wider one on the money
+    path. Approval authority is now a distinct capability, checked in exactly
+    one place, on every route that moves money forward.
+    """
+    if not set(actor.roles or ()) & APPROVER_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail={"code": "APPROVAL_ROLE",
+                                    "message": "An approver role is required to decide a financial control. "
+                                               "Write access is not approval authority."})
 
 
 class ReqLineIn(BaseModel):
@@ -197,6 +262,18 @@ def create_po(payload: PoIn, request: Request, actor: Actor = Depends(get_actor)
                                  description=ln.description.strip(), quantity=ln.quantity, unit_price_minor=ln.unit_price_minor, line_total_minor=ln.unit_price_minor * ln.quantity))
     for t in required_tiers(total):
         db.add(Approval(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, resource="purchase_order", resource_id=po.id, status="requested", tier=t))
+    # VNT-018: `ordered` was a dead requisition state. A requisition that had
+    # been approved and answered by a real PO now actually reaches the state the
+    # workkit's REQUISITION.md describes, which is also what makes "approved but
+    # never ordered" a reportable condition rather than an invisible one.
+    if requisition_id:
+        req = db.execute(select(Requisition).where(
+            Requisition.tenant_id == actor.tenant_id, Requisition.id == requisition_id).with_for_update()).scalar_one_or_none()
+        if req is not None and req.status == "approved":
+            req.status = "ordered"
+            record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="REQUISITION_ORDERED",
+                         resource="requisition", resource_id=req.id, after={"poId": po.id},
+                         source="api", created_by=actor.sub)
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_CREATED", resource="purchase_order", resource_id=po.id, after={"total_minor": total}, source="api", created_by=actor.sub)
     db.commit()
     db.refresh(po)
@@ -325,8 +402,11 @@ def _sync_parent(db: Session, tenant_id: str, approval: Approval) -> str:
 
 @router.post("/purchase-orders/{pid}/approve", status_code=200)
 def approve_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _write(actor)
-    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid)).scalar_one_or_none()
+    _decide(actor)
+    # Lock the PO for the whole decision. The budget gate below reads a SUM and
+    # this route flips an approval, so two concurrent approvers would both
+    # clear the same tier against the same stale read.
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid).with_for_update()).scalar_one_or_none()
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
     if po.status != "draft":
@@ -366,7 +446,9 @@ def approve_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db
 @router.post("/purchase-orders/{pid}/send", status_code=200)
 def send_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
-    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid)).scalar_one_or_none()
+    if "sent" not in PO_FLOW.get("approved", set()):  # pragma: no cover - guards the table itself
+        raise HTTPException(status_code=500, detail="PO_FLOW is missing approved->sent")
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid).with_for_update()).scalar_one_or_none()
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
     if po.status != "approved":
@@ -376,22 +458,36 @@ def send_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: S
                             kind="commitment", po_id=pid, supplier_id=po.supplier_id,
                             currency=po.currency, amount_minor=po.total_minor))
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_SENT", resource="purchase_order", resource_id=pid, source="api", created_by=actor.sub)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # uq_spend_tenant_kind_po_inv. A second concurrent send of the same PO
+        # cannot double-post the commitment; the database refuses it and we say
+        # so, instead of a bare 500 from the global handler.
+        db.rollback()
+        raise HTTPException(status_code=409,
+                            detail={"code": "LEDGER_ALREADY_POSTED",
+                                    "message": "This purchase order is already posted to the spend ledger"}) from exc
     return envelope({"id": pid, "status": "sent"}, None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/purchase-orders/{pid}/receipts", status_code=201)
 def receive(pid: str, payload: ReceiptIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
     _write(actor)
-    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid)).scalar_one_or_none()
+    # VNT-005. The over-receipt guard is a read of every prior receipt followed
+    # by a write, so without a lock two concurrent deliveries both read
+    # `prior = 0`, both pass `0 + 10 <= 10`, and the PO ends up with 20 units
+    # received against 10 ordered — which then makes every invoice against it
+    # pass a cumulative check it should fail. Same lock the invoice path takes,
+    # so receipts and approvals serialise against each other per PO.
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid).with_for_update()).scalar_one_or_none()
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
     if po.status not in {"sent", "received"}:
         raise HTTPException(status_code=422, detail="PO must be sent before receiving")
     po_line_ids = {l.id: l for l in db.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == pid)).scalars()}
-    # Cumulative received per PO line (all prior receipts) — over-receipt is 422.
-    # One grouped query for the whole PO; this used to issue a query per prior
-    # receipt, so a PO with many deliveries cost O(receipts) round trips.
+    # Validate every line before inserting anything, so a bad line cannot leave a
+    # half-written receipt behind a 422.
     prior: dict[str, int] = {}
     receipt_ids = [r for r in db.execute(select(Receipt.id).where(Receipt.tenant_id == actor.tenant_id, Receipt.po_id == pid)).scalars()]
     if receipt_ids:
@@ -399,21 +495,172 @@ def receive(pid: str, payload: ReceiptIn, request: Request, actor: Actor = Depen
                 select(ReceiptLine.po_line_id, func.coalesce(func.sum(ReceiptLine.quantity), 0))
                 .where(ReceiptLine.tenant_id == actor.tenant_id, ReceiptLine.receipt_id.in_(receipt_ids))
                 .group_by(ReceiptLine.po_line_id)).all():
-            prior[line_id] = int(qty)
-    r = Receipt(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, po_id=pid, received_by=actor.sub, notes=payload.notes)
-    db.add(r)
-    db.flush()
+            prior[str(line_id)] = int(qty)
+    seen: dict[str, int] = {}
     for ln in payload.lines:
         pl = po_line_ids.get(ln.po_line_id)
         if pl is None:
             raise HTTPException(status_code=422, detail="Receipt line references unknown PO line")
-        if prior.get(ln.po_line_id, 0) + ln.quantity > pl.quantity:
+        seen[ln.po_line_id] = seen.get(ln.po_line_id, 0) + ln.quantity
+        if prior.get(ln.po_line_id, 0) + seen[ln.po_line_id] > pl.quantity:
             raise HTTPException(status_code=422, detail=f"Over-receipt on PO line {pl.line_no}: ordered {pl.quantity}, already received {prior.get(ln.po_line_id, 0)}")
+    r = Receipt(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, po_id=pid, received_by=actor.sub, notes=payload.notes)
+    db.add(r)
+    db.flush()
+    for ln in payload.lines:
         db.add(ReceiptLine(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub, receipt_id=r.id, po_line_id=ln.po_line_id, quantity=ln.quantity))
     po.status = "received"
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_RECEIVED", resource="purchase_order", resource_id=pid, source="api", created_by=actor.sub)
     db.commit()
     return envelope({"id": r.id}, None, getattr(request.state, "request_id", ""))
+
+
+class CancelIn(BaseModel):
+    reason: str = Field(min_length=2, max_length=500)
+
+
+@router.post("/purchase-orders/{pid}/cancel", status_code=200)
+def cancel_po(pid: str, payload: CancelIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Cancel a PO that has not yet been invoiced.
+
+    VNT-018. `cancelled` was in `PO_STATUSES` with no writer, so a PO that had to
+    be abandoned stayed `draft`/`sent` forever and kept its budget reservation
+    and approval queue alive. Cancelling releases the approval queue and refuses
+    if any invoice is already approved, because reversing a posted `actual` is a
+    finance action, not a status write.
+    """
+    _write(actor)
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid).with_for_update()).scalar_one_or_none()
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if po.status not in PO_FLOW.get(po.status, set()):
+        raise HTTPException(status_code=422, detail={"code": "PO_TRANSITION_INVALID",
+                                                     "message": f"A {po.status} purchase order cannot be cancelled",
+                                                     "details": {"allowed": sorted(PO_FLOW.get(po.status, set()))}})
+    if db.execute(select(func.count(Invoice.id)).where(
+            Invoice.tenant_id == actor.tenant_id, Invoice.po_id == pid,
+            Invoice.status.in_(("approved", "paid")))).scalar_one():
+        raise HTTPException(status_code=409, detail={"code": "PO_HAS_POSTED_ACTUALS",
+                                                     "message": "This PO has approved invoices. Reverse the spend ledger before cancelling it."})
+    po.status = "cancelled"
+    for a in db.execute(select(Approval).where(
+            Approval.tenant_id == actor.tenant_id, Approval.resource == "purchase_order",
+            Approval.resource_id == pid, Approval.status == "requested")).scalars():
+        a.status = "rejected"
+        a.decided_by, a.reason, a.updated_by = actor.sub, payload.reason.strip(), actor.sub
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_CANCELLED", resource="purchase_order",
+                 resource_id=pid, reason=payload.reason.strip(), source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": pid, "status": "cancelled"}, None, getattr(request.state, "request_id", ""))
+
+
+@router.post("/purchase-orders/{pid}/close", status_code=200)
+def close_po(pid: str, payload: CancelIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Close a fully-invoiced PO. VNT-018: `closed` had no writer."""
+    _write(actor)
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid).with_for_update()).scalar_one_or_none()
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    if po.status not in PO_FLOW.get(po.status, set()):
+        raise HTTPException(status_code=422, detail={"code": "PO_TRANSITION_INVALID",
+                                                     "message": f"A {po.status} purchase order cannot be closed",
+                                                     "details": {"allowed": sorted(PO_FLOW.get(po.status, set()))}})
+    po.status = "closed"
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_CLOSED", resource="purchase_order",
+                 resource_id=pid, reason=payload.reason.strip(), source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": pid, "status": "closed"}, None, getattr(request.state, "request_id", ""))
+
+
+@router.post("/invoices/{iid}/match", status_code=200)
+def match_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Run the three-way match and park the invoice in `matched`.
+
+    `matched` was in `INVOICE_STATUSES`, in `INVOICE_FLOW` and in the database
+    CHECK constraint, and had no writer at all: approval went straight from
+    `received` to `approved`, performing the match inside the same request. Three
+    declarations agreed that the state existed, and nothing could put an invoice
+    in it, so an auditor asking "was this matched before it was approved, and by
+    whom" had no answer — the audit event recorded the match at approval time,
+    attributed to the approver rather than to the matcher.
+
+    This makes the state real and separates the two decisions: matching is a
+    control, approval is a separate one, and a mismatch is recorded as a failure
+    to match rather than as a rejection. The match is re-run on approval, so
+    parking an invoice here never lets stale quantities through.
+    """
+    _decide(actor)
+    inv = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == iid).with_for_update()).scalar_one_or_none()
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if inv.status != "received":
+        raise HTTPException(status_code=422, detail="Only received invoices can be matched")
+    _check_invoice_transition(inv.status, "matched")
+    try:
+        check_sod(inv.created_by, actor.sub)
+        detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=inv.po_id, invoice_id=iid)
+    except PurchaseError as exc:
+        code = 403 if exc.code == "APPROVAL_SOD" else 422
+        raise HTTPException(status_code=code, detail={"code": exc.code, "message": exc.message,
+                                                      "details": exc.details}) from exc
+    inv.status = "matched"
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_MATCHED", resource="invoice",
+                 resource_id=iid, after={"matched": detail}, source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": iid, "status": "matched", "matched": detail}, None,
+                    getattr(request.state, "request_id", ""))
+
+
+@router.post("/invoices/{iid}/reject", status_code=200)
+def reject_invoice(iid: str, payload: CancelIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Reject an invoice, with a written reason, before it is approved.
+
+    VNT-018. `rejected` was in `INVOICE_STATUSES` with no writer, so a match
+    failure was terminal and unrecorded: the supplier was never told why, and the
+    PO line's received quantity stayed consumed by an invoice nobody could clear.
+    Rejecting releases the received quantity, so the same goods can be re-billed
+    correctly — which is the whole point of the cumulative check.
+    """
+    _decide(actor)
+    inv = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == iid).with_for_update()).scalar_one_or_none()
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if inv.status not in ("received", "matched"):
+        raise HTTPException(status_code=422, detail="Only received or matched invoices can be rejected")
+    _check_invoice_transition(inv.status, "rejected")
+    try:
+        check_sod(inv.created_by, actor.sub)
+    except PurchaseError as exc:
+        raise HTTPException(status_code=403, detail=exc.message) from exc
+    inv.status = "rejected"
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_REJECTED", resource="invoice",
+                 resource_id=iid, reason=payload.reason.strip(), source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": iid, "status": "rejected"}, None, getattr(request.state, "request_id", ""))
+
+
+@router.post("/invoices/{iid}/pay", status_code=200)
+def pay_invoice(iid: str, payload: CancelIn, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    """Record payment. VNT-018: `paid` was a dead state — nothing could settle.
+
+    The ledger already carries the liability as an `actual` at approval time, so
+    this records settlement *of* that row rather than moving money again. The
+    reference is kept because AP reconciliation needs the payment instrument,
+    not because the number moves again.
+    """
+    _decide(actor)
+    inv = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == iid).with_for_update()).scalar_one_or_none()
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if inv.status != "approved":
+        raise HTTPException(status_code=422, detail="Only approved invoices can be paid")
+    _check_invoice_transition(inv.status, "paid")
+    inv.status = "paid"
+    record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_PAID", resource="invoice",
+                 resource_id=iid, reason=payload.reason.strip(), after={"reference": payload.reason.strip()},
+                 source="api", created_by=actor.sub)
+    db.commit()
+    return envelope({"id": iid, "status": "paid"}, None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/purchase-orders/{pid}/invoices", status_code=201)
@@ -454,14 +701,18 @@ def create_invoice(pid: str, payload: InvIn, request: Request, actor: Actor = De
 
 @router.post("/invoices/{iid}/approve", status_code=200)
 def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
-    _write(actor)
+    _decide(actor)
     inv = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == iid)).scalar_one_or_none()
     if inv is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    if inv.status != "received":
-        raise HTTPException(status_code=422, detail="Only received invoices can be approved")
+    if inv.status not in ("received", "matched"):
+        raise HTTPException(status_code=422, detail="Only received or matched invoices can be approved")
+    _check_invoice_transition(inv.status, "approved")
     try:
         check_sod(inv.created_by, actor.sub)
+        # `three_way_match` locks the PO row and reads every other approved
+        # invoice on it, so the cumulative quantity check below is atomic
+        # against a concurrent approval of a second invoice for the same PO.
         detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=inv.po_id, invoice_id=iid)
     except PurchaseError as exc:
         code = 403 if exc.code == "APPROVAL_SOD" else 422
@@ -470,14 +721,64 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
     db.add(SpendTransaction(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                             kind="actual", po_id=inv.po_id, invoice_id=iid, supplier_id=inv.supplier_id,
                             currency=inv.currency, amount_minor=inv.total_minor))
+    # The PO is `invoiced` only once the goods are fully billed. Determined
+    # inside the same locked transaction as the match, so a second invoice on the
+    # same PO cannot also claim the PO. VNT-018: this state had no writer at all,
+    # so the dashboard's "awaiting payment" filter matched nothing ever.
+    _mark_po_invoiced(db, actor, inv.po_id, iid)
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_APPROVED", resource="invoice",
                  resource_id=iid, after={"matched": detail}, source="api", created_by=actor.sub)
     from ..services.notify import notify as _notify2
 
     _notify2(db, tenant_id=actor.tenant_id, kind="INVOICE_APPROVED", title=f"Invoice {inv.code} approved (3-way matched)",
              link="/orders", user_sub=inv.created_by, created_by=actor.sub)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # uq_spend_tenant_kind_po_inv: another approval of this same invoice
+        # committed first. The ledger refuses the second write; say so plainly
+        # rather than surfacing a 500.
+        db.rollback()
+        raise HTTPException(status_code=409,
+                            detail={"code": "LEDGER_ALREADY_POSTED",
+                                    "message": "This invoice is already posted to the spend ledger"}) from exc
     return envelope({"id": iid, "status": "approved", "matched": detail}, None, getattr(request.state, "request_id", ""))
+
+
+def _mark_po_invoiced(db: Session, actor: Actor, po_id: str, invoice_id: str) -> bool:
+    """Advance the PO to `invoiced` once every ordered unit is approved-billed.
+
+    Returns whether it moved. Cumulative *approved* quantity is compared against
+    ordered quantity, mirroring the match that just passed, so a partially
+    invoiced PO correctly stays `received`.
+    """
+    from sqlalchemy import func as _f
+
+    po = db.execute(select(PurchaseOrder).where(
+        PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == po_id)).scalar_one_or_none()
+    if po is None or po.status != "received":
+        return False
+    ordered = {l.id: l.quantity for l in db.execute(select(PurchaseOrderLine).where(
+        PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == po_id)).scalars()}
+    if not ordered:
+        return False
+    billed: dict[str, int] = {}
+    approved_ids = list(db.execute(select(Invoice.id).where(
+        Invoice.tenant_id == actor.tenant_id, Invoice.po_id == po_id,
+        Invoice.status.in_(("approved", "paid")))).scalars())
+    if approved_ids:
+        for line_id, qty in db.execute(
+                select(InvoiceLine.po_line_id, _f.coalesce(_f.sum(InvoiceLine.quantity), 0))
+                .where(InvoiceLine.tenant_id == actor.tenant_id, InvoiceLine.invoice_id.in_(approved_ids))
+                .group_by(InvoiceLine.po_line_id)).all():
+            billed[str(line_id)] = int(qty)
+    if all(billed.get(line_id, 0) >= qty for line_id, qty in ordered.items()):
+        po.status = "invoiced"
+        record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="PO_INVOICED",
+                     resource="purchase_order", resource_id=po_id,
+                     after={"invoiceId": invoice_id}, source="api", created_by=actor.sub)
+        return True
+    return False
 
 
 @router.get("/purchase-orders")
