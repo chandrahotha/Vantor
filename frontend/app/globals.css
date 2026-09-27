@@ -447,3 +447,555 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   .skel { animation: none; }
 }
 .authscreen-mark-img { border-radius: 18px; box-shadow: 0 16px 48px rgba(34,211,238,.35); margin-bottom: 28px; }
+
+/* =========================================================================
+   UI THEMING LAYER — multi-palette design tokens
+   -------------------------------------------------------------------------
+   Additive. Nothing above this line was modified. Everything below only takes
+   effect under `[data-palette]`, so the stylesheet behaves exactly as before if
+   the attribute is absent.
+
+   Two layers, in order:
+
+   1. **Definition** — each palette declares the full token set for its light
+      and dark variant under `[data-palette="<key>"]` and
+      `[data-palette="<key>"][data-theme="dark"]`.
+   2. **Bridge** — the new tokens are mapped onto the token names the existing
+      stylesheet already consumes (`--bg`, `--ink`, `--line`, `--primary`, …).
+
+   The bridge is the whole trick. Because every existing rule already reads from
+   those names, re-pointing the names re-themes the entire application —
+   sidebar, grids, badges, command palette, copilot, negosim, spend cube —
+   without a single component or class being edited. That is what makes this
+   additive rather than a rewrite.
+
+   The two-attribute selector `[data-palette][data-theme="dark"]` has higher
+   specificity than the single-attribute `[data-theme="dark"]` block above, so
+   palette dark values win regardless of source order. A `.dark` class alias is
+   also honoured for parity with class-based dark mode.
+   ========================================================================= */
+
+/* ---------- shared semantics ---------------------------------------------
+   Procurement meaning must not move when the palette changes, so these are
+   defined ONCE and never overridden per palette. A "rejected" badge is the same
+   red in every tenant's UI; that is the point.
+   Colour is never the only signal: every status also carries its label. */
+:root {
+  --chart-1: #2563eb;
+  --chart-2: #6c47ff;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --chart-6: #14b8a6;
+  --chart-7: #8b5cf6;
+  --chart-8: #ec4899;
+  --chart-grid: #e3e8f2;
+
+  --status-draft: #64748b;
+  --status-in-review: #2563eb;
+  --status-pending: #b45309;
+  --status-approved: #047857;
+  --status-rejected: #b91c1c;
+  --status-sealed: #6d28d9;
+  --status-expired: #475569;
+  --status-at-risk: #c2410c;
+  --status-non-compliant: #b91c1c;
+}
+/* Dark variants of the same nine meanings, tuned for dark surfaces. Still
+   identical across all five palettes — consistency is per mode, not per theme. */
+[data-theme="dark"], .dark {
+  --chart-1: #60a5fa;
+  --chart-2: #a78bfa;
+  --chart-3: #34d399;
+  --chart-4: #fbbf24;
+  --chart-5: #f87171;
+  --chart-6: #2dd4bf;
+  --chart-7: #c4b5fd;
+  --chart-8: #f9a8d4;
+  --chart-grid: #1e2a40;
+
+  --status-draft: #94a3b8;
+  --status-in-review: #60a5fa;
+  --status-pending: #fbbf24;
+  --status-approved: #34d399;
+  --status-rejected: #fca5a5;
+  --status-sealed: #c4b5fd;
+  --status-expired: #94a3b8;
+  --status-at-risk: #fb923c;
+  --status-non-compliant: #fca5a5;
+}
+
+/* ---------- palette 1: Vantor Graphite (default) ------------------------ */
+[data-palette="graphite"] {
+  --bg-base: #f6f7f9;
+  --bg-elevated: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-sunken: #edeff3;
+  --primary: #1f2937;
+  --primary-hover: #111827;
+  --primary-soft: #e5e7eb;
+  --primary-fg: #ffffff;
+  --accent: #6c47ff;
+  --accent-ui: #6c47ff;
+  --accent-hover: #5b36ee;
+  --text-primary: #0b0f17;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --divider: #f3f4f6;
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #1d4ed8;
+  --neutral: #4b5563;
+  --shadow-sm: 0 1px 2px rgba(11, 15, 23, 0.06), 0 1px 3px rgba(11, 15, 23, 0.08);
+  --shadow-md: 0 1px 2px rgba(11, 15, 23, 0.06), 0 4px 12px rgba(11, 15, 23, 0.09);
+  --shadow-lg: 0 4px 24px rgba(11, 15, 23, 0.13), 0 1px 4px rgba(11, 15, 23, 0.08);
+  --focus-ring: #1f2937;
+  --side-bg: #111827;
+  --side-ink: #cbd5e1;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.08);
+}
+[data-palette="graphite"][data-theme="dark"], [data-palette="graphite"].dark {
+  --bg-base: #0b0f17;
+  --bg-elevated: #111827;
+  --bg-surface: #161e2e;
+  --bg-sunken: #05070a;
+  --primary: #e5e7eb;
+  --primary-hover: #f9fafb;
+  --primary-soft: rgba(229, 231, 235, 0.1);
+  --primary-fg: #0b0f17;
+  --accent: #8b6cff;
+  --accent-ui: #8b6cff;
+  --accent-hover: #a78bfa;
+  --text-primary: #f3f4f6;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-inverse: #0b0f17;
+  --border: rgba(148, 163, 184, 0.18);
+  --border-strong: rgba(148, 163, 184, 0.32);
+  --divider: rgba(148, 163, 184, 0.09);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fca5a5;
+  --info: #93c5fd;
+  --neutral: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
+  --focus-ring: #e5e7eb;
+  --side-bg: #05070a;
+  --side-ink: #94a3b8;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.07);
+}
+
+/* ---------- palette 2: Sourcing Emerald --------------------------------- */
+[data-palette="emerald"] {
+  --bg-base: #f5faf7;
+  --bg-elevated: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-sunken: #eaf4ee;
+  --primary: #065f46;
+  --primary-hover: #047857;
+  --primary-soft: #d1fae5;
+  --primary-fg: #ffffff;
+  --accent: #0d9488;
+  --accent-ui: #0d9488;
+  --accent-hover: #0f766e;
+  --text-primary: #0b1f1a;
+  --text-secondary: #3f4b5b;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+  --border: #d1e7dd;
+  --border-strong: #a7d8c4;
+  --divider: #ecfdf5;
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #0e7490;
+  --neutral: #475569;
+  --shadow-sm: 0 1px 2px rgba(6, 95, 70, 0.06), 0 1px 3px rgba(6, 95, 70, 0.07);
+  --shadow-md: 0 1px 2px rgba(6, 95, 70, 0.06), 0 4px 12px rgba(6, 95, 70, 0.09);
+  --shadow-lg: 0 4px 24px rgba(6, 95, 70, 0.12), 0 1px 4px rgba(6, 95, 70, 0.07);
+  --focus-ring: #065f46;
+  --side-bg: #04291d;
+  --side-ink: #a7f3d0;
+  --side-ink-strong: #ecfdf5;
+  --side-line: rgba(167, 243, 208, 0.12);
+}
+[data-palette="emerald"][data-theme="dark"], [data-palette="emerald"].dark {
+  --bg-base: #06120d;
+  --bg-elevated: #0b1f16;
+  --bg-surface: #0f2a1e;
+  --bg-sunken: #030a07;
+  --primary: #34d399;
+  --primary-hover: #6ee7b7;
+  --primary-soft: rgba(16, 185, 129, 0.15);
+  --primary-fg: #06120d;
+  --accent: #2dd4bf;
+  --accent-ui: #2dd4bf;
+  --accent-hover: #5eead4;
+  --text-primary: #ecfdf5;
+  --text-secondary: #bbf7d0;
+  --text-muted: #86bfa4;
+  --text-inverse: #06120d;
+  --border: rgba(16, 185, 129, 0.2);
+  --border-strong: rgba(16, 185, 129, 0.36);
+  --divider: rgba(16, 185, 129, 0.1);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fca5a5;
+  --info: #67e8f9;
+  --neutral: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
+  --focus-ring: #34d399;
+  --side-bg: #030a07;
+  --side-ink: #6ee7b7;
+  --side-ink-strong: #ecfdf5;
+  --side-line: rgba(16, 185, 129, 0.14);
+}
+
+/* ---------- palette 3: Contract Sapphire -------------------------------- */
+[data-palette="sapphire"] {
+  --bg-base: #f4f7fc;
+  --bg-elevated: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-sunken: #e8eef8;
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-soft: #dbeafe;
+  --primary-fg: #ffffff;
+  --accent: #0ea5e9;
+  /* Sky-500 is 2.77:1 on white — under AA for a UI boundary. The palette's own
+     hover step is 4.10:1, so the small-mark colour is that rather than an
+     invented hue. `--accent` still paints the large gradient fills, where the
+     3:1 non-text threshold does not apply. */
+  --accent-ui: #0284c7;
+  --accent-hover: #0284c7;
+  --text-primary: #0b1b33;
+  --text-secondary: #3f4b5b;
+  /* #64748b is 4.43:1 on this palette's #f4f7fc page background — just under
+     AA. Column headers and hint text are small, so they get the full 4.5:1. */
+  --text-muted: #5b6b82;
+  --text-inverse: #ffffff;
+  --border: #dbe4f5;
+  --border-strong: #bfdbfe;
+  --divider: #eff6ff;
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #1d4ed8;
+  --neutral: #475569;
+  --shadow-sm: 0 1px 2px rgba(29, 78, 216, 0.06), 0 1px 3px rgba(29, 78, 216, 0.07);
+  --shadow-md: 0 1px 2px rgba(29, 78, 216, 0.06), 0 4px 12px rgba(29, 78, 216, 0.09);
+  --shadow-lg: 0 4px 24px rgba(29, 78, 216, 0.12), 0 1px 4px rgba(29, 78, 216, 0.07);
+  --focus-ring: #1d4ed8;
+  --side-bg: #0a1a3a;
+  --side-ink: #bfdbfe;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(191, 219, 254, 0.12);
+}
+[data-palette="sapphire"][data-theme="dark"], [data-palette="sapphire"].dark {
+  --bg-base: #0a1224;
+  --bg-elevated: #0f1a33;
+  --bg-surface: #13224a;
+  --bg-sunken: #060c1a;
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
+  --primary-soft: rgba(96, 165, 250, 0.15);
+  --primary-fg: #0a1224;
+  --accent: #38bdf8;
+  --accent-ui: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --text-primary: #f0f6ff;
+  --text-secondary: #c7d6ee;
+  --text-muted: #93a4c4;
+  --text-inverse: #0a1224;
+  --border: rgba(148, 163, 184, 0.2);
+  --border-strong: rgba(148, 163, 184, 0.36);
+  --divider: rgba(148, 163, 184, 0.1);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fca5a5;
+  --info: #7dd3fc;
+  --neutral: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
+  --focus-ring: #60a5fa;
+  --side-bg: #060c1a;
+  --side-ink: #93c5fd;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(96, 165, 250, 0.16);
+}
+
+/* ---------- palette 4: Spend Amber -------------------------------------- */
+[data-palette="amber"] {
+  --bg-base: #fbf8f3;
+  --bg-elevated: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-sunken: #f5eee1;
+  --primary: #92400e;
+  --primary-hover: #78350f;
+  --primary-soft: #fef3c7;
+  --primary-fg: #ffffff;
+  --accent: #f59e0b;
+  /* Amber-500 is 2.15:1 on white — well under AA. Amber is intrinsically a
+     light hue, so no amount of tinting rescues it at this lightness; the
+     palette's own hover step (#d97706, 3.19:1) is the nearest compliant
+     colour in the same hue family. Large gradient fills keep `--accent`. */
+  --accent-ui: #d97706;
+  --accent-hover: #d97706;
+  --text-primary: #1f1300;
+  --text-secondary: #4a4a52;
+  --text-muted: #6f6a63;
+  --text-inverse: #ffffff;
+  --border: #f0e2c8;
+  --border-strong: #e0cba0;
+  --divider: #fbf3e3;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #0369a1;
+  --neutral: #57534e;
+  --shadow-sm: 0 1px 2px rgba(146, 64, 14, 0.06), 0 1px 3px rgba(146, 64, 14, 0.07);
+  --shadow-md: 0 1px 2px rgba(146, 64, 14, 0.06), 0 4px 12px rgba(146, 64, 14, 0.09);
+  --shadow-lg: 0 4px 24px rgba(146, 64, 14, 0.12), 0 1px 4px rgba(146, 64, 14, 0.07);
+  --focus-ring: #92400e;
+  --side-bg: #1c1206;
+  --side-ink: #e7d3a8;
+  --side-ink-strong: #fef3c7;
+  --side-line: rgba(231, 211, 168, 0.12);
+}
+[data-palette="amber"][data-theme="dark"], [data-palette="amber"].dark {
+  --bg-base: #14100a;
+  --bg-elevated: #1c170f;
+  --bg-surface: #241e14;
+  --bg-sunken: #0b0805;
+  --primary: #fbbf24;
+  --primary-hover: #fcd34d;
+  --primary-soft: rgba(251, 191, 36, 0.15);
+  --primary-fg: #14100a;
+  --accent: #f97316;
+  --accent-ui: #f97316;
+  --accent-hover: #fb923c;
+  --text-primary: #fef3c7;
+  --text-secondary: #dcc9a0;
+  --text-muted: #a89a7d;
+  --text-inverse: #14100a;
+  --border: rgba(217, 180, 110, 0.22);
+  --border-strong: rgba(217, 180, 110, 0.4);
+  --divider: rgba(217, 180, 110, 0.1);
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fca5a5;
+  --info: #7dd3fc;
+  --neutral: #d6d3d1;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
+  --focus-ring: #fbbf24;
+  --side-bg: #0b0805;
+  --side-ink: #dcc9a0;
+  --side-ink-strong: #fef3c7;
+  --side-line: rgba(217, 180, 110, 0.16);
+}
+
+/* ---------- palette 5: Negotiation Obsidian ----------------------------- */
+[data-palette="obsidian"] {
+  --bg-base: #ffffff;
+  --bg-elevated: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-sunken: #f1f5f9;
+  --primary: #0f172a;
+  --primary-hover: #1e293b;
+  --primary-soft: #f1f5f9;
+  --primary-fg: #ffffff;
+  --accent: #6c47ff;
+  --accent-ui: #6c47ff;
+  --accent-hover: #5b36ee;
+  --text-primary: #0a0a0a;
+  --text-secondary: #404040;
+  --text-muted: #595959;
+  --text-inverse: #ffffff;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --divider: #f5f5f5;
+  --success: #15803d;
+  --warning: #a16207;
+  --danger: #b91c1c;
+  --info: #1d4ed8;
+  --neutral: #404040;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.16), 0 1px 4px rgba(0, 0, 0, 0.1);
+  --focus-ring: #0f172a;
+  --side-bg: #000000;
+  --side-ink: #a3a3a3;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.14);
+}
+[data-palette="obsidian"][data-theme="dark"], [data-palette="obsidian"].dark {
+  --bg-base: #000000;
+  --bg-elevated: #0a0a0a;
+  --bg-surface: #141414;
+  --bg-sunken: #000000;
+  --primary: #ffffff;
+  --primary-hover: #f5f5f5;
+  --primary-soft: rgba(255, 255, 255, 0.1);
+  --primary-fg: #000000;
+  --accent: #8b6cff;
+  --accent-ui: #8b6cff;
+  --accent-hover: #a78bfa;
+  --text-primary: #fafafa;
+  --text-secondary: #b3b3b3;
+  --text-muted: #8a8a8a;
+  --text-inverse: #000000;
+  --border: #262626;
+  --border-strong: #404040;
+  --divider: #171717;
+  --success: #22c55e;
+  --warning: #eab308;
+  --danger: #f87171;
+  --info: #60a5fa;
+  --neutral: #d4d4d4;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.8);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.9);
+  --focus-ring: #ffffff;
+  --side-bg: #000000;
+  --side-ink: #a3a3a3;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------- the bridge ---------------------------------------------------
+   New token names -> the names the existing stylesheet already reads. This is
+   the only reason zero components needed editing. Placed last so it wins over
+   both `:root` and `[data-theme="dark"]` at equal specificity.
+
+   `--primary` and `--danger` are deliberately absent. The palette blocks
+   already declare those two names directly, and writing `--primary:
+   var(--primary)` here would be a self-referential declaration — a custom
+   property cycle, which CSS invalidates at computed-value time. The result is
+   not "the same colour", it is an unset value that silently inherits the
+   `:root` default, which would have left every button the old brand blue under
+   all five palettes while looking, in the stylesheet, as though it were wired
+   up correctly. */
+[data-palette] {
+  --bg: var(--bg-base);
+  --surface: var(--bg-surface);
+  --surface-2: var(--bg-sunken);
+  --surface-3: color-mix(in srgb, var(--bg-sunken) 84%, var(--border-strong));
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --muted: var(--text-muted);
+  --faint: var(--text-muted);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --primary-strong: var(--primary-hover);
+  --navy: var(--bg-sunken);
+  --navy-2: var(--bg-elevated);
+  --navy-3: color-mix(in srgb, var(--side-bg) 82%, var(--side-ink) 18%);
+  /* The sidebar's active-route bar and any accent-coloured text use the
+     AA-checked small-mark colour, not the vivid accent. */
+  --cyan: var(--accent-ui);
+  --emerald: var(--success);
+  --warn: var(--warning);
+  --elev-1: var(--shadow-sm);
+  --elev-2: var(--shadow-md);
+  --elev-3: var(--shadow-lg);
+}
+
+/* ---------- re-point the hard-coded values ------------------------------
+   The stylesheet above bakes a few brand blues in as literals (button shadow,
+   input focus halo, selection, badge.info, the auth gradient, the kbd chip).
+   Left alone they would stay blue under every palette, which is exactly the
+   "half-themed" look this layer exists to remove. These overrides are scoped to
+   `[data-palette]` and change no layout, only colour. */
+[data-palette] :focus-visible { outline-color: var(--focus-ring); }
+[data-palette] ::selection { background: color-mix(in srgb, var(--primary) 24%, transparent); }
+[data-palette] button { background: var(--primary); color: var(--primary-fg); box-shadow: var(--shadow-sm); }
+[data-palette] button:hover:not(:disabled) { background: var(--primary-hover); }
+[data-palette] button.ghost { color: var(--text-secondary); }
+[data-palette] input:focus, [data-palette] select:focus, [data-palette] textarea:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring) 20%, transparent);
+}
+[data-palette] .kbd { background: var(--bg-sunken); color: var(--text-primary); border: 1px solid var(--border); }
+[data-palette] .banner { background: color-mix(in srgb, var(--success) 10%, var(--bg-surface)); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
+[data-palette] .error { background: color-mix(in srgb, var(--danger) 10%, var(--bg-surface)); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 32%, transparent); }
+[data-palette] .badge.ok { background: color-mix(in srgb, var(--status-approved) 12%, transparent); color: var(--status-approved); border-color: color-mix(in srgb, var(--status-approved) 28%, transparent); }
+[data-palette] .badge.warn { background: color-mix(in srgb, var(--status-pending) 12%, transparent); color: var(--status-pending); border-color: color-mix(in srgb, var(--status-pending) 28%, transparent); }
+[data-palette] .badge.bad { background: color-mix(in srgb, var(--status-rejected) 12%, transparent); color: var(--status-rejected); border-color: color-mix(in srgb, var(--status-rejected) 28%, transparent); }
+[data-palette] .badge.info { background: color-mix(in srgb, var(--info) 12%, transparent); color: var(--info); border-color: color-mix(in srgb, var(--info) 28%, transparent); }
+[data-palette] .side .brand .mark,
+[data-palette] .authscreen-mark {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-palette] .authscreen-cta {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: var(--primary-fg);
+}
+[data-palette] .authscreen-cta:hover { background: linear-gradient(135deg, var(--primary-hover), var(--accent-hover)); }
+[data-palette] .authscreen { background: radial-gradient(1000px 500px at 50% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--navy); }
+[data-palette] hr.rule { border-top-color: var(--divider); }
+[data-palette] .side .section-label, [data-palette] .side .foot, [data-palette] .authscreen-kbd-note { color: var(--side-ink); opacity: 0.75; }
+
+/* ---------- evidence chips ----------------------------------------------
+   The AI copilot cites sources and shows confidence. Those must read as
+   annotation, not as a call to action: outline only, no fill, so a wall of
+   citations does not compete with the answer or the human-review gate. */
+[data-palette] .evidence-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: var(--fs-11); font-weight: 600; line-height: 1.7;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+}
+[data-palette] .evidence-chip .conf { font-family: var(--font-mono); color: var(--text-muted); }
+[data-palette] .evidence-chip[data-confidence="high"] { border-color: color-mix(in srgb, var(--status-approved) 45%, transparent); }
+[data-palette] .evidence-chip[data-confidence="medium"] { border-color: color-mix(in srgb, var(--status-pending) 45%, transparent); }
+[data-palette] .evidence-chip[data-confidence="low"] { border-color: color-mix(in srgb, var(--status-rejected) 45%, transparent); }
+
+/* ---------- procurement status tokens -----------------------------------
+   Available to any surface that renders a lifecycle state. Semantic only —
+   never a brand colour. Colour is paired with the status label by the caller. */
+[data-palette] [data-status="draft"] { color: var(--status-draft); }
+[data-palette] [data-status="in-review"] { color: var(--status-in-review); }
+[data-palette] [data-status="pending"] { color: var(--status-pending); }
+[data-palette] [data-status="approved"] { color: var(--status-approved); }
+[data-palette] [data-status="rejected"] { color: var(--status-rejected); }
+[data-palette] [data-status="sealed"] { color: var(--status-sealed); }
+[data-palette] [data-status="expired"] { color: var(--status-expired); }
+[data-palette] [data-status="at-risk"] { color: var(--status-at-risk); }
+[data-palette] [data-status="non-compliant"] { color: var(--status-non-compliant); }
+
+/* ---------- chart helpers ------------------------------------------------
+   There is no charting library in this project; charts are hand-drawn. These
+   give any series a colour in fixed order, cycling after eight, so a series
+   keeps its colour between renders. */
+[data-palette] .series-1 { color: var(--chart-1); }
+[data-palette] .series-2 { color: var(--chart-2); }
+[data-palette] .series-3 { color: var(--chart-3); }
+[data-palette] .series-4 { color: var(--chart-4); }
+[data-palette] .series-5 { color: var(--chart-5); }
+[data-palette] .series-6 { color: var(--chart-6); }
+[data-palette] .series-7 { color: var(--chart-7); }
+[data-palette] .series-8 { color: var(--chart-8); }
+[data-palette] .series-1 { fill: var(--chart-1); stroke: var(--chart-1); }
+[data-palette] .series-2 { fill: var(--chart-2); stroke: var(--chart-2); }
+[data-palette] .series-3 { fill: var(--chart-3); stroke: var(--chart-3); }
+[data-palette] .series-4 { fill: var(--chart-4); stroke: var(--chart-4); }
+[data-palette] .series-5 { fill: var(--chart-5); stroke: var(--chart-5); }
+[data-palette] .series-6 { fill: var(--chart-6); stroke: var(--chart-6); }
+[data-palette] .series-7 { fill: var(--chart-7); stroke: var(--chart-7); }
+[data-palette] .series-8 { fill: var(--chart-8); stroke: var(--chart-8); }
+[data-palette] .chart-grid { stroke: var(--chart-grid); }

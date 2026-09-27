@@ -1,11 +1,17 @@
 "use client";
 import { useEffect } from "react";
+import { hydratePalette } from "../lib/palette";
 
 /** Theme bootstrap. Reads the saved choice (or the OS preference once), sets
  *  `data-theme` on <html>, and re-renders if the OS preference changes while
- *  the user hasn't chosen explicitly. */
+ *  the user hasn't chosen explicitly.
+ *
+ *  Also adopts the saved *palette* into the palette store. The two are
+ *  independent — `data-theme` is the light/dark mode, `data-palette` is the
+ *  colour palette, and any combination of the two is valid. */
 export default function ThemeInit() {
   useEffect(() => {
+    hydratePalette();
     const saved = localStorage.getItem("vantor.theme");
     const apply = (mode: string | null) => {
       const theme = mode ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");

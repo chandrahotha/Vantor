@@ -131,7 +131,11 @@ const JSON_LD = {
 
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    // `data-palette` is server-rendered as the default so the token layer is
+    // active on the very first paint. Without it the app would paint with the
+    // un-bridged tokens and then re-paint once ThemeInit adopts the stored
+    // choice — a visible flash for every user who chose a non-default palette.
+    <html lang="en" data-palette="graphite" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body>
         <ThemeInit />
         <script

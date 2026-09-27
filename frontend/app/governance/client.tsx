@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
+import PaletteSwitcher from "../../components/PaletteSwitcher";
 import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
 import { api, newIdemKey } from "../../lib/api";
 
@@ -113,6 +114,8 @@ export default function GovernanceClient() {
           {verify && !verify.valid ? (
             <ErrorBox message={`Audit chain verification failed: ${verify.message}. Treat every derived number on this tenant as suspect until resolved.`} />
           ) : null}
+
+          <PaletteSwitcher />
 
           <h2>Categories</h2>
           <details className="panel">
