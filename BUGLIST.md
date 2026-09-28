@@ -269,6 +269,45 @@ Fixed by:
 
 `npm run lint` now exits with **0 errors and 0 warnings**.
 
+### B-28 · Port 3000 Keycloak redirect / lock out · **FIXED**
+
+When running the web app on `http://localhost:3000`, if Keycloak on port 8080 was offline or
+unauthenticated, the user was shown an error state whose only action button (`login()`)
+hard-redirected the browser window to `http://localhost:8080` (`ERR_CONNECTION_REFUSED`),
+stranding the user and preventing local review of the UI.
+
+Fixed by implementing `loginAsDemo()` in `frontend/lib/auth.ts`, session change subscription
+in `useBoot()` (`frontend/components/ui.tsx`), and a dual-path `AuthScreen` that provides
+one-click instant access to the demo workspace alongside Enterprise Keycloak SSO.
+Regression test added in `components/authboot.test.tsx` asserting both actions render and
+that `loginAsDemo()` hydrates an active session without network hops.
+
+### B-29 · UI aesthetics and component styling ("bot-made" visual feel) · **FIXED**
+
+The frontend interface previously lacked visual depth and hierarchy:
+- Metric cards lacked top accent indicators and elevation transitions.
+- Navigation items used unstyled inline text glyphs.
+- The dashboard page header displayed raw test comments rather than executive copy.
+- The auth splash was a stark, bare text column with an unstyled button.
+
+Fixed by introducing:
+- Modern glassmorphism containers (`.authscreen-card`) with backdrop blur, glowing borders, and radiant mesh.
+- Top-border gradient sheen (`.card::before`) with subtle hover-lift transitions (`transform: translateY(-2px)`).
+- Dedicated `.nav-icon` containers with balanced optical alignment.
+- Live environment indicator pills in topbar (`.topbar-live-pill`, `.topbar-demo-pill`).
+- Executive-grade copywriting on the dashboard with `.info-callout` modules.
+- User chip with workspace switcher and one-click demo sign-out.
+- All 10 palette combinations re-validated and passing contrast gates via `check_palette_layer.py`.
+
+### B-30 · Documentation accuracy and test count drift · **FIXED**
+
+`frontend/README.md` contained outdated statements claiming fonts were not shipped and shared
+UI components were unbuilt, while `README.md` reported old test counts (156 backend / 48 frontend)
+instead of the actual count (315 backend / 107 frontend).
+
+Fixed by synchronizing `frontend/README.md` and root `README.md` with the verified production
+codebase, documenting both local Demo mode (Option A) and Keycloak SSO (Option B) quickstart workflows.
+
 ---
 
 ## Environment: what could not be verified at all
@@ -296,13 +335,16 @@ Stated precisely, because the honest answer is more useful than a yes.
 - The full application is exercised by **315 passing tests** with no mocks in the auth or money
   paths — every API test mints a real RS256 JWT and verifies it through the real JWKS path.
 - The frontend **typechecks (0 errors), lints with 0 errors and 0 warnings, builds (19 routes green)**,
-  and its 106 tests pass.
+  and its **107 vitest tests pass across all 10 suites**.
 - Backend typechecking with `mypy backend/app` reports **0 errors** across all 69 source files.
 - `ruff check backend` reports **clean (all checks passed)**.
 - Every repository guard passes: migrations linear at 23, secrets, encoding, brain links (292/292),
   doc counts, palette audit.
 - Alembic migration `0022` verified on SQLite upgrade/downgrade via regression test (B-05 fixed).
 - RLS policy coverage verified structurally across all 40 tables in all 23 migrations (B-06 fixed).
+- Keycloak redirect lock-out resolved with instant Demo Workspace access (B-28 fixed).
+- UI aesthetics elevated with executive glassmorphism, card gradients, and status pills (B-29 fixed).
+- Documentation synchronized with active codebase and dual quickstart paths (B-30 fixed).
 
 **Not proved:**
 

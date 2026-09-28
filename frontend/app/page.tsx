@@ -97,8 +97,12 @@ export default function Dashboard() {
     <Shell user={session ? { name: session.name, tenant: session.tenant } : undefined}>
       <div className="pagehead">
         <div>
-          <h1>Procurement health</h1>
-          <p>Real data only — an empty panel means no activity yet, never a placeholder.</p>
+          <h1>Procurement Health & Spend Intelligence</h1>
+          <p>Live multi-currency commitments, contract renewal monitors, and active RFQ sourcing pipelines.</p>
+        </div>
+        <div className="pagehead-actions">
+          <Link href="/rfqs" className="button ghost">View RFQs</Link>
+          <Link href="/orders" className="button">Purchase Orders</Link>
         </div>
       </div>
 
@@ -140,16 +144,15 @@ export default function Dashboard() {
         />
       </div>
       {mixed ? (
-        <p style={{ color: "var(--muted)", fontSize: 12 }}>
-          {spend?.currencyCount} currencies in play — totals are shown per currency and never added together.
-        </p>
+        <div className="info-callout">
+          <span className="info-callout-icon">ℹ</span>
+          <span>{spend?.currencyCount} currencies in play — totals are tracked per currency and never summed across denominations.</span>
+        </div>
       ) : null}
-      <p style={{ color: "var(--muted)", fontSize: 12 }}>
-        “Expiring (90 days)” is calculated live from each contract&apos;s end date, in
-        the tenant&apos;s timezone. The daily expiry roll still runs — it writes the
-        status, notifies, and leaves an audit event — but the count here does not
-        wait for it.
-      </p>
+      <div className="info-callout">
+        <span className="info-callout-icon">ℹ</span>
+        <span>Contract expiry (90 days) is computed live against contract end dates in the tenant&apos;s active timezone.</span>
+      </div>
 
       <h2>What needs attention</h2>
       <DataTable caption="Items needing attention" rows={attention} rowKey={(a) => a.key} columns={attentionCols}

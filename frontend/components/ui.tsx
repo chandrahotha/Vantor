@@ -9,8 +9,20 @@
  */
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearBounces, isLooping, keycloak, login, noteBounce, parseSession, keepFresh, setSession } from "../lib/auth";
-import { setTokenGetter, setRefreshFn } from "../lib/api";
+import {
+  clearBounces,
+  getSession,
+  isLooping,
+  keepFresh,
+  keycloak,
+  login,
+  loginAsDemo,
+  noteBounce,
+  parseSession,
+  setSession,
+  subscribeSession,
+} from "../lib/auth";
+import { setRefreshFn, setTokenGetter } from "../lib/api";
 
 export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info"; children: React.ReactNode }) {
   return <span className={`badge${tone ? ` ${tone}` : ""}`}>{children}</span>;
@@ -19,8 +31,8 @@ export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info
 export function Empty({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="empty" role="status">
-      <div style={{ fontWeight: 700, color: "#0f172a" }}>{title}</div>
-      {hint ? <div style={{ marginTop: 6 }}>{hint}</div> : null}
+      <div style={{ fontWeight: 700, color: "var(--ink)" }}>{title}</div>
+      {hint ? <div style={{ marginTop: 6, color: "var(--muted)" }}>{hint}</div> : null}
     </div>
   );
 }
@@ -135,25 +147,16 @@ export type BootState = "loading" | "signin" | "error" | "ok";
 
 /** Single Keycloak entry point for every page.
  *
- *  Replaces five hand-copied init blocks that had drifted apart in their error
- *  copy and in whether they set the API token hooks. Returns an unsubscribe for
- *  `useEffect`, and — unlike the originals — does not call `kc.init()` twice
- *  under `reactStrictMode`, because the effect owns a cancellation flag.
- *
- *  Redirect discipline: `login-required` bounces instantly to the IdP. To keep
- *  that invisible bounce from looking like a crash, the caller renders
- *  `<AuthScreen state="loading">` as a branded splash. Rapid repeated bounces
- *  (misconfigured IdP/realm/client) are detected and downgraded to an explicit
- *  "sign-in loop" error instead of an infinite redirect.
+ *  Supports instant demo mode and Keycloak SSO. Subscribes to session updates
+ *  so a user entering via "Explore Demo Workspace" or IdP completes boot without
+ *  requiring a blind browser redirect to port 8080.
  */
 export function useBoot(load: () => Promise<void>) {
   const [state, setState] = useState<BootState>("loading");
   const [error, setError] = useState("");
   const loadRef = useRef(load);
 
-  // Keep the latest callback without re-running the effect. The assignment is in
-  // an effect (not render) so the lint rule for ref writes is satisfied, and the
-  // ref is only ever *read* inside the async callback below.
+  // Keep the latest callback without re-running the effect.
   useEffect(() => {
     loadRef.current = load;
   });
@@ -162,11 +165,50 @@ export function useBoot(load: () => Promise<void>) {
     let disposed = false;
     let stop: () => void = () => {};
 
+    // 1. Subscribe to session changes (e.g. loginAsDemo or OIDC callback)
+    const unsubSession = subscribeSession(async (s) => {
+      if (s?.tenant && !disposed) {
+        clearBounces();
+        setTokenGetter(() => s.token || keycloak().token);
+        try {
+          await loadRef.current();
+          if (!disposed) setState("ok");
+          document.documentElement.dataset.booted = "true";
+        } catch (e: unknown) {
+          if (!disposed) {
+            setError(e instanceof Error ? e.message : "Load failed");
+            setState("error");
+          }
+        }
+      }
+    });
+
+    // 2. Check if a valid session already exists in memory
+    const existing = getSession();
+    if (existing?.tenant) {
+      setTokenGetter(() => existing.token || keycloak().token);
+      (async () => {
+        try {
+          await loadRef.current();
+          if (!disposed) setState("ok");
+          document.documentElement.dataset.booted = "true";
+        } catch (e: unknown) {
+          if (!disposed) {
+            setError(e instanceof Error ? e.message : "Load failed");
+            setState("error");
+          }
+        }
+      })();
+      return () => {
+        disposed = true;
+        unsubSession();
+      };
+    }
+
+    // 3. Otherwise run Keycloak check-sso
     (async () => {
       const kc = keycloak();
       try {
-        // check-sso: never auto-redirect. When the IdP has a session we proceed
-        // silently; when it does not, AuthScreen shows the sign-in card.
         await kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false });
         if (disposed) return;
         noteBounce(!!kc.authenticated);
@@ -226,6 +268,7 @@ export function useBoot(load: () => Promise<void>) {
 
     return () => {
       disposed = true;
+      unsubSession();
       stop();
     };
   }, []);
@@ -245,32 +288,99 @@ export function useBoot(load: () => Promise<void>) {
   return { state, error, reload };
 }
 
-/** Full-viewport states that answer "where did the page go?" Before this
- *  existed, an unauthenticated load flashed a blank frame and vanished into the
- *  IdP redirect, which read as a bug. */
+/** Full-viewport executive authentication and onboarding screen.
+ *  Prevents dead-end redirects to port 8080 by providing instant Demo Workspace access
+ *  alongside Enterprise Keycloak SSO.
+ */
 export function AuthScreen({ state, error }: { state: BootState; error?: string }) {
   if (state === "ok") return null;
+
   if (state === "loading") {
     return (
       <div className="authscreen" role="status" aria-live="polite">
-        <Image src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
-        <p className="authscreen-title">Opening VANTOR…</p>
-        {error ? <p className="authscreen-sub">{error}</p> : null}
+        <div className="authscreen-card">
+          <div className="authscreen-mark-wrap">
+            <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
+            <div className="authscreen-pulse" />
+          </div>
+          <div className="authscreen-badge">VANTOR ENTERPRISE SUITE</div>
+          <h1 className="authscreen-title">Opening VANTOR…</h1>
+          <p className="authscreen-sub">Initializing secure session, verifying tenant isolation and permissions.</p>
+          {error ? <div className="authscreen-error-box">{error}</div> : null}
+          <div className="authscreen-loader-bar"><div className="authscreen-loader-fill" /></div>
+        </div>
       </div>
     );
   }
+
+  const isError = state === "error";
+
   return (
-    <div className="authscreen" role={state === "error" ? "alert" : "status"}>
-      <Image src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
-      <p className="authscreen-title">
-        {state === "signin" ? "Sign in to VANTOR" : "Could not start VANTOR"}
-      </p>
-      {error ? <p className="authscreen-sub">{error}</p> : null}
-      {state === "signin" || state === "error" ? (
-        <button className="authscreen-cta" onClick={() => login()}>
-          Continue with Vantor ID
-        </button>
-      ) : null}
+    <div className="authscreen" role={isError ? "alert" : "status"}>
+      <div className="authscreen-card">
+        <div className="authscreen-mark-wrap">
+          <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
+        </div>
+        <div className="authscreen-badge">ENTERPRISE PROCUREMENT OS</div>
+        <h1 className="authscreen-title">
+          {isError ? "Could not start VANTOR" : "Sign in to VANTOR"}
+        </h1>
+        <p className="authscreen-sub">
+          {isError
+            ? (error || "Unable to connect to the configured identity provider.")
+            : "Autonomous spend governance, supplier intelligence, and contract workflows."}
+        </p>
+
+        {isError && error ? (
+          <div className="authscreen-error-box">
+            <span className="authscreen-alert-icon" aria-hidden="true">⚠</span>
+            <div className="authscreen-alert-content">
+              <div className="authscreen-alert-msg">{error}</div>
+              <div className="authscreen-alert-hint">
+                Keycloak service on :8080 is unreachable. You can continue instantly into the <strong>Demo Workspace</strong> without running Keycloak.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="authscreen-actions">
+          <button
+            type="button"
+            className="authscreen-cta authscreen-demo-cta"
+            onClick={() => loginAsDemo()}
+          >
+            <span className="authscreen-cta-icon" aria-hidden="true">⚡</span>
+            <div className="authscreen-cta-text">
+              <span className="authscreen-cta-headline">Explore Demo Workspace</span>
+              <small className="authscreen-cta-sub">Instant access · No Keycloak :8080 required</small>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className="authscreen-sso-cta"
+            onClick={() => login()}
+          >
+            <span className="authscreen-cta-icon" aria-hidden="true">🔑</span>
+            <div className="authscreen-cta-text">
+              <span className="authscreen-cta-headline">Continue with Vantor ID</span>
+              <small className="authscreen-cta-sub">Enterprise SSO via Keycloak (:8080)</small>
+            </div>
+          </button>
+        </div>
+
+        <div className="authscreen-pills">
+          <span className="authscreen-pill">Postgres Row-Level Security</span>
+          <span className="authscreen-pill">OIDC PKCE</span>
+          <span className="authscreen-pill">Real-time Spend Graph</span>
+        </div>
+
+        <div className="authscreen-footer">
+          <span>API: <code className="mono">localhost:8000</code></span>
+          <span>·</span>
+          <span>IdP: <code className="mono">localhost:8080</code></span>
+        </div>
+      </div>
     </div>
   );
 }

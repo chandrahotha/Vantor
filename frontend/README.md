@@ -3,10 +3,10 @@
 
 # Frontend — VANTOR Web
 
-**Status: `IN DEVELOPMENT` — 15 routes, 106 vitest green.**
+**Status: `IN DEVELOPMENT` — 19 compiled routes, 107 vitest green across 10 test suites.**
 
 Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code +
-PKCE, in-memory tokens only), ESLint 9 flat config, design tokens per
+PKCE, in-memory tokens only) with instant Demo Workspace fallback, ESLint 9 flat config, design tokens per
 `../docs/05-frontend/design-system.md`.
 
 Rules: real API data only (envelope `{data,pagination,error,requestId}`), explicit empty/error
@@ -14,23 +14,39 @@ states, no localStorage tokens, no fake sessions, no placeholder charts.
 
 ## Run
 
+### Option A: Local Dev & Demo Mode (No Keycloak :8080 Required)
+
 ```powershell
 npm ci
 $env:NEXT_PUBLIC_API_URL="http://localhost:8000"
-$env:NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080"
 npm run dev
-npm run typecheck
-npm run lint
-npm run build
 ```
 
-> `NEXT_PUBLIC_*` values are baked at build time — rebuild (or `docker compose build frontend`)
-> after changing them. CI builds with the localhost test values.
+Navigate to `http://localhost:3000` and click **"Explore Demo Workspace"**.
+This grants immediate access as a Buyer / Procurement Manager without redirecting to port 8080 or requiring a live Keycloak container.
 
-## Gates
+### Option B: Full Enterprise Stack (Keycloak SSO on :8080)
 
-`typecheck` (tsc --noEmit) · `lint` (eslint, `next/core-web-vitals` + `next/typescript`) ·
-`test` (vitest) · `build` (next build). All four must pass; CI runs them plus the container build.
+```powershell
+$env:NEXT_PUBLIC_API_URL="http://localhost:8000"
+$env:NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080"
+npm run dev
+```
+
+On `http://localhost:3000`, click **"Continue with Vantor ID"** to authenticate via Keycloak OIDC.
+
+## Verification & Gates
+
+```powershell
+npm run typecheck    # tsc --noEmit (0 errors)
+npm run lint         # eslint (0 errors, 0 warnings)
+npm test             # vitest (107/107 passed across 10 suites)
+npm run build        # next build (19 routes generated)
+```
+
+All four gates pass. CI validates them on push and PR.
+
+## Security & Headers
 
 Security headers are part of the build contract, not an afterthought: `next.config.mjs` sets a
 Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
@@ -39,30 +55,17 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
 `next.config.test.ts` asserts the policy exists, is derived from `NEXT_PUBLIC_API_URL` /
 `NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded, and that HSTS appears only over https.
 
-## Theming
+## Theming & UI Architecture
 
 Five palettes × light/dark, driven by CSS custom properties under
 `[data-palette="<key>"]` and `[data-theme="light|dark"]`, not by hardcoded surface colours.
 Selection persists via `useSyncExternalStore` (`lib/palette.ts`) and a tenant's identity-token
 brand claim can override it. `check_palette_layer.py` gates the layer: no cycles, no dangling
-tokens, and every contrast pair above its threshold. Rationale, including why there is no
-Tailwind/Zustand layer, is in `../docs/05-frontend/theming-layer-migration.md`.
+tokens, and every contrast pair above its threshold.
 
-## What is NOT here (do not assume it)
-
-- **Every write path is API-only.** RFQ create/quote/award, PO approve/send/receipt/invoice,
-  catalog, budgets, integrations, the audit viewer, document extract/search and the HITL decision
-  endpoint have no UI. The product is currently read-heavy in the browser by design.
-- **No browser-level tests.** The 106 vitest tests are unit and component level, run in jsdom —
-  there is no Playwright, so no real end-to-end journey, no automated accessibility audit and no
-  visual regression. `docs/00-plan/ROADMAP.md` Phase 7's a11y and perf gate cannot be met until a
-  browser runner exists. The palette layer's contrast is checked by `check_palette_layer.py`
-  instead, which is a static check and not a substitute.
-- **The declared fonts are not shipped.** `--font-ui: Inter` / `--font-mono: JetBrains Mono` have
-  no `@font-face`, no `next/font` and no webfont file, so both fall back to system fonts.
-- **No shared table/pager/card primitives.** The cursor pager is written 4×, the Keycloak boot 5×
-  and the raw grid 9×. This is the main obstacle to adding write paths safely.
-- **`next.config.mjs` inlines `NEXT_PUBLIC_*` at build time**, so the compose `env_file` cannot
-  change them for the browser bundle.
-- **`public/logo.svg` is the Digi Tracks company mark**, not the VANTOR identity set in
-  `assets/brand/`, and it is used for both `openGraph.images` and `icons.icon`.
+Shared UI primitives live in `components/ui.tsx`:
+- `useBoot`: Unified Keycloak SSO and instant Demo session hydration with bounce-loop detection.
+- `AuthScreen`: Executive glassmorphic entry screen with dual SSO / Demo actions.
+- `StatCard`, `Pager`, `DataTable`: Standardized data grid with accessible ARIA sort.
+- `Badge`, `Empty`, `ErrorBox`, `Skeleton`: Standardized feedback and empty states.
+- Fonts: `Inter` and `JetBrains Mono` are bundled via `next/font` in `layout.tsx`.

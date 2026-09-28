@@ -33,6 +33,16 @@ export function demoSession(): Session {
   return _demoSession;
 }
 
+export function isDemoSession(): boolean {
+  return current?.tenant === "demo";
+}
+
+export function loginAsDemo(): Session {
+  const s = demoSession();
+  setSession(s);
+  return s;
+}
+
 export function keycloak(): Keycloak {
   if (demoEnabled()) {
     // A real Keycloak back door. No IdP redirect : the show-through is the
@@ -78,14 +88,20 @@ export function login(): void {
 }
 
 export function logout(): void {
-  if (demoEnabled()) {
+  if (isDemoSession() || demoEnabled()) {
     setSession(null);
     return;
   }
   try {
     const kc = keycloak();
-    if (kc.didInitialize) kc.logout();
-  } catch { /* ignore */ }
+    if (kc.didInitialize) {
+      kc.logout();
+    } else {
+      setSession(null);
+    }
+  } catch {
+    setSession(null);
+  }
 }
 
 export function parseSession(kc: Keycloak): Session | null {

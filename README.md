@@ -4,7 +4,7 @@
 # VANTOR — Intelligent Procurement Operating System
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 156 backend + 48 frontend](https://img.shields.io/badge/tests-156%20backend%20%2B%2048%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 315 backend + 107 frontend](https://img.shields.io/badge/tests-315%20backend%20%2B%20107%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 90 operations](https://img.shields.io/badge/API-90%20operations-blue.svg)](api/openapi.json)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status: `TESTED` backend (315 pytest collected, 90 API operations, all 10 products verified) + Next.js 16 app (106 vitest green) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).****
+**Status: `TESTED` backend (315 pytest collected, 90 API operations, all 10 products verified) + Next.js 16 app (107 vitest green across 10 suites, 19 compiled routes) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).**
 
 ## Why VANTOR
 
@@ -56,9 +56,9 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-- [x] Backend API (FastAPI, 90 operations, 315 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ\u001fquote\u001faward + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions\u001fPO\u001freceipt\u001finvoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks"
-- [x] AuthN/Z: Keycloak OIDC (check-sso boot, splash, loop breaker) + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
-- [x] Web app (Next.js 16 / React 19, 15 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
+- [x] Backend API (FastAPI, 90 operations, 315 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
+- [x] AuthN/Z: Keycloak OIDC (check-sso boot, splash, loop breaker) + instant Demo Mode fallback + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
+- [x] Web app (Next.js 16 / React 19, 19 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
 - [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
 - [ ] Real-world providers live-checks: OCR engine not shipped, native pgvector index migration pending (cosine re-rank in-Python is the current honest path), full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
@@ -66,13 +66,32 @@ Phase 0 audit `VERIFIED`. All 10 products `TESTED` on core paths. Phase 10 Produ
 
 ## Quickstart (local, 100% free)
 
-Prerequisites: Docker + Docker Compose, Node 20+, Python 3.11+ (for worker later), Git.
+### Mode 1: Instant Demo & UI Review (No Keycloak :8080 Required)
+
+Run the frontend immediately in local development mode without spinning up external containers:
+
+```powershell
+cd frontend
+npm ci
+$env:NEXT_PUBLIC_API_URL="http://localhost:8000"
+npm run dev
+```
+
+1. Open **`http://localhost:3000`** in your browser.
+2. Click **"Explore Demo Workspace"**.
+3. You are instantly authenticated as a Buyer / Procurement Manager (`tenant: demo`), with full access to all 10 procurement modules, analytics, and interactive interfaces. No redirects to port 8080!
+
+### Mode 2: Full Enterprise Stack (Docker Compose with Keycloak SSO)
+
+Prerequisites: Docker + Docker Compose, Node 20+, Python 3.11+, Git.
 
 ```powershell
 Copy-Item .env.example .env
 docker compose up -d --build
 docker compose ps
 ```
+
+Navigate to `http://localhost:3000` and click **"Continue with Vantor ID"** to log in through Keycloak OIDC on `:8080`.
 
 See `docs/08-deployment/local.md` and `.env.example`.
 
