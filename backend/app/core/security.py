@@ -125,9 +125,12 @@ def verify_token(token: str) -> Actor:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed demo token")
         # Read-only by design: the demo role set is the one that refuses every
         # gate's mutating detail immediately, not the empty list. Your demo walk
-        # through an app structure doesn't let _you touch anything.""
-        roles = ("Read Only",)
-        return Actor(sub=name, tenant_id="demo", email=f"{name}@demo.vantor", roles=roles,
+        # through an app structure doesn't let _you touch anything."""
+        # Named apart from `roles` below because the two are different types in
+        # different branches, and one name meaning both is how the real path ends
+        # up calling `.extend` on a tuple.
+        demo_roles = ("Read Only",)
+        return Actor(sub=name, tenant_id="demo", email=f"{name}@demo.vantor", roles=demo_roles,
                      token_claims={"demo": True})
     try:
         header = jwt.get_unverified_header(token)

@@ -121,7 +121,7 @@ def _fingerprint(method: str, path: str, key: str, body: bytes) -> str:
     return f"{method}|{path[:200]}|{key[:128]}|{_body_hash(raw.encode())}"
 
 
-def _claim(tenant_id: str, fingerprint: str, method: str, path: str) -> tuple[str, object | None]:
+def _claim(tenant_id: str, fingerprint: str, method: str, path: str) -> tuple[str, IdempotencyKey | None]:
     """Atomically claim the fingerprint, or report who holds it.
 
     Returns one of:

@@ -73,7 +73,7 @@ BLOCKED_HOSTS = frozenset({"localhost", "metadata", "metadata.google.internal",
 #: Single-label names that are legitimately public. An IP literal is handled by
 #: the address policy, not here, so this stays a short explicit list rather than
 #: a rule that silently permits whatever happens to be a bare name today.
-_ALLOW_BARE_HOSTS = frozenset(set())
+_ALLOW_BARE_HOSTS: frozenset[str] = frozenset()
 
 #: Cloud metadata endpoints, refused by address. `169.254.169.254` is covered by
 #: the link-local rule; these are named because they are the specific targets an

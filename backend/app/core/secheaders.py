@@ -50,9 +50,11 @@ def _connect_origins() -> list[str]:
     origins = [s.api_url.rstrip("/"), s.app_url.rstrip("/")]
     if not s.is_prod:
         origins += ["http://localhost:3000", "http://127.0.0.1:3000", "ws://localhost:3000"]
-    # Deduplicated, order preserved, so the header is stable.
-    seen: set[str] = set()
-    return [o for o in origins if not (o in seen or seen.add(o))]
+    # Deduplicated, order preserved, so the header is stable. `dict.fromkeys` is
+    # the whole of that: it keeps first-seen order and drops repeats. The previous
+    # version relied on `set.add` returning None inside a boolean `or`, which is
+    # correct and nearly unreadable.
+    return list(dict.fromkeys(origins))
 
 
 def _csp(is_prod: bool, nonce: str) -> str:
