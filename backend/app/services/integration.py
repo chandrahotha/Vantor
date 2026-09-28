@@ -216,8 +216,17 @@ def enqueue(db: Session, *, tenant_id: str, event: str, payload: dict,
     return out
 
 
-def drain(db: Session, *, tenant_id: str = "", limit: int = 50) -> list[dict]:
+def drain(db: Session, *, tenant_id: str, limit: int = 50) -> list[dict]:
     """Attempt due deliveries. Called by the worker; safe to call in a loop.
+
+    `tenant_id` is required and has no default. It used to default to `""`, which
+    the query read as "no tenant filter" - so a caller that simply forgot the
+    argument would have drained every tenant's deliveries instead of one. A
+    security-relevant scope that fails open on a missing argument is a trap, and
+    no caller wanted it: the router always passes the actor's tenant. The
+    worker's own delivery loop goes through that router, so it drains the tenant
+    its token belongs to. Draining across all tenants from one worker would need
+    a deliberately different entry point, not an empty string.
 
     Rows are selected with `FOR UPDATE SKIP LOCKED` where the dialect supports
     it, so several workers can drain concurrently without two of them picking up
@@ -228,12 +237,11 @@ def drain(db: Session, *, tenant_id: str = "", limit: int = 50) -> list[dict]:
     # at worst a silently unfiltered scan, and it makes the tenant predicate
     # depend on where the call happens to put it.
     stmt = select(WebhookDelivery).where(
+        WebhookDelivery.tenant_id == tenant_id,
         WebhookDelivery.status == "pending",
         (WebhookDelivery.next_attempt_at.is_(None))
         | (WebhookDelivery.next_attempt_at <= now),
     )
-    if tenant_id:
-        stmt = stmt.where(WebhookDelivery.tenant_id == tenant_id)
     stmt = stmt.order_by(WebhookDelivery.created_at, WebhookDelivery.id).limit(limit)
     if db.bind is not None and db.bind.dialect.name == "postgresql":
         stmt = stmt.with_for_update(skip_locked=True)

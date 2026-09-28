@@ -579,6 +579,46 @@ def test_drain_endpoint_is_operator_only(client, monkeypatch):
     assert ok.json()["data"]["results"][0]["status"] == "delivered"
 
 
+def test_drain_never_touches_another_tenants_deliveries(client, monkeypatch):
+    """The tenant filter in `drain` is the only thing stopping one tenant's worker
+    from posting another tenant's webhook payload — and it used to be optional,
+    defaulting to "no filter" when an argument was omitted. The property was never
+    tested, which is why it could be weakened without anything going red.
+
+    Both tenants have a pending delivery to a URL that records the call, so
+    asserting on `sent` proves the second tenant's payload never left the system
+    and not merely that its row kept its status.
+    """
+    monkeypatch.setenv("HOOK_KEY", "s3cret")
+    sent = _fake_transport(monkeypatch)
+    _seed_endpoints("t1", ["https://one.test/hook"])
+    _seed_endpoints("t2", ["https://two.test/hook"])
+    _fanout("t1")
+    _fanout("t2")
+    assert [d.status for d in _deliveries("t1")] == ["pending"]
+    assert [d.status for d in _deliveries("t2")] == ["pending"]
+
+    assert _drain("t1")
+
+    assert [d.status for d in _deliveries("t1")] == ["delivered"]
+    assert [d.status for d in _deliveries("t2")] == ["pending"], "drain crossed a tenant boundary"
+    assert list(sent) == ["https://one.test/hook"], sent
+
+
+def test_drain_requires_a_tenant_rather_than_defaulting_to_all_of_them():
+    """A required argument is the fix; this is the assertion that keeps it that
+    way, because the old signature (`tenant_id=""`) was not wrong-looking enough
+    to survive review on its own merits."""
+    import inspect
+
+    from app.services.integration import drain
+
+    param = inspect.signature(drain).parameters["tenant_id"]
+    assert param.default is inspect.Parameter.empty, (
+        "drain must not have a default tenant: an empty string read as 'every tenant'"
+    )
+
+
 def test_delivery_log_exposes_every_reachable_state(client, monkeypatch):
     """VNT-008: the log's own `?status=` filter used to reject a status the code
     wrote, so deferred rows were unreachable through the API reporting them."""
