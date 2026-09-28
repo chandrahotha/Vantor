@@ -64,11 +64,11 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 Phase 0 audit `VERIFIED`. All 10 products `TESTED` on core paths. Phase 10 Production hardening is `IN DEVELOPMENT` (monitoring wired; restore drills and OTEL pending). Phase 9 Android is `PLANNED`/0 code. `docs/00-plan/PRODUCTION_READINESS.md` has the exact remaining work evidence table.
 
-## Quickstart (local, 100% free)
+## Quickstart & Local Execution
 
-### Mode 1: Instant Demo & UI Review (No Keycloak :8080 Required)
+VANTOR runs seamlessly in local environments with dedicated services for the FastAPI backend, Next.js frontend, and enterprise background worker.
 
-Run the frontend immediately in local development mode without spinning up external containers:
+### 1. Launch the Frontend Web Application
 
 ```powershell
 cd frontend
@@ -78,12 +78,30 @@ npm run dev
 ```
 
 1. Open **`http://localhost:3000`** in your browser.
-2. Click **"Explore Demo Workspace"**.
-3. You are instantly authenticated as a Buyer / Procurement Manager (`tenant: demo`), with full access to all 10 procurement modules, analytics, and interactive interfaces. No redirects to port 8080!
+2. The application boots directly into the enterprise workspace (`tenant: vantor-corp`).
+3. Use the **Enterprise Sign-In & Role Delegation** modal to seamlessly authenticate or switch between verified executive personas:
+   - 👔 **Sarah Chen** — Procurement Director (Full approval authority, $5M+ spending gates)
+   - 🎯 **Marcus Vance** — Strategic Category Manager (Strategic sourcing, RFQ awards)
+   - ⚖ **Elena Rostova** — Chief Financial Controller (3-way invoice matching, budget ceilings)
+   - 🛒 **David Park** — Senior Tactical Buyer (Requisitions, purchase orders, goods receipt)
+   - Or authenticate with custom corporate credentials.
 
-### Mode 2: Full Enterprise Stack (Docker Compose with Keycloak SSO)
+### 2. Launch the Backend API Service
 
-Prerequisites: Docker + Docker Compose, Node 20+, Python 3.11+, Git.
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+$env:DATABASE_URL="sqlite:///./_dev.db"
+$env:JWT_SECRET="vantor-enterprise-jwt-secret-key-32-chars-min"
+python -m uvicorn app.main:app --port 8000 --reload
+```
+
+- API Documentation: `http://localhost:8000/docs` (Interactive OpenAPI Swagger, 90 operations across all 10 modules).
+- Health & Readiness: `http://localhost:8000/healthz` and `http://localhost:8000/ready`.
+
+### 3. Containerized Enterprise Deployment (Optional Docker Compose)
 
 ```powershell
 Copy-Item .env.example .env
@@ -91,9 +109,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Navigate to `http://localhost:3000` and click **"Continue with Vantor ID"** to log in through Keycloak OIDC on `:8080`.
-
-See `docs/08-deployment/local.md` and `.env.example`.
+See `docs/08-deployment/local.md` for full environment variable configurations.
 
 ## Repository layout
 

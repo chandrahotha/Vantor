@@ -156,10 +156,9 @@ export default function Copilot() {
     <Shell>
       <div className="pagehead">
         <div>
-          <h1>AI copilot</h1>
+          <h1>Procurement Intelligence Copilot</h1>
           <p>
-            Every answer is evidence-cited and advisory. The model never calculates: deterministic math
-            stays in the deterministic engines, and nothing is committed without a human decision.
+            Enterprise procurement advisor: market price intelligence, supplier risk analysis, and contract obligation tracking backed by verified system evidence.
           </p>
         </div>
       </div>

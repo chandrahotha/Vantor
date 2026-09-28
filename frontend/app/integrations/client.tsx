@@ -79,7 +79,7 @@ export default function Integrations() {
       <div className="pagehead">
         <div>
           <h1>Integrations</h1>
-          <p>Adapters connectors and webhook endpoints. Secrets are vault-referenced; nothing raw is stored.</p>
+          <p>Enterprise ERP & ecosystem integrations: automated webhook event pipelines, secure SAP/Oracle accounting connectors, and encrypted secret management.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>

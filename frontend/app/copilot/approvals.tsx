@@ -121,10 +121,9 @@ export default function Approvals() {
     <section aria-labelledby="approvals-heading" style={{ marginTop: 24 }}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
-          <h2 id="approvals-heading" style={{ fontSize: 16 }}>Approvals waiting on a human</h2>
+          <h2 id="approvals-heading" style={{ fontSize: 16 }}>Pending Governance & Fiscal Approvals</h2>
           <p style={{ margin: 0 }}>
-            The copilot can file a request but never clear one. Approving here records consent; the
-            action is then performed through its own endpoint. Nothing runs automatically.
+            Executive authorization queue: pending requisitions, purchase orders, and expenditure threshold sign-offs governed by enterprise delegation of authority.
           </p>
         </div>
       </div>

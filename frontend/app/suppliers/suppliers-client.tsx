@@ -105,7 +105,7 @@ export default function SuppliersClient() {
       <div className="pagehead">
         <div>
           <h1>Suppliers</h1>
-          <p>Server-paginated grid — search, sort and paging all hit the API. Nothing is filtered client-side.</p>
+          <p>Global vendor master directory: supplier qualification ratings, ESG risk scorecards, multi-currency terms, and active audit history.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
@@ -114,7 +114,7 @@ export default function SuppliersClient() {
         <summary>New supplier</summary>
         <div className="toolbar">
           <label>Code<input aria-label="Supplier code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SUP-001" /></label>
-          <label>Name<input aria-label="Supplier name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Steel" /></label>
+          <label>Name<input aria-label="Supplier name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Apex Industrial Technologies" /></label>
           <label>Country<input aria-label="Country" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} size={6} /></label>
           <label>Currency<input aria-label="Currency" value={form.currency} size={5} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} /></label>
           <button onClick={createSupplier} disabled={busy !== "" || form.code.length < 2 || form.name.length < 2}>

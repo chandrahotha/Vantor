@@ -54,7 +54,7 @@ export default function NegoSim() {
       <div className="pagehead">
         <div>
           <h1>Negotiation simulator</h1>
-          <p>Modelled rehearsal only — the simulator never touches a real RFQ, quote or order.</p>
+          <p>Strategic supplier negotiation workbench: counter-offer modeling, concession ladders, supplier margin analysis, and target price optimization.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>

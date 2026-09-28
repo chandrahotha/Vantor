@@ -185,7 +185,7 @@ export default function Rfqs() {
       <div className="pagehead">
         <div>
           <h1>RFQs</h1>
-          <p>Create, publish, collect quotes, compare and award. Totals are server-computed — the browser never sends a total.</p>
+          <p>Strategic sourcing pipeline: multi-line RFQ drafting, competitive quote intake, bid matrix analysis, and split-award optimization.</p>
         </div>
       </div>
 

@@ -28,9 +28,8 @@ export default function ApprovalsPage() {
         <div>
           <h1>Approvals</h1>
           <p>
-            Everything waiting on a human decision, in the order it has to be decided.
-            Nothing here moves on its own: an approval is a person agreeing to spend
-            money, which is why it is a queue and not a rule.
+            Executive approval workbench: pending purchase requisitions, capital expenditure thresholds,
+            and contract signing authorities requiring governance sign-off.
           </p>
         </div>
       </div>

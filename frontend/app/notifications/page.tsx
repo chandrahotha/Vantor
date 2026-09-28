@@ -88,7 +88,7 @@ export default function Notifications() {
       <div className="pagehead">
         <div>
           <h1>Alerts</h1>
-          <p>Awards, approvals, expiries and anomalies — newest first, refreshed every 30 seconds. Read state is yours alone.</p>
+          <p>Real-time enterprise procurement alerts: contract renewal notices, sourcing awards, pending approvals, and spend anomalies.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>

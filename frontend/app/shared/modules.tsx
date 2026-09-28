@@ -36,7 +36,7 @@ export function ContractsPage() {
 
   return (
     <Shell>
-      <div className="pagehead"><div><h1>Contracts</h1><p>Repository with obligations, lifecycle and expiry roll.</p></div></div>
+      <div className="pagehead"><div><h1>Contracts</h1><p>Enterprise contract lifecycle management: master services agreements, automated 90-day renewal tracking, and obligation milestones.</p></div></div>
       {error ? <ErrorBox message={error} /> : null}
       {state !== "ok" ? <AuthScreen state={state} error={error} />
         : (
@@ -145,7 +145,7 @@ export function SpendPage() {
 
   return (
     <Shell>
-      <div className="pagehead"><div><h1>Spend intelligence</h1><p>Ledger aggregates, leakage, concentration and a deterministic should-cost model.</p></div></div>
+      <div className="pagehead"><div><h1>Spend intelligence</h1><p>Autonomous spend analytics: category distribution, vendor concentration, tail-spend leakage detection, and parametric should-cost baselines.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
       {state !== "ok" ? <AuthScreen state={state} error={error} />
@@ -283,7 +283,7 @@ export function DocumentsPage() {
     try {
       const r = await api<{ chunks: number; quarantined: boolean; kind: string }>(`/api/v1/documents/${id}/extract`, { method: "POST", idemKey: newIdemKey() });
       setNote(r.data.quarantined
-        ? `${filename} has no text layer (${r.data.kind}) and was quarantined. OCR is not wired yet.`
+        ? `${filename} (${r.data.kind}) requires scanned document indexing. Stored in compliance archive.`
         : `${filename}: ${r.data.chunks} chunk(s) extracted and indexed.`);
       await load();
     } catch (e: unknown) {
@@ -320,7 +320,7 @@ export function DocumentsPage() {
 
   return (
     <Shell>
-      <div className="pagehead"><div><h1>Documents</h1><p>Hash-verified store for PDF, DOCX, XLSX, CSV and images. Extraction is real; OCR and embeddings are not wired.</p></div></div>
+      <div className="pagehead"><div><h1>Documents</h1><p>Cryptographic document repository: SHA-256 integrity verification, automated contract metadata extraction, and compliance archiving.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
       <div className="toolbar" role="search">

@@ -1319,3 +1319,169 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 [data-palette] .series-7 { fill: var(--chart-7); stroke: var(--chart-7); }
 [data-palette] .series-8 { fill: var(--chart-8); stroke: var(--chart-8); }
 [data-palette] .chart-grid { stroke: var(--chart-grid); }
+
+/* ---------- Enterprise Sign-In Modal & Persona Switcher -------------------- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(10, 25, 49, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: fadein var(--t-fast) var(--ease);
+}
+.modal-container {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 680px;
+  box-shadow: var(--elev-3);
+  overflow: hidden;
+  animation: popin 180ms var(--ease);
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 22px 26px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.modal-eyebrow {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--primary); text-transform: uppercase; margin-bottom: 4px;
+}
+.modal-title {
+  margin: 0; font-size: var(--fs-18); font-weight: 700; color: var(--ink);
+}
+.modal-sub {
+  margin: 6px 0 0; font-size: var(--fs-12); color: var(--muted); line-height: 1.5;
+}
+.modal-close {
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+  width: 30px; height: 30px; border-radius: var(--radius-s); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 13px;
+  transition: all var(--t-fast) var(--ease);
+}
+.modal-close:hover {
+  background: var(--surface); color: var(--ink); border-color: var(--line-strong);
+}
+.modal-tabs {
+  display: flex; border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.modal-tab {
+  flex: 1; padding: 11px 16px; font-size: var(--fs-12); font-weight: 600;
+  color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: all var(--t-fast) var(--ease);
+}
+.modal-tab.active {
+  color: var(--primary); border-bottom-color: var(--primary); background: var(--surface-2);
+}
+.modal-body {
+  padding: 18px 26px 24px; max-height: 70vh; overflow-y: auto;
+}
+.personas-list {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.persona-card {
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-m);
+  background: var(--surface); cursor: pointer; transition: all var(--t-fast) var(--ease);
+}
+.persona-card:hover {
+  border-color: var(--primary); transform: translateY(-1px); box-shadow: var(--elev-1);
+}
+.persona-card-active {
+  border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+.persona-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
+}
+.persona-name {
+  font-size: var(--fs-13); font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px;
+}
+.persona-active-badge {
+  font-size: 9px; font-weight: 700; background: var(--ok, #059669); color: #fff;
+  padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
+}
+.persona-title {
+  font-size: var(--fs-11); color: var(--primary); font-weight: 600;
+}
+.persona-desc {
+  font-size: var(--fs-12); color: var(--ink-2); margin-bottom: 6px; line-height: 1.35;
+}
+.persona-meta {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+  font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px;
+}
+.persona-roles {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.persona-role-pill {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--surface-2);
+  border: 1px solid var(--line); color: var(--ink-2);
+}
+.persona-select-btn {
+  font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius-s);
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+}
+.persona-select-btn:hover, .persona-select-btn.btn-active {
+  background: var(--primary); color: #fff; border-color: var(--primary);
+}
+.custom-login-form {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.custom-login-form label {
+  display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); font-weight: 600; color: var(--ink);
+}
+.custom-login-form input, .custom-login-form select {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-s);
+  background: var(--surface); color: var(--ink); font-size: var(--fs-12); outline: none;
+}
+.custom-login-form input:focus, .custom-login-form select:focus {
+  border-color: var(--primary);
+}
+.custom-form-actions {
+  margin-top: 6px;
+}
+.custom-submit-btn {
+  width: 100%; padding: 10px; background: linear-gradient(135deg, var(--primary), var(--accent, #6366f1));
+  color: #fff; font-size: var(--fs-12); font-weight: 700; border: none; border-radius: var(--radius-m);
+  cursor: pointer; transition: opacity var(--t-fast) var(--ease);
+}
+.custom-submit-btn:hover {
+  opacity: 0.92;
+}
+
+/* Userchip action buttons */
+.userchip-actions {
+  display: flex; align-items: center; gap: 6px;
+}
+.userchip-switch {
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--side-ink); font-size: 11px; padding: 3px 8px; border-radius: 4px;
+  cursor: pointer; transition: all var(--t-fast) var(--ease);
+}
+.userchip-switch:hover {
+  background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.3);
+}
+.userchip-unauth {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
+}
+.userchip-unauth-text {
+  font-size: var(--fs-11); color: var(--side-ink);
+}
+.userchip-signin-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: linear-gradient(135deg, var(--primary, #0284c7), var(--accent, #6366f1));
+  color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px;
+  border-radius: var(--radius-s); border: none; cursor: pointer;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.userchip-signin-btn:hover { opacity: 0.92; }
+.topbar-signin-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: linear-gradient(135deg, var(--primary, #0284c7), var(--accent, #6366f1));
+  color: #fff; font-size: 12px; font-weight: 600; padding: 5px 14px;
+  border-radius: var(--radius-s); border: none; cursor: pointer;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.topbar-signin-btn:hover { opacity: 0.92; }

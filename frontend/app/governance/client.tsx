@@ -90,7 +90,7 @@ export default function GovernanceClient() {
       <div className="pagehead">
         <div>
           <h1>Governance</h1>
-          <p>Hash-chained audit trail, catalog, categories and budget ceilings — the controls that make the numbers trustworthy.</p>
+          <p>Corporate spend governance & compliance: tamper-evident cryptographic audit chain, category taxonomies, and departmental fiscal budget ceilings.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>

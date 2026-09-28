@@ -16,7 +16,7 @@ const PAGES: Hit[] = [
   { kind: "Go", id: "nav-doc", label: "Go to Documents", hint: "Upload, extract, search", href: "/documents" },
   { kind: "Go", id: "nav-gov", label: "Go to Governance", hint: "Audit chain, catalog, budgets", href: "/governance" },
   { kind: "Go", id: "nav-int", label: "Go to Integrations", hint: "Adapters + webhook endpoints", href: "/integrations" },
-  { kind: "Go", id: "nav-nego", label: "Go to Negotiation simulator", hint: "Modelled rehearsal, never live", href: "/negosim" },
+  { kind: "Go", id: "nav-nego", label: "Go to Negotiation simulator", hint: "Supplier concession modeling & price benchmarking", href: "/negosim" },
   { kind: "Go", id: "nav-alert", label: "Go to Alerts", hint: "Awards, approvals, expiries", href: "/notifications" },
   { kind: "Go", id: "nav-ai", label: "Go to Copilot", hint: "Evidence-cited AI answers", href: "/copilot" },
 ];

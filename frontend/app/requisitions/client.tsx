@@ -79,7 +79,7 @@ export default function Requisitions() {
       <div className="pagehead">
         <div>
           <h1>Requisitions</h1>
-          <p>Demand capture before purchase. Every submission seeds approval tiers — a manager signs off before a PO exists.</p>
+          <p>Enterprise purchase requisition intake: cost-center routing, category validation, and executive budget authorization prior to PO issuance.</p>
         </div>
       </div>
 

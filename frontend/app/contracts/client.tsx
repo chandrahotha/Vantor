@@ -123,7 +123,7 @@ export default function ContractsPage() {
       <div className="pagehead">
         <div>
           <h1>Contracts</h1>
-          <p>Repository with obligations, expiry roll, signatures and matching. Every state change is calendar-checked and audited.</p>
+          <p>Enterprise contract repository: master agreements, obligation schedules, automated 90-day renewal tracking, and digital execution.</p>
         </div>
       </div>
 

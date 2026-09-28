@@ -106,7 +106,7 @@
                       "Procurement Manager", "Buyer", "Category Manager",
                       "Supplier Manager", "Compliance Reviewer", "Legal Reviewer",
                       "Finance Reviewer", "Approver", "Auditor"],
-      "attributes": {"tenant_id": ["acme"]},
+      "attributes": {"tenant_id": ["vantor-corp"]},
       "credentials": [{"type": "password", "value": "admin", "temporary": false}]
     }
   ]

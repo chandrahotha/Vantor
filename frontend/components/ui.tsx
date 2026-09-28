@@ -10,11 +10,13 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ENTERPRISE_PERSONAS,
   getSession,
   isLooping,
   keycloak,
   login,
   subscribeSession,
+  switchPersona,
 } from "../lib/auth";
 import { setTokenGetter } from "../lib/api";
 
@@ -278,6 +280,34 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
             </div>
           </button>
         </div>
+
+        {!isError && (
+          <div className="authscreen-personas" style={{ margin: "14px 0 18px", width: "100%" }}>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8, textAlign: "left", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              Or authenticate with certified executive persona:
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {ENTERPRISE_PERSONAS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => switchPersona(p.id)}
+                  style={{
+                    display: "flex", flexDirection: "column", gap: 2, padding: "8px 10px",
+                    background: "rgba(255, 255, 255, 0.04)", border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: 8, color: "#e2e8f0", cursor: "pointer", textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.1)"; e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; }}
+                >
+                  <strong style={{ fontSize: 12, color: "#fff" }}>{p.name}</strong>
+                  <span style={{ fontSize: 10, color: "#818cf8" }}>{p.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="authscreen-pills">
           <span className="authscreen-pill">Postgres Row-Level Security</span>

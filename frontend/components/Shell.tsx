@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
+import SignInModal from "./SignInModal";
 import { toggleTheme } from "./ThemeInit";
 import { api } from "../lib/api";
 import { getSession, logout, subscribeSession, type Session } from "../lib/auth";
@@ -95,6 +96,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
   const path = usePathname();
   const base = path.split("?")[0];
   const [session, setSessionState] = useState<Session | null>(() => getSession());
+  const [signInOpen, setSignInOpen] = useState(false);
   useEffect(() => subscribeSession(setSessionState), []);
   const shown = user ?? (session ? { name: session.name, tenant: session.tenant } : undefined);
   const pageName = PAGE_NAMES[base] ?? "VANTOR";
@@ -145,17 +147,36 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
                 </div>
                 <div className="userchip-meta">tenant: <span className="mono">{shown.tenant}</span></div>
               </div>
-              <button
-                type="button"
-                className="userchip-logout"
-                onClick={() => logout()}
-                title="Sign out / switch workspace"
-              >
-                Sign out
-              </button>
+              <div className="userchip-actions">
+                <button
+                  type="button"
+                  className="userchip-switch"
+                  onClick={() => setSignInOpen(true)}
+                  title="Switch enterprise persona or role"
+                >
+                  Switch
+                </button>
+                <button
+                  type="button"
+                  className="userchip-logout"
+                  onClick={() => logout()}
+                  title="Sign out of current workspace"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="userchip">Not signed in</div>
+            <div className="userchip-unauth">
+              <div className="userchip-unauth-text">Not signed in</div>
+              <button
+                type="button"
+                className="userchip-signin-btn"
+                onClick={() => setSignInOpen(true)}
+              >
+                <span aria-hidden="true">🔑</span> Sign In
+              </button>
+            </div>
           )}
           <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source · AGPL-3.0</a>
         </div>
@@ -168,6 +189,15 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
           </div>
           <span className="topbar-live-pill"><span className="status-dot" aria-hidden="true" /> Live</span>
           <div className="spacer" />
+          {!shown ? (
+            <button
+              type="button"
+              className="topbar-signin-btn"
+              onClick={() => setSignInOpen(true)}
+            >
+              <span aria-hidden="true">🔑</span> Sign In
+            </button>
+          ) : null}
           <button
             className="search-trigger"
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
@@ -182,6 +212,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
       </main>
 
       <CommandPalette />
+      <SignInModal isOpen={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>
   );
 }

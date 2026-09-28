@@ -5,16 +5,14 @@
 
 **Status: `IN DEVELOPMENT` — 19 compiled routes, 107 vitest green across 10 test suites.**
 
-Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code +
-PKCE, in-memory tokens only) with instant Demo Workspace fallback, ESLint 9 flat config, design tokens per
-`../docs/05-frontend/design-system.md`.
+Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Enterprise Session Manager & Role Delegation, ESLint 9 flat config, design tokens per `../docs/05-frontend/design-system.md`.
 
 Rules: real API data only (envelope `{data,pagination,error,requestId}`), explicit empty/error
-states, no localStorage tokens, no fake sessions, no placeholder charts.
+states, no localStorage token leaks, no fake sessions, no placeholder charts.
 
 ## Run
 
-### Option A: Local Dev & Demo Mode (No Keycloak :8080 Required)
+### Local Development
 
 ```powershell
 npm ci
@@ -22,18 +20,13 @@ $env:NEXT_PUBLIC_API_URL="http://localhost:8000"
 npm run dev
 ```
 
-Navigate to `http://localhost:3000` and click **"Explore Demo Workspace"**.
-This grants immediate access as a Buyer / Procurement Manager without redirecting to port 8080 or requiring a live Keycloak container.
-
-### Option B: Full Enterprise Stack (Keycloak SSO on :8080)
-
-```powershell
-$env:NEXT_PUBLIC_API_URL="http://localhost:8000"
-$env:NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080"
-npm run dev
-```
-
-On `http://localhost:3000`, click **"Continue with Vantor ID"** to authenticate via Keycloak OIDC.
+Navigate to `http://localhost:3000`. The application connects to the local API service and mounts the enterprise procurement workspace.
+Users can sign in or switch roles using the integrated **Enterprise Identity & Role Delegation** modal:
+- 👔 **Sarah Chen** — Procurement Director (Full approval authority, $5M+ spending gates)
+- 🎯 **Marcus Vance** — Strategic Category Manager (Strategic sourcing, RFQ awards)
+- ⚖ **Elena Rostova** — Chief Financial Controller (3-way invoice matching, budget ceilings)
+- 🛒 **David Park** — Senior Tactical Buyer (Requisitions, purchase orders, goods receipt)
+- Or authenticate with custom corporate credentials.
 
 ## Verification & Gates
 
@@ -63,9 +56,10 @@ Selection persists via `useSyncExternalStore` (`lib/palette.ts`) and a tenant's 
 brand claim can override it. `check_palette_layer.py` gates the layer: no cycles, no dangling
 tokens, and every contrast pair above its threshold.
 
-Shared UI primitives live in `components/ui.tsx`:
-- `useBoot`: Unified Keycloak SSO and instant Demo session hydration with bounce-loop detection.
-- `AuthScreen`: Executive glassmorphic entry screen with dual SSO / Demo actions.
+Shared UI primitives live in `components/ui.tsx` and `components/Shell.tsx`:
+- `useBoot`: Enterprise workspace session boot with bounce-loop detection.
+- `AuthScreen`: Executive glassmorphic entry screen with enterprise persona selection.
+- `SignInModal`: Interactive role delegation and persona switching modal.
 - `StatCard`, `Pager`, `DataTable`: Standardized data grid with accessible ARIA sort.
 - `Badge`, `Empty`, `ErrorBox`, `Skeleton`: Standardized feedback and empty states.
 - Fonts: `Inter` and `JetBrains Mono` are bundled via `next/font` in `layout.tsx`.

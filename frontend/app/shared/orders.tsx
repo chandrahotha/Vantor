@@ -190,7 +190,7 @@ export function OrdersPage() {
       <div className="pagehead">
         <div>
           <h1>Purchase orders</h1>
-          <p>Requisition to invoice with tiered approvals, segregation of duties, budget gates and a server-side 3-way match.</p>
+          <p>Purchase order lifecycle: multi-tiered executive approvals, fiscal budget gates, receipt verification, and automated 3-way invoice matching.</p>
         </div>
       </div>
 
