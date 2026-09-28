@@ -459,6 +459,13 @@ def optimize(rfq_id: str, payload: OptimizeIn, request: Request, actor: Actor = 
     """06 optimizer: cheapest feasible split across evaluated quotes (read-only)."""
     from ..services.optimizer import OptimizerError, allocate
 
+    # The allocation itself is not persisted, but this is not a read: it writes an
+    # audit event, and it is the most decision-shaped call in the module - it picks
+    # which suppliers win a buy. Every other sourcing endpoint that commits
+    # anything goes through `_write`, so this one does too. Ungated, any tenant
+    # member could enumerate RFQs and harvest the optimizer's recommendation for
+    # each, which is the input to a sourcing decision they have no role to make.
+    _write(actor)
     r = db.execute(select(Rfq).where(Rfq.tenant_id == actor.tenant_id, Rfq.id == rfq_id)).scalar_one_or_none()
     if r is None:
         raise HTTPException(status_code=404, detail="RFQ not found")

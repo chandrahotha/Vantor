@@ -3,7 +3,7 @@
 
 # Backend — VANTOR
 
-**Status: `TESTED` — 90 API operations across 78 paths, 305 pytest collected.** Not `PRODUCTION READY`
+**Status: `TESTED` — 90 API operations across 78 paths, 313 pytest collected.** Not `PRODUCTION READY`
 (Phase 10 gate, see `../docs/00-plan/ROADMAP.md`).
 
 Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic**, Postgres + RLS primary, RQ + Redis

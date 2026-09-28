@@ -496,3 +496,32 @@ def test_a_bogus_tenant_timezone_falls_back_rather_than_stopping_the_roll(client
     finally:
         db.close()
         get_settings.cache_clear()
+
+
+# --- the optimizer is a sourcing decision, so it needs the sourcing role ---
+
+READ_ONLY = ("Read Only",)
+CATEGORY_MANAGER = ("Category Manager",)
+
+
+@pytest.mark.parametrize("roles", [READ_ONLY, SUPPLIER_SIDE, LEGAL, (), ("Nonexistent",)])
+def test_optimizer_endpoint_refuses_actors_without_the_sourcing_role(client, roles):
+    """`/rfqs/{id}/optimize` commits an audit event and is the most decision-shaped
+    call in sourcing: it decides who wins a buy. Ungated, any tenant member could
+    enumerate RFQs and harvest that recommendation for each."""
+    c, pem = client
+    res = c.post("/api/v1/rfqs/any/optimize", json={"max_share_bp": 6000},
+                 headers=_h(pem, roles=roles))
+    assert res.status_code == 403, res.text
+    assert "sourcing write" in res.text
+
+
+@pytest.mark.parametrize("roles", [BUYER, PROCUREMENT, CATEGORY_MANAGER])
+def test_optimizer_endpoint_admits_actors_with_the_sourcing_role(client, roles):
+    """Asserting only the 403 would pass even if the gate rejected everyone, so
+    the permitted roles are checked too: least privilege that is insufficient
+    is not least privilege."""
+    c, pem = client
+    res = c.post("/api/v1/rfqs/any/optimize", json={"max_share_bp": 6000},
+                 headers=_h(pem, roles=roles))
+    assert res.status_code != 403, res.text
