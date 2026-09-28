@@ -31,7 +31,12 @@ router = APIRouter(tags=["integrations"])
 WRITE_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer"}
 #: Replaying or draining is an operator action, not a tenant action: it re-sends
 #: a payload that has already been signed once, to a receiver the tenant chose.
-OPERATIONS_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin", "Procurement Manager"}
+#:
+#: VNT-024. `Service Identity` is the worker's client. The drain is a scheduled
+#: operation, so the account that performs it does not need any of the human
+#: administrative roles in this set.
+OPERATIONS_ROLES = {"Super Admin", "Organization Admin", "Procurement Admin",
+                    "Procurement Manager", "Service Identity"}
 
 
 def db_for_actor(actor: Actor = Depends(get_actor)) -> Generator[Session, None, None]:

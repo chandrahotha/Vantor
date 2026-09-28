@@ -32,7 +32,8 @@
       {"name": "Finance Reviewer", "description": "Second-tier financial approver and spend analyst."},
       {"name": "Approver", "description": "Decides approvals in the queue."},
       {"name": "Auditor", "description": "Read-only across audit events and operations metrics."},
-      {"name": "Read Only", "description": "No write capability anywhere."}
+      {"name": "Read Only", "description": "No write capability anywhere."},
+      {"name": "Service Identity", "description": "Machine identity for the RQ worker: the expiry roll and the webhook drain. Deliberately NOT a subset of any human role, so a leaked worker token cannot reach anything a person could."}
     ]
   },
   "clients": [

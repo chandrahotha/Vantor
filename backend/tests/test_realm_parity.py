@@ -215,3 +215,93 @@ def test_registration_is_closed(realm):
     assert realm["resetPasswordAllowed"] is False
     assert realm["duplicateEmailsAllowed"] is False
     assert realm["bruteForceProtected"] is True
+
+
+# --- VNT-024: the worker's service identity ---------------------------------
+
+
+def _provision_module():
+    import importlib.util
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "_provision", root / "deploy" / "keycloak" / "provision.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_worker_is_not_granted_an_administrative_role():
+    """A machine account must not hold a human's administrative role.
+
+    The worker's service account used to be provisioned with `Super Admin`,
+    `Procurement Admin` and `Procurement Manager`, because the expiry roll
+    required `Super Admin` and the webhook drain required the operations roles.
+    The secret behind those grants lives in the environment of two containers, so
+    a leaked environment meant a fully administrative token for an account whose
+    whole job is moving a date-derived status and flushing a queue.
+
+    Asserted against `provision.py` because that is what decides the grant at
+    deploy time, whichever realm file happens to be in use.
+    """
+    granted = tuple(_provision_module().SERVICE_ACCOUNT_ROLES)
+    assert granted == ("Service Identity",), (
+        f"the worker's service account is granted {granted}; it should hold "
+        "exactly the one narrow role")
+    for administrative in ("Super Admin", "Organization Admin", "Procurement Admin",
+                           "Procurement Manager"):
+        assert administrative not in granted, (
+            f"the worker holds {administrative!r}; a scheduled job has no business "
+            "with a human's administrative authority")
+
+
+def test_service_identity_is_not_granted_to_any_human_role():
+    """The point of a separate role: a stolen worker token gains nothing else.
+
+    If `Service Identity` were also granted to a human role the distinction would
+    be cosmetic, and a procurement manager would quietly be able to trigger the
+    bulk expiry roll - the thing VNT-024 exists to prevent.
+    """
+    from app.routers.contracts import ACTION_ROLES
+    from app.routers.integrations import OPERATIONS_ROLES
+    from app.routers.spend import EVALUATE_ROLES, RESOLVE_ROLES
+
+    human_sets = {
+        "contract actions": set().union(*ACTION_ROLES.values()) - {"Service Identity"},
+        "integration operations": OPERATIONS_ROLES - {"Service Identity"},
+        "price evaluate": EVALUATE_ROLES,
+        "price resolve": RESOLVE_ROLES,
+    }
+    for label, roles in human_sets.items():
+        assert "Service Identity" not in roles, (
+            f"{label} grants Service Identity to a human role, which defeats the "
+            "separation the role exists for")
+
+
+def test_the_two_worker_operations_are_still_reachable():
+    """Least privilege is only correct if it is also sufficient."""
+    from app.routers.contracts import ACTION_ROLES
+    from app.routers.integrations import OPERATIONS_ROLES
+
+    assert "Service Identity" in ACTION_ROLES["expire"]
+    assert "Service Identity" in OPERATIONS_ROLES
+
+
+def test_service_identity_cannot_reach_money_or_legal_controls():
+    """The negative direction, so a later edit cannot widen it unnoticed."""
+    from app.routers.contracts import ACTION_ROLES
+    from app.services.purchase import APPROVER_ROLES
+
+    for action in ("activate", "terminate", "sign", "review", "renew"):
+        assert "Service Identity" not in ACTION_ROLES[action], (
+            f"the worker can perform the contract action {action!r}")
+    assert "Service Identity" not in APPROVER_ROLES, "the worker can approve money"
+
+
+def test_service_identity_is_labelled_as_a_machine_identity(realm):
+    declared = {r["name"]: r for r in realm["roles"]["realm"]}
+    assert "Service Identity" in declared
+    assert "achine" in declared["Service Identity"]["description"], (
+        "the role should say what it is for, or an operator cannot tell whether it "
+        "is safe to grant")

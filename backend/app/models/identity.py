@@ -17,6 +17,16 @@ class Organization(Base, TenantMixin):
 
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # VNT-024. The IANA zone this tenant's business day runs in, empty meaning
+    # "inherit the deployment's `CONTRACT_TIMEZONE`".
+    #
+    # "Within 90 days" is a judgement made in the buyer's working day, and a
+    # deployment-wide setting gets that wrong for every tenant that is not at the
+    # operator's longitude: a buyer at UTC-12 reaches their own 1 January twelve
+    # hours before a UTC server does, so a renewal notice fires a day early or a
+    # day late. Per-tenant is the only correct granularity - the tenants are in
+    # different countries, which is the normal case for the thing being bought.
+    timezone: Mapped[str] = mapped_column(String(64), default="", nullable=False)
 
     __table_args__ = (UniqueConstraint("tenant_id", "slug", name="uq_org_tenant_slug"),)
 

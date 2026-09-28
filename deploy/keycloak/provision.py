@@ -49,10 +49,20 @@ SERVICE_CLIENT_ID = os.environ.get("SERVICE_CLIENT_ID", "vantor-service")
 SERVICE_CLIENT_SECRET = os.environ.get("SERVICE_CLIENT_SECRET", "")
 TEMPLATE = pathlib.Path(__file__).with_name("realm-vantor.json")
 
-#: The worker acts on the application's behalf for tenant-scoped work. These are
-#: the roles its service account needs. Kept as data so the mapping is auditable
-#: rather than implied by a string in a shell script.
-SERVICE_ACCOUNT_ROLES = ("Super Admin", "Procurement Admin", "Procurement Manager")
+#: The only roles the worker's service account holds.
+#:
+#: VNT-024. This used to be `("Super Admin", "Procurement Admin",
+#: "Procurement Manager")`, because the expiry roll required `Super Admin` and
+#: the webhook drain required the operations roles. The result was a machine
+#: account holding the platform's most powerful role, reachable by anything able
+#: to read the secret out of the environment.
+#:
+#: `Service Identity` covers both of the worker's actual operations - the expiry
+#: roll and the webhook drain - and nothing else. Least privilege for a scheduled
+#: job is not a refinement; it is the difference between one leaked token and a
+#: fully administrative one. Kept as data so the mapping is auditable rather than
+#: implied by a string in a shell script.
+SERVICE_ACCOUNT_ROLES = ("Service Identity",)
 
 
 class Admin:

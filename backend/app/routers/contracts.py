@@ -62,7 +62,12 @@ ACTION_ROLES: dict[str, set[str]] = {
     # The expiry roll is derived from dates, not a judgement. It runs on a
     # schedule through a service identity; a tenant's procurement manager must not
     # be able to trigger a bulk status change with a click.
-    "expire": {"Super Admin"},
+    #
+    # VNT-024. `Service Identity` is the role the worker's client actually holds.
+    # Requiring `Super Admin` meant a machine account carried the platform's most
+    # powerful role purely so it could move a date-derived status - and every
+    # other endpoint that role can reach was one stolen token away.
+    "expire": {"Super Admin", "Service Identity"},
 }
 
 #: The destination status decides which authority the transition needs.
@@ -154,7 +159,7 @@ def list_contracts(request: Request, actor: Actor = Depends(get_actor), db: Sess
         # the roll already moved stays visible. The roll keeps its job — writing
         # the status, notifying, and leaving an audit event — but the question
         # "what is expiring?" no longer depends on it having run.
-        today = _tenant_today(actor.tenant_id)
+        today = _tenant_today(db, actor.tenant_id)
         horizon = today + timedelta(days=EXPIRY_WINDOW_DAYS)
         stmt = stmt.where(
             Contract.status.in_(("active", "expiring")),
@@ -282,7 +287,7 @@ def roll_expiry(request: Request, actor: Actor = Depends(get_actor), db: Session
     contracts that are currently `active`, so a second run moves nothing.
     """
     _require(actor, "expire")
-    today = _parse_day(as_of) if as_of else _tenant_today(actor.tenant_id)
+    today = _parse_day(as_of) if as_of else _tenant_today(db, actor.tenant_id)
     moved: list[str] = []
     for c in db.execute(select(Contract).where(
             Contract.tenant_id == actor.tenant_id, Contract.status == "active").with_for_update()).scalars():
@@ -316,28 +321,57 @@ def _parse_day(value: str):
             "message": f"as_of must be an ISO date (YYYY-MM-DD), got {value!r}"}) from exc
 
 
-def _tenant_today(tenant_id: str):
-    """Today in the tenant's timezone, falling back to UTC.
+def _tenant_today(db, tenant_id: str):  # type: ignore[no-untyped-def]
+    """Today in *this tenant's* business timezone.
 
-    VNT-041: "within 90 days" is a business judgement made in the buyer's
-    working day, not the server's. A tenant at UTC-12 reaches its own 1 January
-    twelve hours before a UTC server does, which is exactly the kind of off-by-one
-    that makes a renewal notice fire a day early or a day late.
+    VNT-041: "within 90 days" is a business judgement made in the buyer's working
+    day, not the server's. VNT-024: it was then evaluated against a single
+    deployment-wide `CONTRACT_TIMEZONE`, which is right for exactly one customer.
+    A tenant at UTC-12 reaches its own 1 January twelve hours before a UTC server
+    does, so the renewal notice fires a day early or a day late.
+
+    Resolution order, most specific first:
+
+    1. the tenant's own `organizations.timezone`, if it names a real zone;
+    2. the deployment's `CONTRACT_TIMEZONE`;
+    3. UTC.
+
+    An unusable zone at any level falls through rather than raising: a stale
+    contract status is recoverable, a queue that stops draining is not.
     """
     from datetime import datetime, timezone
 
     from ..core.config import get_settings
 
-    tz_name = (get_settings().contract_timezone or "UTC").strip()
-    try:
-        from zoneinfo import ZoneInfo
+    deployment_tz = (get_settings().contract_timezone or "UTC").strip()
 
-        tz = ZoneInfo(tz_name)
+    candidates = []
+    try:
+        from ..models.identity import Organization
+        from sqlalchemy import select
+
+        row = db.execute(
+            select(Organization.timezone).where(
+                Organization.tenant_id == tenant_id).limit(1)
+        ).scalar_one_or_none()
+        if row:
+            candidates.append(str(row).strip())
     except Exception:
-        # An unknown zone must not stop the roll; UTC is the safe default and the
-        # response reports the zone actually used.
-        tz = timezone.utc
-    return datetime.now(tz).date()
+        # No row, or no such table on an older deployment. The deployment
+        # setting still applies, which is the previous behaviour.
+        pass
+    candidates.append(deployment_tz)
+
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            from zoneinfo import ZoneInfo
+
+            return datetime.now(ZoneInfo(name)).date()
+        except Exception:
+            continue
+    return datetime.now(timezone.utc).date()
 
 
 class SignIn(BaseModel):

@@ -248,8 +248,25 @@ def test_every_contract_action_has_an_explicit_role_set():
     # And every action must have roles, or it is a hole.
     for action, roles in ACTION_ROLES.items():
         assert roles, f"action {action!r} has an empty role set"
-    assert ACTION_ROLES["expire"] == {"Super Admin"}, (
-        "the expiry roll is a derived, scheduled operation; it must not be a tenant click")
+
+    # The expiry roll is a derived, scheduled operation, so the property that
+    # matters is not the literal role set - it is that no *human* tenant role can
+    # trigger it with a click, while a machine identity can. Asserting the exact
+    # set would only re-state the implementation and would have failed on a change
+    # that improved it.
+    #
+    # VNT-024: this previously required `Super Admin`, which meant the worker's
+    # service account had to hold `Super Admin` in order to call it.
+    TENANT_ROLES = {
+        "Organization Admin", "Procurement Admin", "Procurement Manager", "Buyer",
+        "Category Manager", "Supplier Manager", "Legal Reviewer", "Finance Reviewer",
+        "Approver", "Auditor", "Read Only",
+    }
+    assert not (ACTION_ROLES["expire"] & TENANT_ROLES), (
+        "a tenant role can trigger a bulk status change with a click")
+    assert "Service Identity" in ACTION_ROLES["expire"], (
+        "the scheduled roll needs a machine identity, so the worker does not have "
+        "to hold Super Admin to call it")
 
 
 # --- VNT-023: signature verification -----------------------------------------
@@ -388,23 +405,94 @@ def test_expiry_roll_is_idempotent_and_clock_injectable(client):
 def test_expiry_roll_uses_the_tenant_timezone(client, monkeypatch):
     """VNT-041: a tenant at UTC-12 reaches its own new year twelve hours before
     a UTC server does, which is a day of drift on a renewal notice."""
-    from app.core.config import get_settings
-    from app.routers.contracts import _tenant_today
-
-    monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Kiritimati")  # UTC+14
-    get_settings.cache_clear()
     from datetime import datetime, timezone as _tz
 
-    kiritimati = _tenant_today("t1")
-    monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Pago_Pago")  # UTC-11
-    get_settings.cache_clear()
-    pago_pago = _tenant_today("t1")
-    # The two zones are 25 hours apart, so the local date can legitimately differ.
-    assert abs((kiritimati - pago_pago).days) <= 1
-    assert get_settings().contract_timezone == "Pacific/Pago_Pago"
+    from app.core.config import get_settings
+    from app.core.tenant import pinned_session
+    from app.routers.contracts import _tenant_today
 
-    # An unknown zone falls back to UTC rather than breaking the roll.
-    monkeypatch.setenv("CONTRACT_TIMEZONE", "Not/AZone")
+    db = pinned_session("t1")
+    try:
+        monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Kiritimati")  # UTC+14
+        get_settings.cache_clear()
+        kiritimati = _tenant_today(db, "t1")
+
+        monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Pago_Pago")  # UTC-11
+        get_settings.cache_clear()
+        pago_pago = _tenant_today(db, "t1")
+        # The two zones are 25 hours apart, so the local date can legitimately differ.
+        assert abs((kiritimati - pago_pago).days) <= 1
+        assert get_settings().contract_timezone == "Pacific/Pago_Pago"
+
+        # An unknown deployment zone falls back to UTC rather than breaking the roll.
+        monkeypatch.setenv("CONTRACT_TIMEZONE", "Not/AZone")
+        get_settings.cache_clear()
+        assert _tenant_today(db, "t1") == datetime.now(_tz.utc).date()
+    finally:
+        db.close()
+        get_settings.cache_clear()
+
+
+def test_a_tenant_timezone_overrides_the_deployment_setting(client, monkeypatch):
+    """VNT-024: the deployment-wide zone was wrong for every tenant that is not
+    at the operator's longitude, and the tenants of a procurement system are
+    normally in different countries.
+
+    A tenant that sets its own zone must get it, and must keep getting it while
+    the deployment setting says something else.
+    """
+    from app.core.config import get_settings
+    from app.core.tenant import pinned_session
+    from app.models.identity import Organization
+    from app.routers.contracts import _tenant_today
+
+    monkeypatch.setenv("CONTRACT_TIMEZONE", "UTC")
     get_settings.cache_clear()
-    assert _tenant_today("t1") == datetime.now(_tz.utc).date()
+
+    db = pinned_session("t1")
+    try:
+        db.add(Organization(tenant_id="t1", created_by="u", updated_by="u",
+                            slug="acme", name="Acme", timezone="Pacific/Kiritimati"))
+        db.add(Organization(tenant_id="t2", created_by="u", updated_by="u",
+                            slug="globex", name="Globex", timezone=""))
+        db.commit()
+
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+
+        # The tenant's own zone wins over the deployment's.
+        expected = datetime.now(ZoneInfo("Pacific/Kiritimati")).date()
+        assert _tenant_today(db, "t1") == expected
+        # A tenant that set nothing inherits the deployment setting.
+        assert _tenant_today(db, "t2") == datetime.now(ZoneInfo("UTC")).date()
+    finally:
+        db.close()
+        get_settings.cache_clear()
+
+
+def test_a_bogus_tenant_timezone_falls_back_rather_than_stopping_the_roll(client, monkeypatch):
+    """A bad row must not stop that tenant's nightly roll.
+
+    A stale contract status is recoverable; a queue that stops draining is not.
+    So an unusable per-tenant zone falls through to the deployment setting.
+    """
+    from app.core.config import get_settings
+    from app.core.tenant import pinned_session
+    from app.models.identity import Organization
+    from app.routers.contracts import _tenant_today
+
+    monkeypatch.setenv("CONTRACT_TIMEZONE", "Europe/Berlin")
     get_settings.cache_clear()
+
+    db = pinned_session("t1")
+    try:
+        db.add(Organization(tenant_id="t1", created_by="u", updated_by="u",
+                            slug="broken", name="Broken", timezone="Mars/Olympus"))
+        db.commit()
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+
+        assert _tenant_today(db, "t1") == datetime.now(ZoneInfo("Europe/Berlin")).date()
+    finally:
+        db.close()
+        get_settings.cache_clear()
