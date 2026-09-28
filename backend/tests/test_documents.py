@@ -20,8 +20,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("OIDC_ISSUER", ISS)
     monkeypatch.setenv("JWT_AUDIENCE", AUD)
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.delenv("S3_ENDPOINT", raising=False)
-    monkeypatch.delenv("S3_BUCKET", raising=False)
+    monkeypatch.setenv("S3_ENDPOINT", "")
+    monkeypatch.setenv("S3_BUCKET", "")
     from app.core.config import get_settings
     from app.core.tenant import get_engine, reset_engine_cache
     from app.services.document import reset_storage_cache

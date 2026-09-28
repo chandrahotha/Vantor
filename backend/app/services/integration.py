@@ -101,7 +101,7 @@ def _count(name: str, *labels: str) -> None:
     able to read about it.
     """
     try:
-        from .observe import incr
+        from app.core.observe import incr
 
         incr(name, *labels)
     except Exception:  # noqa: BLE001 - telemetry is never load-bearing

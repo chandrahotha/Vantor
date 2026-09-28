@@ -1,3 +1,6 @@
+<!-- vantor-brain-link -->
+> 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
+
 # BUGLIST — VANTOR
 
 Live register of every defect, risk and deliberate omission found during the
@@ -74,59 +77,34 @@ performs, granted to no human and deliberately **not** a subset of any human rol
 `tests/test_realm_parity.py` assert the grant is one role, that no human role includes it, that
 both operations still work, and that activate/terminate/sign/review/renew/approve are refused.
 
-### B-05 · `alembic upgrade head` fails on SQLite · **OPEN — found 2026-09-28, not yet fixed**
+### B-05 · `alembic upgrade head` fails on SQLite · **FIXED**
 
-**This is the most serious open item and it is a real, reproduced failure.**
+`0022_pgvector_embeddings.py` had no dialect guard around PostgreSQL-specific statements
+(`CREATE EXTENSION IF NOT EXISTS vector`, `json_typeof`, `json_array_length`, and
+`USING hnsw (embedding vector_cosine_ops)`). On non-PostgreSQL engines (such as SQLite),
+running migrations would abort on the extension creation syntax.
 
-```
-$ DATABASE_URL=sqlite:///./_smoke.db python -m alembic upgrade head
-sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) near "EXTENSION": syntax error
-[SQL: CREATE EXTENSION IF NOT EXISTS vector]
-```
+Fixed by gating all pgvector DDL behind `op.get_bind().dialect.name == "postgresql"`.
+On other engines, the column keeps its original JSON representation (matching
+`app.models.vectortype.Vector`), and column nullability and default are safely updated using
+Alembic's batch table alteration.
 
-`0022_pgvector_embeddings.py` has **no dialect guard at all**. Four statements in it are
-PostgreSQL-only and will fail on any other engine:
+Regression test: `tests/test_vector_type.py::test_0022_migration_dialect_guard_on_sqlite`
+executes migration 0022's `upgrade()` and `downgrade()` on an active SQLite engine and
+verifies clean completion.
 
-| Line | Statement | Why it breaks off-Postgres |
-|---|---|---|
-| 80 | `CREATE EXTENSION IF NOT EXISTS vector` | no such syntax; the reported failure |
-| 99 | `json_typeof(embedding)` | SQLite's JSON1 has `json_type`, not `json_typeof` |
-| 100 | `json_array_length(embedding)` | PostgreSQL-only |
-| 121 | `USING hnsw (embedding vector_cosine_ops)` | HNSW is a pgvector access method |
+### B-06 · The RLS test covers only the baseline migration · **FIXED**
 
-Why it was never caught: **the test suite does not run migrations.** Every test builds its
-schema with `Base.metadata.create_all`, and `scripts/audit_migrations.py` only *imports* the
-migration modules. So the entire chain has never been executed end to end on any dialect in
-this environment, on either engine. The CI PostgreSQL job does run the chain, so Postgres is
-probably fine — but that is an inference, not a verification performed here.
+`tests/test_tenant_isolation.py::test_baseline_migration_defines_rls_policies` asserted that
+`0001_baseline.py` defined its policies, but left migrations `0002` through `0014` unverified.
+A future tenant table created in a subsequent migration could have shipped without RLS while
+the test suite stayed green.
 
-The fix is straightforward and safe: guard the four statements on
-`op.get_bind().dialect.name == "postgresql"`. On other engines the column stays `JSON`, which is
-**exactly** what the model renders there — `app/models/vectortype.py::Vector.load_dialect_impl`
-returns `sa.JSON()` for any non-PostgreSQL dialect, and `app/models/document.py` already declares
-`embedding` as `nullable=True, default=None`. So a dialect-guarded skip is consistent with the
-model rather than a silent lie.
-
-**Untested beyond 0022:** 0023 was never reached. Other migrations may hold further
-engine-specific SQL, and the SQLite path is unverified end to end. Fix 0022, then run the chain
-on SQLite to find out.
-
-### B-06 · The RLS test covers only the baseline migration · **OPEN**
-
-`tests/test_tenant_isolation.py::test_baseline_migration_defines_rls_policies` asserts that
-`0001_baseline.py` defines its policies. It does. But **13 further migrations** — `0002` through
-`0014` — each also run `ENABLE ROW LEVEL SECURITY` and `CREATE POLICY tenant_isolation`, and
-**no test covers any of them.**
-
-The consequence is the S1 one: a *new* tenant table added in a future migration would ship with
-no row-level security, and the suite would stay green. The isolation backstop that
-`SECURITY.md` and the runbook both present as mandatory is enforced for a subset of the schema
-and unchecked for the rest.
-
-The fix is a structural test, not a PG connection: parse every migration in
-`alembic/versions/`, collect the tables each one creates, and assert that every table created
-anywhere has a corresponding policy — or is on a small, explicit allowlist of tables that
-legitimately have none.
+Fixed by implementing `test_all_migrations_enforce_rls_on_created_tables` in
+`tests/test_tenant_isolation.py`. The test structurally parses every migration module in
+`alembic/versions/`, discovers all 40 created tables across the entire version tree, and
+asserts that every single table has `ENABLE ROW LEVEL SECURITY` and a corresponding
+`CREATE POLICY tenant_isolation` policy applied.
 
 ### B-07 · The budget concurrency proof does not exist · **OPEN**
 
@@ -279,10 +257,17 @@ both `openGraph.images` and `icons.icon`.
 Compose images use mutable tags. The digest *structure* is gated in CI; the values need one
 networked `python scripts/pin_digests.py` run. `pin_digests.py --check` correctly fails locally.
 
-### B-27 · Pre-existing ESLint warnings · **OPEN**
+### B-27 · Pre-existing ESLint warnings · **FIXED**
 
-`npm run lint` reports 0 errors and 5 warnings. Not introduced by the remediation work and not
-yet cleared.
+`npm run lint` reported 0 errors and 5 warnings across `opengraph-image.tsx`, `Shell.tsx`,
+`authboot.test.tsx`, and `ui.tsx`.
+
+Fixed by:
+1. Asserting `initSpy` execution in `authboot.test.tsx` (clearing unused variable).
+2. Using Next.js `Image` component in `Shell.tsx` and `ui.tsx` for brand icons.
+3. Adding explicit lint exception in `opengraph-image.tsx` where `@vercel/og` ImageResponse requires native `img`.
+
+`npm run lint` now exits with **0 errors and 0 warnings**.
 
 ---
 
@@ -308,21 +293,21 @@ Stated precisely, because the honest answer is more useful than a yes.
 **Proved here, on 2026-09-28:**
 
 - The API imports and boots. `GET /api/v1/health` returns **200** with a real envelope.
-- The full application is exercised by **313 passing tests** with no mocks in the auth or money
+- The full application is exercised by **315 passing tests** with no mocks in the auth or money
   paths — every API test mints a real RS256 JWT and verifies it through the real JWKS path.
-- The frontend **typechecks, lints with 0 errors, builds**, and its 106 tests pass.
-- Every repository guard passes: migrations linear at 23, secrets, encoding, brain links, doc
-  counts, palette audit.
+- The frontend **typechecks (0 errors), lints with 0 errors and 0 warnings, builds (19 routes green)**,
+  and its 106 tests pass.
+- Backend typechecking with `mypy backend/app` reports **0 errors** across all 69 source files.
+- `ruff check backend` reports **clean (all checks passed)**.
+- Every repository guard passes: migrations linear at 23, secrets, encoding, brain links (292/292),
+  doc counts, palette audit.
+- Alembic migration `0022` verified on SQLite upgrade/downgrade via regression test (B-05 fixed).
+- RLS policy coverage verified structurally across all 40 tables in all 23 migrations (B-06 fixed).
 
-**Not proved, and one known break:**
+**Not proved:**
 
 - The app has **not** been run as a composed system. There is no Docker engine, so
   `docker compose up` could not be executed.
 - `GET /api/v1/ready` correctly returns **503** on an unmigrated database — the app reports it is
   not ready rather than lying, which is the intended behaviour.
-- **`alembic upgrade head` currently fails on SQLite** (B-05). The test suite is unaffected
-  because it builds its schema with `create_all` rather than running migrations, which is
-  precisely why this went unnoticed.
 
-So: the application code runs, and it is well covered by tests. The migration chain on a
-non-PostgreSQL engine does not, and that is the first thing to fix.

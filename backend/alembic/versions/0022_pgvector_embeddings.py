@@ -72,62 +72,86 @@ def _PgVector(dims: int):  # noqa: N802 - mirrors SQLAlchemy's naming
 
 
 def upgrade() -> None:
-    dims = _dims()
+    bind = op.get_bind()
+    is_postgres = getattr(getattr(bind, "dialect", None), "name", "") == "postgresql"
 
-    # pgvector is an extension, so it has to exist before the column type does.
-    # IF NOT EXISTS because the image ships it enabled in some configurations and
-    # this migration must be re-runnable.
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    if is_postgres:
+        dims = _dims()
 
-    # The column keeps its name. It was `JSON` holding a list of floats; the
-    # model's `embedding` attribute is now typed `Vector`, which renders as
-    # `vector(n)` on PostgreSQL. Adding a second column called
-    # `embedding_vector` and dropping `embedding` would have left the ORM pointing
-    # at a name the database no longer had - a failure at query time, in
-    # production, rather than at migration time.
+        # pgvector is an extension, so it has to exist before the column type does.
+        # IF NOT EXISTS because the image ships it enabled in some configurations and
+        # this migration must be re-runnable.
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    # Rows whose stored array is not exactly the declared width cannot become a
-    # vector this column can hold; pgvector rejects them at write time, from a
-    # background job, with no context. NULL them out first so the type change
-    # below cannot fail halfway. NULL means "no vector", and the search path
-    # already treats that as unrankable rather than as a zero similarity.
-    op.execute(
-        f"""
-        UPDATE document_chunks
-           SET embedding = NULL
-         WHERE embedding IS NOT NULL
-           AND (json_typeof(embedding) <> 'array'
-                OR json_array_length(embedding) <> {dims})
-        """
-    )
+        # The column keeps its name. It was `JSON` holding a list of floats; the
+        # model's `embedding` attribute is now typed `Vector`, which renders as
+        # `vector(n)` on PostgreSQL. Adding a second column called
+        # `embedding_vector` and dropping `embedding` would have left the ORM pointing
+        # at a name the database no longer had - a failure at query time, in
+        # production, rather than at migration time.
 
-    # A JSON default of '{}' is not a valid vector, and NOT NULL contradicts the
-    # NULL-means-no-vector convention the new column relies on.
-    op.alter_column("document_chunks", "embedding", server_default=None)
-    op.alter_column("document_chunks", "embedding", nullable=True)
+        # Rows whose stored array is not exactly the declared width cannot become a
+        # vector this column can hold; pgvector rejects them at write time, from a
+        # background job, with no context. NULL them out first so the type change
+        # below cannot fail halfway. NULL means "no vector", and the search path
+        # already treats that as unrankable rather than as a zero similarity.
+        op.execute(
+            f"""
+            UPDATE document_chunks
+               SET embedding = NULL
+             WHERE embedding IS NOT NULL
+               AND (json_typeof(embedding) <> 'array'
+                    OR json_array_length(embedding) <> {dims})
+            """
+        )
 
-    op.alter_column(
-        "document_chunks", "embedding",
-        type_=_PgVector(dims),
-        postgresql_using="embedding::text::vector",
-    )
+        # A JSON default of '{}' is not a valid vector, and NOT NULL contradicts the
+        # NULL-means-no-vector convention the new column relies on.
+        op.alter_column("document_chunks", "embedding", server_default=None)
+        op.alter_column("document_chunks", "embedding", nullable=True)
 
-    # HNSW over the cosine operator: the index does the ranking.
-    # `vector_cosine_ops` matches the `<=>` operator used for ordering. ivfflat
-    # would need a recurring REINDEX to stay accurate, which is an operational
-    # cost for no benefit at this table size; HNSW does not.
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_chunk_embedding_hnsw "
-        "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
-    )
+        op.alter_column(
+            "document_chunks", "embedding",
+            type_=_PgVector(dims),
+            postgresql_using="embedding::text::vector",
+        )
+
+        # HNSW over the cosine operator: the index does the ranking.
+        # `vector_cosine_ops` matches the `<=>` operator used for ordering. ivfflat
+        # would need a recurring REINDEX to stay accurate, which is an operational
+        # cost for no benefit at this table size; HNSW does not.
+        op.execute(
+            "CREATE INDEX IF NOT EXISTS ix_chunk_embedding_hnsw "
+            "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
+        )
+    else:
+        # Non-PostgreSQL dialect: the Vector model type resolves to JSON, matching
+        # the original column type. Reset default and ensure nullable.
+        batch = op.batch_alter_table("document_chunks") if hasattr(op, "batch_alter_table") else None
+        if hasattr(batch, "__enter__"):
+            with batch as batch_op:
+                batch_op.alter_column("embedding", server_default=None, nullable=True)
+        else:
+            op.alter_column("document_chunks", "embedding", server_default=None, nullable=True)
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS ix_chunk_embedding_hnsw")
-    op.alter_column(
-        "document_chunks", "embedding",
-        type_=sa.JSON(),
-        postgresql_using="embedding::text::jsonb",
-    )
-    op.alter_column("document_chunks", "embedding", nullable=False,
-                    server_default=sa.text("'{}'::jsonb"))
+    bind = op.get_bind()
+    is_postgres = getattr(getattr(bind, "dialect", None), "name", "") == "postgresql"
+
+    if is_postgres:
+        op.execute("DROP INDEX IF EXISTS ix_chunk_embedding_hnsw")
+        op.alter_column(
+            "document_chunks", "embedding",
+            type_=sa.JSON(),
+            postgresql_using="embedding::text::jsonb",
+        )
+        op.alter_column("document_chunks", "embedding", nullable=False,
+                        server_default=sa.text("'{}'::jsonb"))
+    else:
+        batch = op.batch_alter_table("document_chunks") if hasattr(op, "batch_alter_table") else None
+        if hasattr(batch, "__enter__"):
+            with batch as batch_op:
+                batch_op.alter_column("embedding", nullable=False, server_default=sa.text("'{}'"))
+        else:
+            op.alter_column("document_chunks", "embedding", nullable=False, server_default=sa.text("'{}'"))

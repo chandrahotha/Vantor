@@ -232,7 +232,7 @@ def _parse_xml(raw: bytes) -> ET.Element | None:
     available and is documented as such.
     """
     try:
-        import defusedxml.ElementTree as DET  # type: ignore[import-not-found]
+        import defusedxml.ElementTree as DET  # type: ignore[import-not-found,import-untyped]
 
         return DET.fromstring(raw)
     except ImportError:

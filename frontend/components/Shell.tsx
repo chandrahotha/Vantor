@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -104,7 +105,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
 
       <nav className="side" aria-label="Primary">
         <div className="brand">
-          <img src="/icons/mark-64.png" alt="VANTOR" width={26} height={26} style={{ borderRadius: 7 }} />
+          <Image src="/icons/mark-64.png" alt="VANTOR" width={26} height={26} style={{ borderRadius: 7 }} />
           <span>
             VANTOR
             <small>by Digi Tracks</small>

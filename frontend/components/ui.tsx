@@ -7,6 +7,7 @@
  *  makes adding write paths safe — a new form inherits the loading, error and
  *  empty-state handling instead of reinventing it.
  */
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearBounces, isLooping, keycloak, login, noteBounce, parseSession, keepFresh, setSession } from "../lib/auth";
 import { setTokenGetter, setRefreshFn } from "../lib/api";
@@ -252,7 +253,7 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
   if (state === "loading") {
     return (
       <div className="authscreen" role="status" aria-live="polite">
-        <img src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
+        <Image src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
         <p className="authscreen-title">Opening VANTOR…</p>
         {error ? <p className="authscreen-sub">{error}</p> : null}
       </div>
@@ -260,7 +261,7 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
   }
   return (
     <div className="authscreen" role={state === "error" ? "alert" : "status"}>
-      <img src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
+      <Image src="/icons/icon-192.png" alt="VANTOR" width={72} height={72} className="authscreen-mark-img" />
       <p className="authscreen-title">
         {state === "signin" ? "Sign in to VANTOR" : "Could not start VANTOR"}
       </p>

@@ -40,7 +40,8 @@ export default async function OpengraphImage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 48 }}>
-          {/* The canonical mark, exact art, no redraw. */}
+          {/* The canonical mark, exact art, no redraw. Next ImageResponse requires raw img. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={brandSrc} style={{ width: 300, height: 300, borderRadius: 64, boxShadow: "0 24px 64px rgba(0,0,0,0.45)" }} alt="VANTOR" />
           <div style={{ display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 92, fontWeight: 800, color: "#FFFFFF", letterSpacing: -3, lineHeight: 1 }}>

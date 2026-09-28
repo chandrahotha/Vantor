@@ -64,6 +64,7 @@ describe("useBoot loop breaker", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/Sign-in is looping/i);
     });
+    expect(initSpy).toHaveBeenCalled();
     vi.restoreAllMocks();
     auth.clearBounces();
   });

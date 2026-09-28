@@ -43,6 +43,65 @@ def test_baseline_migration_defines_rls_policies():
     assert "ENABLE ROW LEVEL SECURITY" in sql
 
 
+def test_all_migrations_enforce_rls_on_created_tables():
+    """B-06: Every table created in any migration must have RLS enabled and a tenant_isolation policy.
+
+    Prevents any new tenant table from being introduced without the mandatory
+    row-level security backstop.
+    """
+    import ast
+    import pathlib
+    import re
+
+    versions = pathlib.Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    created_tables: dict[str, str] = {}
+    tables_with_rls: set[str] = set()
+    tables_with_policy: set[str] = set()
+
+    for path in sorted(versions.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        text = path.read_text(encoding="utf-8")
+
+        for m in re.finditer(r'op\.create_table\(\s*["\']([^"\']+)["\']', text):
+            created_tables[m.group(1)] = path.name
+
+        tables_list: list[str] = []
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in ("TABLES", "TENANT_TABLES"):
+                        if isinstance(node.value, (ast.List, ast.Tuple)):
+                            for elt in node.value.elts:
+                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                    tables_list.append(elt.value)
+
+        if "ENABLE ROW LEVEL SECURITY" in text:
+            if "for table in TABLES" in text or "for table in TENANT_TABLES" in text:
+                for t in tables_list:
+                    tables_with_rls.add(t)
+            for m in re.finditer(r"ALTER TABLE\s+([a-zA-Z0-9_]+)\s+ENABLE ROW LEVEL SECURITY", text):
+                tables_with_rls.add(m.group(1))
+
+        if "CREATE POLICY tenant_isolation" in text:
+            if "for table in TABLES" in text or "for table in TENANT_TABLES" in text:
+                for t in tables_list:
+                    tables_with_policy.add(t)
+            for m in re.finditer(r"CREATE POLICY tenant_isolation ON\s+([a-zA-Z0-9_]+)", text):
+                tables_with_policy.add(m.group(1))
+
+    # Allowlist for tables that legitimately do not have tenant RLS (all 40 tables are tenant-isolated)
+    allowed_no_rls: set[str] = set()
+
+    missing_rls = set(created_tables.keys()) - tables_with_rls - allowed_no_rls
+    assert not missing_rls, f"Tables missing ENABLE ROW LEVEL SECURITY: {sorted(missing_rls)}"
+
+    missing_policy = set(created_tables.keys()) - tables_with_policy - allowed_no_rls
+    assert not missing_policy, f"Tables missing CREATE POLICY tenant_isolation: {sorted(missing_policy)}"
+
+
+
 def test_audit_write_requires_tenant():
     import pytest
 

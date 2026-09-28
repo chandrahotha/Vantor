@@ -5,7 +5,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKIP = {"masterdoc.txt"}
-SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache",
+SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache", ".kilo",
              # Vendored third-party spec bundle (verbatim, read-only input) — indexed by docs/11-specs-06-10/README.md instead.
              "11-specs-06-10"}
 failures = []

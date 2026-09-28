@@ -161,7 +161,7 @@ def _claim(tenant_id: str, fingerprint: str, method: str, path: str) -> tuple[st
                 key=fingerprint, method=method, path=path, state="in_progress",
                 created_at=now, updated_at=now, claimed_at=now,
                 status_code=0, response_body={},
-            ).on_conflict_do_nothing(
+            ).on_conflict_do_nothing(  # type: ignore[attr-defined]
                 index_elements=[IdempotencyKey.tenant_id, IdempotencyKey.key,
                                 IdempotencyKey.method, IdempotencyKey.path]))
             db.commit()
@@ -297,6 +297,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         # VNT-006: claim before executing, not after.
         verdict, stored = await run_in_threadpool(_claim, tenant_id, fingerprint, request.method, path)
         if verdict == "replay":
+            assert stored is not None
             resp = JSONResponse(status_code=stored.status_code, content=stored.response_body)
             resp.headers["Idempotent-Replayed"] = "true"
             return resp

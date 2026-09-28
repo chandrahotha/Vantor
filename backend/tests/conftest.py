@@ -16,6 +16,8 @@ os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("OIDC_ISSUER", "https://issuer.test/realms/vantor")
 os.environ.setdefault("JWT_AUDIENCE", "vantor-web")
+os.environ["S3_ENDPOINT"] = ""
+os.environ["S3_BUCKET"] = ""
 
 PG_TEST_URL = os.getenv("PG_TEST_DATABASE_URL", "").strip()
 

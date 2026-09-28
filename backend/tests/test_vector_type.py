@@ -178,3 +178,31 @@ def test_result_value_normalises_both_representations():
     assert processor([0.1, 0.2], None) == [0.1, 0.2]
     assert processor(None, None) is None
     assert processor("not json", None) is None
+
+
+def test_0022_migration_dialect_guard_on_sqlite():
+    """B-05 regression test: migration 0022 must upgrade and downgrade on non-PostgreSQL engines."""
+    import importlib.util
+    import pathlib
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = pathlib.Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0022_pgvector_embeddings.py"
+    spec = importlib.util.spec_from_file_location("mig_0022_test", path)
+    assert spec and spec.loader
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(sa.text("CREATE TABLE document_chunks (id TEXT PRIMARY KEY, embedding TEXT DEFAULT '{}')"))
+        ctx = MigrationContext.configure(conn)
+        op = Operations(ctx)
+        old_op = getattr(mig, "op", None)
+        mig.op = op
+        try:
+            mig.upgrade()
+            mig.downgrade()
+        finally:
+            mig.op = old_op
+
