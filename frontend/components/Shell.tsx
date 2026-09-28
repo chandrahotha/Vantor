@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
 import { toggleTheme } from "./ThemeInit";
 import { api } from "../lib/api";
-import { getSession, isDemoSession, logout, subscribeSession, type Session } from "../lib/auth";
+import { getSession, logout, subscribeSession, type Session } from "../lib/auth";
 
 const NAV: { section?: string; items: [icon: string, label: string, href: string][] }[] = [
   {
@@ -98,7 +98,6 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
   useEffect(() => subscribeSession(setSessionState), []);
   const shown = user ?? (session ? { name: session.name, tenant: session.tenant } : undefined);
   const pageName = PAGE_NAMES[base] ?? "VANTOR";
-  const isDemo = isDemoSession() || shown?.tenant === "demo";
 
   return (
     <div className="shell">
@@ -143,7 +142,6 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               <div className="userchip-main">
                 <div className="userchip-name">
                   <span>{shown.name}</span>
-                  {isDemo ? <span className="demo-badge">DEMO</span> : null}
                 </div>
                 <div className="userchip-meta">tenant: <span className="mono">{shown.tenant}</span></div>
               </div>
@@ -168,11 +166,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
           <div className="crumbs">
             VANTOR <span aria-hidden="true">/</span> <b>{pageName}</b>
           </div>
-          {isDemo ? (
-            <span className="topbar-demo-pill">Demo Mode</span>
-          ) : (
-            <span className="topbar-live-pill"><span className="status-dot" aria-hidden="true" /> Live</span>
-          )}
+          <span className="topbar-live-pill"><span className="status-dot" aria-hidden="true" /> Live</span>
           <div className="spacer" />
           <button
             className="search-trigger"

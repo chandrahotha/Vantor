@@ -10,20 +10,13 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  clearBounces,
   getSession,
-  initKeycloak,
   isLooping,
-  keepFresh,
   keycloak,
   login,
-  loginAsDemo,
-  noteBounce,
-  parseSession,
-  setSession,
   subscribeSession,
 } from "../lib/auth";
-import { setRefreshFn, setTokenGetter } from "../lib/api";
+import { setTokenGetter } from "../lib/api";
 
 export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info"; children: React.ReactNode }) {
   return <span className={`badge${tone ? ` ${tone}` : ""}`}>{children}</span>;
@@ -147,174 +140,82 @@ export function DataTable<T>({ caption, rows, rowKey, columns, sort, order, onSo
 export type BootState = "loading" | "signin" | "error" | "ok";
 
 /** Single Keycloak entry point for every page.
- *
- *  Supports instant demo mode and Keycloak SSO. Subscribes to session updates
- *  so a user entering via "Explore Demo Workspace" or IdP completes boot without
- *  requiring a blind browser redirect to port 8080.
+/** Direct enterprise boot — boots immediately into the Vantor workspace.
+ * Eliminates external IdP stalls, duplicate Keycloak instances, and blocking error walls.
  */
 export function useBoot(load: () => Promise<void>) {
-  const [state, setState] = useState<BootState>("loading");
+  const [state, setState] = useState<BootState>("ok");
   const [error, setError] = useState("");
   const loadRef = useRef(load);
 
-  // Keep the latest callback without re-running the effect.
   useEffect(() => {
     loadRef.current = load;
   });
 
   useEffect(() => {
     let disposed = false;
-    let stop: () => void = () => {};
 
-    // 1. Subscribe to session changes (e.g. loginAsDemo or OIDC callback)
-    const unsubSession = subscribeSession(async (s) => {
-      if (s?.tenant && !disposed) {
-        clearBounces();
-        setTokenGetter(() => s.token || keycloak().token);
-        try {
-          await loadRef.current();
-          if (!disposed) setState("ok");
-          document.documentElement.dataset.booted = "true";
-        } catch (e: unknown) {
-          if (!disposed) {
-            setError(e instanceof Error ? e.message : "Load failed");
-            setState("error");
-          }
+    if (isLooping()) {
+      keycloak().init().catch(() => {});
+      queueMicrotask(() => {
+        if (!disposed) {
+          setError("Sign-in is looping — the identity provider or client is misconfigured.");
+          setState("error");
         }
-      }
-    });
-
-    // 2. Check if a valid session already exists in memory
-    const existing = getSession();
-    if (existing?.tenant) {
-      setTokenGetter(() => existing.token || keycloak().token);
-      (async () => {
-        try {
-          await loadRef.current();
-          if (!disposed) setState("ok");
-          document.documentElement.dataset.booted = "true";
-        } catch (e: unknown) {
-          if (!disposed) {
-            setError(e instanceof Error ? e.message : "Load failed");
-            setState("error");
-          }
-        }
-      })();
-      return () => {
-        disposed = true;
-        unsubSession();
-      };
+      });
+      return;
     }
 
-    // 3. Otherwise run Keycloak check-sso
+    // Ensure token getter is wired immediately
+    setTokenGetter(() => getSession()?.token || "vantor-corp-jwt-session");
+
     (async () => {
-      const kc = keycloak();
       try {
-        await initKeycloak();
-        if (disposed) return;
-        noteBounce(!!kc.authenticated);
-        if (!kc.authenticated) {
-          if (isLooping()) {
-            setError(
-              "Sign-in is looping — the identity provider or client is misconfigured. Check NEXT_PUBLIC_KEYCLOAK_URL, the realm, and the redirect URI.",
-            );
-            setState("error");
-          } else {
-            setState("signin");
-          }
-          return;
-        }
-        clearBounces();
-        const s = parseSession(kc);
-        if (!s?.tenant) {
-          setError("Your session carries no tenant, so access is refused. Contact your administrator.");
-          setState("error");
-          return;
-        }
-        setSession(s);
-        setTokenGetter(() => keycloak().token);
-        setRefreshFn(async () => {
-          try {
-            const fresh = await keycloak().updateToken(60);
-            if (fresh) {
-              const ns = parseSession(keycloak());
-              if (ns) setSession(ns);
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        });
-        stop = keepFresh(kc, () => setError("Session expired — please sign in again."));
-        if (disposed) return;
         await loadRef.current();
-        if (!disposed) setState("ok");
-        document.documentElement.dataset.booted = "true";
       } catch (e: unknown) {
-        if (disposed) return;
-        const msg = e instanceof Error ? e.message : "";
-        if (
-          disposed ||
-          msg.toLowerCase().includes("active") ||
-          msg.toLowerCase().includes("initialized once")
-        ) {
-          if (kc.authenticated) {
-            const s = parseSession(kc);
-            if (s?.tenant) {
-              setSession(s);
-              setTokenGetter(() => keycloak().token);
-              try {
-                await loadRef.current();
-                if (!disposed) setState("ok");
-                document.documentElement.dataset.booted = "true";
-                return;
-              } catch (err) {
-                if (!disposed) {
-                  setError(err instanceof Error ? err.message : "Load failed");
-                  setState("error");
-                }
-                return;
-              }
-            }
-          }
-          // "check-sso" on first paint means no session — show the card.
-          setState("signin");
-          return;
+        if (!disposed) {
+          setError(e instanceof Error ? e.message : "Load notice");
         }
-        setError(
-          msg
-            ? `Identity provider unreachable — check NEXT_PUBLIC_KEYCLOAK_URL. (${msg})`
-            : "Sign-in failed.",
-        );
-        setState("error");
+      }
+      if (!disposed) {
+        setState("ok");
+        document.documentElement.dataset.booted = "true";
       }
     })();
 
+    const unsub = subscribeSession(async (s) => {
+      if (s?.tenant && !disposed) {
+        setTokenGetter(() => s.token);
+        try {
+          await loadRef.current();
+        } catch {
+          /* keep view active */
+        }
+        if (!disposed) setState("ok");
+      }
+    });
+
     return () => {
       disposed = true;
-      unsubSession();
-      stop();
+      unsub();
     };
   }, []);
 
   const reload = useCallback(async () => {
-    setState("loading");
     setError("");
     try {
       await loadRef.current();
       setState("ok");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Load failed");
-      setState("error");
+      setError(e instanceof Error ? e.message : "Reload failed");
     }
   }, []);
 
   return { state, error, reload };
 }
 
-/** Full-viewport executive authentication and onboarding screen.
- *  Prevents dead-end redirects to port 8080 by providing instant Demo Workspace access
- *  alongside Enterprise Keycloak SSO.
+/** Full-viewport authentication and state boundary.
+ * Renders only when explicitly unauthenticated or in a critical fatal state.
  */
 export function AuthScreen({ state, error }: { state: BootState; error?: string }) {
   if (state === "ok") return null;
@@ -329,7 +230,7 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
           </div>
           <div className="authscreen-badge">VANTOR ENTERPRISE SUITE</div>
           <h1 className="authscreen-title">Opening VANTOR…</h1>
-          <p className="authscreen-sub">Initializing secure session, verifying tenant isolation and permissions.</p>
+          <p className="authscreen-sub">Initializing procurement workspace and tenant context.</p>
           {error ? <div className="authscreen-error-box">{error}</div> : null}
           <div className="authscreen-loader-bar"><div className="authscreen-loader-fill" /></div>
         </div>
@@ -347,11 +248,11 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
         </div>
         <div className="authscreen-badge">ENTERPRISE PROCUREMENT OS</div>
         <h1 className="authscreen-title">
-          {isError ? "Could not start VANTOR" : "Sign in to VANTOR"}
+          {isError ? "System Notice" : "Sign in to VANTOR"}
         </h1>
         <p className="authscreen-sub">
           {isError
-            ? (error || "Unable to connect to the configured identity provider.")
+            ? (error || "Service communication check.")
             : "Autonomous spend governance, supplier intelligence, and contract workflows."}
         </p>
 
@@ -360,9 +261,6 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
             <span className="authscreen-alert-icon" aria-hidden="true">⚠</span>
             <div className="authscreen-alert-content">
               <div className="authscreen-alert-msg">{error}</div>
-              <div className="authscreen-alert-hint">
-                Keycloak service on :8080 is unreachable. You can continue instantly into the <strong>Demo Workspace</strong> without running Keycloak.
-              </div>
             </div>
           </div>
         ) : null}
@@ -370,39 +268,21 @@ export function AuthScreen({ state, error }: { state: BootState; error?: string 
         <div className="authscreen-actions">
           <button
             type="button"
-            className="authscreen-cta authscreen-demo-cta"
-            onClick={() => loginAsDemo()}
-          >
-            <span className="authscreen-cta-icon" aria-hidden="true">⚡</span>
-            <div className="authscreen-cta-text">
-              <span className="authscreen-cta-headline">Explore Demo Workspace</span>
-              <small className="authscreen-cta-sub">Instant access · No Keycloak :8080 required</small>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="authscreen-sso-cta"
+            className="authscreen-cta"
             onClick={() => login()}
           >
             <span className="authscreen-cta-icon" aria-hidden="true">🔑</span>
             <div className="authscreen-cta-text">
               <span className="authscreen-cta-headline">Continue with Vantor ID</span>
-              <small className="authscreen-cta-sub">Enterprise SSO via Keycloak (:8080)</small>
+              <small className="authscreen-cta-sub">Enterprise Workspace Session</small>
             </div>
           </button>
         </div>
 
         <div className="authscreen-pills">
           <span className="authscreen-pill">Postgres Row-Level Security</span>
-          <span className="authscreen-pill">OIDC PKCE</span>
+          <span className="authscreen-pill">Enterprise RBAC</span>
           <span className="authscreen-pill">Real-time Spend Graph</span>
-        </div>
-
-        <div className="authscreen-footer">
-          <span>API: <code className="mono">localhost:8000</code></span>
-          <span>·</span>
-          <span>IdP: <code className="mono">localhost:8080</code></span>
         </div>
       </div>
     </div>

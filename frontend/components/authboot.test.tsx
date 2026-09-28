@@ -37,23 +37,24 @@ describe("AuthScreen states", () => {
     render(<AuthScreen state="signin" />);
     expect(screen.getByRole("status")).toHaveTextContent("Sign in to VANTOR");
     expect(screen.getByRole("button", { name: /Continue with Vantor ID/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Explore Demo Workspace/i })).toBeInTheDocument();
   });
 
-  it("announces errors assertively, with the real message and demo fallback", () => {
+  it("announces errors assertively, with the real message", () => {
     render(<AuthScreen state="error" error="Identity provider unreachable" />);
     const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent("Could not start VANTOR");
+    expect(alert).toHaveTextContent("System Notice");
     expect(alert).toHaveTextContent("Identity provider unreachable");
-    expect(screen.getByRole("button", { name: /Explore Demo Workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue with Vantor ID/i })).toBeInTheDocument();
   });
 
-  it("loginAsDemo creates a session and allows instant workspace entry", () => {
-    const s = auth.loginAsDemo();
-    expect(s.tenant).toBe("demo");
-    expect(auth.isDemoSession()).toBe(true);
+  it("defaultSession creates an enterprise session and allows instant workspace entry", () => {
+    const s = auth.defaultSession();
+    expect(s.tenant).toBe("vantor-corp");
+    expect(s.roles).toContain("Buyer");
+    auth.setSession(s);
+    expect(auth.getSession()?.tenant).toBe("vantor-corp");
     auth.logout();
-    expect(auth.isDemoSession()).toBe(false);
+    expect(auth.getSession()).toBeNull();
   });
 });
 

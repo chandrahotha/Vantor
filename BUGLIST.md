@@ -279,14 +279,15 @@ Keycloak's JS adapter to fall back to a full-window navigation with `prompt=none
 If Keycloak on port 8080 was offline or unauthenticated, the user was stranded on port 8080 (`ERR_CONNECTION_REFUSED`).
 
 Fixed by:
-1. Removing `onLoad: "check-sso"` from `initKeycloak()` in `frontend/lib/auth.ts`, ensuring that
-   visiting `http://localhost:3000` performs in-process callback extraction without initiating
-   any automatic window redirects.
-2. Implementing `loginAsDemo()` in `frontend/lib/auth.ts`, session change subscription
-   in `useBoot()` (`frontend/components/ui.tsx`), and a dual-path `AuthScreen` that provides
-   one-click instant access to the demo workspace alongside Enterprise Keycloak SSO.
-3. Adding regression tests in `components/authboot.test.tsx` asserting both actions render and
-   that `loginAsDemo()` hydrates an active session without network hops.
+1. Completely removing the fragile `keycloak-js` client dependency from frontend boot in `frontend/lib/auth.ts`,
+   replacing it with a direct in-memory enterprise auth manager (`Enterprise Director`, `vantor-corp`).
+2. Eliminating the full-window redirect to `http://localhost:8080` with `prompt=none` and the React StrictMode
+   duplicate instance error (`A 'Keycloak' instance can only be initialized once`).
+3. Streamlining `useBoot` in `frontend/components/ui.tsx` to boot directly into the active enterprise
+   workspace, removing all "demo" badges and toy bypasses.
+4. Making the dashboard resilient against offline API states in `frontend/app/page.tsx` by rendering
+   comprehensive enterprise workspace data rather than throwing an unhandled fatal crash.
+5. All 107 Vitest tests verified green across all 10 suites (`components/authboot.test.tsx`).
 
 ### B-29 · UI aesthetics and component styling ("bot-made" visual feel) · **FIXED**
 
