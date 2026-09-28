@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clearBounces,
   getSession,
+  initKeycloak,
   isLooping,
   keepFresh,
   keycloak,
@@ -209,7 +210,7 @@ export function useBoot(load: () => Promise<void>) {
     (async () => {
       const kc = keycloak();
       try {
-        await kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false });
+        await initKeycloak();
         if (disposed) return;
         noteBounce(!!kc.authenticated);
         if (!kc.authenticated) {
@@ -252,7 +253,30 @@ export function useBoot(load: () => Promise<void>) {
       } catch (e: unknown) {
         if (disposed) return;
         const msg = e instanceof Error ? e.message : "";
-        if (disposed || msg.toLowerCase().includes("active")) {
+        if (
+          disposed ||
+          msg.toLowerCase().includes("active") ||
+          msg.toLowerCase().includes("initialized once")
+        ) {
+          if (kc.authenticated) {
+            const s = parseSession(kc);
+            if (s?.tenant) {
+              setSession(s);
+              setTokenGetter(() => keycloak().token);
+              try {
+                await loadRef.current();
+                if (!disposed) setState("ok");
+                document.documentElement.dataset.booted = "true";
+                return;
+              } catch (err) {
+                if (!disposed) {
+                  setError(err instanceof Error ? err.message : "Load failed");
+                  setState("error");
+                }
+                return;
+              }
+            }
+          }
           // "check-sso" on first paint means no session — show the card.
           setState("signin");
           return;

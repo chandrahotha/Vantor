@@ -46,12 +46,14 @@ const APP_ORIGIN = new URL(
   process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
 ).origin;
 const IS_HTTPS = APP_ORIGIN.startsWith("https://");
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 const csp = [
   "default-src 'self'",
   // Next injects an inline bootstrap script; without 'unsafe-inline' the app
-  // would not boot. Every other script must be external, from 'self'.
-  "script-src 'self' 'unsafe-inline'",
+  // would not boot. React devtools and Turbopack require 'unsafe-eval' in dev mode
+  // for sourcemaps and callstack reconstruction.
+  `script-src 'self' 'unsafe-inline'${IS_DEV ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

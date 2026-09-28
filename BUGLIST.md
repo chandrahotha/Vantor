@@ -308,6 +308,24 @@ instead of the actual count (315 backend / 107 frontend).
 Fixed by synchronizing `frontend/README.md` and root `README.md` with the verified production
 codebase, documenting both local Demo mode (Option A) and Keycloak SSO (Option B) quickstart workflows.
 
+### B-31 · React StrictMode Keycloak double-init and dev CSP eval error · **FIXED**
+
+In React StrictMode (`reactStrictMode: true`) and during Fast Refresh / Turbopack dev reloads,
+`useBoot` triggered multiple calls to `keycloak().init()` on the same singleton instance, throwing
+`Error: A 'Keycloak' instance can only be initialized once.`, which falsely downgraded the boot
+state to `"error"`. Additionally, Next.js's strict Content Security Policy blocked `eval()` in
+development mode, causing React's devtools error overlay to report
+`eval() is not supported in this environment`.
+
+Fixed by:
+1. Introducing an idempotent `initKeycloak()` promise in `frontend/lib/auth.ts` that deduplicates
+   concurrent or repeated initialization calls, checking `kc.didInitialize` first.
+2. In `frontend/components/ui.tsx`, catching and treating "initialized once" and "active" states as
+   successful initializations rather than identity provider errors.
+3. In `frontend/next.config.mjs`, dynamically adding `'unsafe-eval'` to `script-src` only when
+   `NODE_ENV !== "production"`, keeping production strict while unblocking Turbopack/React sourcemap
+   reconstruction in local dev.
+
 ---
 
 ## Environment: what could not be verified at all

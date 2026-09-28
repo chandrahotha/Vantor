@@ -43,6 +43,8 @@ export function loginAsDemo(): Session {
   return s;
 }
 
+let initPromise: Promise<boolean> | null = null;
+
 export function keycloak(): Keycloak {
   if (demoEnabled()) {
     // A real Keycloak back door. No IdP redirect : the show-through is the
@@ -66,6 +68,25 @@ export function keycloak(): Keycloak {
 /** Reset the singleton after a failed init so a retry creates a fresh instance. */
 export function resetKeycloak(): void {
   instance = null;
+  initPromise = null;
+}
+
+/** Initialize Keycloak idempotently — prevents "A Keycloak instance can only be initialized once". */
+export async function initKeycloak(): Promise<boolean> {
+  const kc = keycloak();
+  if (kc.didInitialize) {
+    return !!kc.authenticated;
+  }
+  if (!initPromise) {
+    initPromise = kc
+      .init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
+      .catch((err) => {
+        initPromise = null;
+        resetKeycloak();
+        throw err;
+      });
+  }
+  return initPromise;
 }
 
 export function login(): void {
@@ -76,7 +97,7 @@ export function login(): void {
   const kc = keycloak();
   try {
     if (!kc.didInitialize) {
-      kc.init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
+      initKeycloak()
         .then(() => { if (!kc.authenticated) kc.login(); })
         .catch(() => { /* error state in AuthScreen shows */ });
       return;
