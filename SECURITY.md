@@ -23,6 +23,7 @@
 
 - OIDC (Keycloak) + MFA, short-lived JWT + rotating refresh tokens
 - RBAC + resource-level authz + `tenant_id` RLS on every query
+- Machine identities least-privilege by construction (see below)
 - Tenant-aware cache/search/storage/logs/AI context — cross-tenant tests mandatory
 - TLS everywhere, encryption at rest (managed disk/KMS in prod), secret manager (never `.env` in git)
 - Validated uploads (type/size), object storage only, malware-scan hook, OCR sandboxing
@@ -30,6 +31,44 @@
 - Immutable audit log for all significant actions + AI tool calls
 - `npm audit` / `pip audit` + container + migration checks in CI (`/.github/workflows/ci.yml`)
 - AI treated as untrusted-input boundary: typed tools only, no raw SQL/shell, prompt-injection defenses (`docs/03-ai/safety.md`)
+
+## Where the Content-Security-Policy actually applies
+
+A CSP delivered by one origin does **not** apply to documents served by another.
+VANTOR runs the API and the web app on separate origins, and the pages a user
+actually reads are served by Next — so the API's policy, however strict, was
+never governing the application UI. Both hosts therefore set their own:
+
+| Host | Where | Notes |
+|---|---|---|
+| API | `backend/app/core/secheaders.py` | No `unsafe-inline` for scripts. |
+| Web app | `frontend/next.config.mjs` | Static headers, so correct on the first response. |
+
+The app's `script-src` needs `'unsafe-inline'` because Next injects its own
+bootstrap script into the document; a nonce cannot reach a build-time stylesheet
+or script. That is stated in the config rather than hidden, and it is the one
+directive weaker than the API's. Everything else is held tight: `default-src
+'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`,
+`frame-ancestors 'none'`, plus `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer` and a restrictive `Permissions-Policy`.
+
+Allowed origins in the app's policy are **derived** from `NEXT_PUBLIC_API_URL` and
+`NEXT_PUBLIC_KEYCLOAK_URL`, not hardcoded — a pinned `localhost:8000` would have
+blocked the API call in every other deployment while looking correct in the source.
+HSTS and `upgrade-insecure-requests` are emitted only when the app is actually
+served over https, so the configuration does not claim a protection it is not
+providing. `frontend/next.config.test.ts` asserts all of this.
+
+## Machine identities
+
+The worker holds a dedicated `Service Identity` realm role covering exactly the two
+operations it performs: the contract expiry roll and the webhook drain. It is
+granted to no human and is intentionally **not** a subset of any human role, so
+"the worker can do X" and "a person can do X" are independent claims and the
+tests check them separately. A leaked worker token is not an administrative token.
+
+A leaked worker secret does grant reach to the tenant the token belongs to. Scope
+that by issuing one service account per tenant rather than widening the role.
 
 ## Out of scope
 

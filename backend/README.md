@@ -27,26 +27,39 @@ python -m pytest tests -q
 
 ## Gates
 
-- **305 tests collected**, no mocks in the auth or money paths. Every API test mints a real RS256 JWT
-  and verifies it through the real JWKS path; `unittest.mock` appears nowhere in the suite.
+- **315 tests collected** (313 pass, 2 skip for want of PostgreSQL), no mocks in the auth or money
+  paths. Every API test mints a real RS256 JWT and verifies it through the real JWKS path;
+  `unittest.mock` appears nowhere in the suite.
 - Tenant isolation: application filters **and** the RLS backstop.
   `test_no_unpinned_sessions_outside_request_cycle` fails the build if any code opens a session
   without `pinned_session()` — SQLite cannot catch that class of bug, so it is checked structurally.
-- Alembic chain 0001–0015 is linear with a single head; CI runs `upgrade head` → `check` →
+- Alembic chain 0001–0023 is linear with a single head; CI runs `upgrade head` → `check` →
   `downgrade -1` → `upgrade head` on real Postgres.
 - No fake auth, no mock data, no hardcoded tenants — fail-closed 401/403.
 
 ## What is NOT here (do not assume it)
 
-- **Document pipeline is ~30%.** `validate → store → extract → chunk → audit` are real. OCR,
-  embedding, semantic index, analysis, evidence and review are absent. `embedding` is an empty
-  dict; search is `ILIKE` only.
-- **Storage is local disk.** `S3_*` appears in `.env.example` and MinIO runs in compose, but no
-  code reads those variables.
-- **`/ai/stream` is not provider-streamed.** Frames are cut from the completed response; each
-  frame carries `"streamed": false`.
-- **`evidence` is always `[]`.** The gateway returns an empty list on every path.
-- **Requisitions are untested at the API level.** `POST /requisitions` and `/submit` have no test,
-  so the tier-seeding logic is unverified.
+- **The cosine re-rank is real geometry, not semantics.** Vectors are stored and compared for
+  real (pgvector column, HNSW index, dimension validation), but a plain cosine over bag-of-words
+  vectors is lexical, not semantic. `/documents/search` labels its mode honestly in the response
+  and the label is asserted in tests, because "semantic search" in a demo would be a lie.
+  Embeddings default to `disabled`; with no provider configured, chunks carry no vector and
+  search is keyword-only rather than ranked on zero vectors.
 - **`test_tenant_isolation.py` asserts RLS policy *SQL shape*, not runtime behaviour**, because
-  the test DB is SQLite and has no RLS. Only CI's Postgres run exercises the real policy.
+  the test DB is SQLite and has no RLS. The policy was proven against genuine PostgreSQL 18 once,
+  on 2026-09-26 (see `../docs/09-operations/runbook.md` §7), but that run's revision was not
+  recorded and no PostgreSQL is available in the current environment.
+- **The RLS test only covers the baseline migration.** It checks that `0001_baseline.py` defines
+  its policies; the 13 later migrations that also enable RLS are uncovered, so a new tenant table
+  could ship with no policy and the suite would stay green.
+- **The budget row lock is unproven under concurrency.** `check_budget` takes
+  `with_for_update` on the budget row before reading the aggregate, which is the right mechanism,
+  but the concurrency test the docstring once referred to does not exist and SQLite renders no
+  `FOR UPDATE`. Treat the ceiling as enforced by construction, not verified.
+- **`check_budget` is per (category, period).** A tenant that spends in a category with no budget
+  row set is unchecked — `{"checked": false}` is returned and the approval proceeds.
+- **Document OCR is still absent.** `validate → store → extract → chunk → embed → audit` are
+  real; a scanned PDF with no text layer is quarantined, not OCR'd.
+- **Storage is driver-selected, not local-only.** `STORAGE_DRIVER=filesystem|s3` exists and the
+  S3/MinIO path reads `S3_*`, but the compose default is filesystem, so the S3 path is not
+  exercised by the default local stack.

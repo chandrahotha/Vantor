@@ -6,12 +6,16 @@
 ## Repository
 
 - Archive: `Vantor-main.zip`
-- Files: **671**
+- Files: **842** tracked (the original audit counted 671; the tree has grown since)
 - Top-level directories: .env.example, .github, .gitignore, .pytest_cache, CHANGELOG.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, LICENSE, README.md, SECURITY.md, android, api, assets, backend, docker-compose.yml, docs, frontend, mkdocs.yml, pytest.ini, scripts, worker
 - Backend Python application: `backend/app`
 - Frontend: `frontend/app`, `frontend/components`, `frontend/lib`
 - Worker: `worker`
-- Migrations: `backend/alembic/versions` (20 files)
+- Migrations: `backend/alembic/versions` — **23 migrations** (`0001`–`0023`, plus `__init__.py`).
+  One linear chain, single head, `upgrade` and `downgrade` on each, gated by
+  `scripts/audit_migrations.py`. RLS policy behaviour was proven against genuine PostgreSQL 18 on
+  2026-09-26 (runbook §7), but the revision tested was not recorded and no PostgreSQL is available
+  in the current environment, so the PG-gated tests skip here.
 
 ## Current stack from live manifests
 
@@ -51,3 +55,21 @@ The repository is a modular monolith with separate worker and frontend deploymen
 ## Primary maturity observation
 
 The core workflow is real and substantial, but high-risk gaps cluster at transaction boundaries, authorization consistency, durable integrations/storage, AI evidence enforcement, production bootstrap, and UI/UX maturity.
+
+## What has changed since this baseline was taken (2026-09-28)
+
+Recorded so the staleness above is not mistaken for a description of the current tree.
+
+- **Worker least privilege.** The worker's service account was granted `Super Admin` +
+  `Procurement Admin` + `Procurement Manager`; it now holds one role, `Service Identity`,
+  covering only the expiry roll and the webhook drain.
+- **Per-tenant business timezone.** `organizations.timezone` plus migration `0023`, replacing a
+  single deployment-wide `CONTRACT_TIMEZONE` for every tenant.
+- **A CSP on the web app's own responses.** The API's policy governed the wrong origin.
+- **Two post-audit defects fixed:** the sourcing optimizer had no role gate, and the webhook
+  drain defaulted its tenant scope to every tenant.
+- **Test totals:** backend 315 collected (313 passed, 2 skipped for want of PostgreSQL), frontend
+  106 passed across 10 files.
+
+Still true, and still the reason this is not closer to production: no PostgreSQL run, no browser
+E2E/accessibility/visual gate, and no resolved image digests.

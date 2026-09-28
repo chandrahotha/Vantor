@@ -82,11 +82,67 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Changed
 
+- **The worker is no longer an administrator.** Its service account held `Super Admin`,
+  `Procurement Admin` and `Procurement Manager` — purely because the contract expiry roll
+  required `Super Admin` and the webhook drain required the operations roles. There is now a
+  `Service Identity` realm role covering exactly those two operations, granted to the worker
+  and to no human, and deliberately not a subset of any human role. The secret behind the old
+  grants lives in the environment of two containers, so a leaked environment was a fully
+  administrative token. `deploy/keycloak/provision.py` grants exactly one role;
+  `tests/test_realm_parity.py` asserts the grant, that no human role includes it, that both
+  worker operations still work, and that the administrative ones are refused.
+- **"Within 90 days" is now evaluated in the buyer's own timezone.** It used one
+  deployment-wide `CONTRACT_TIMEZONE`, which is correct for exactly one customer. A buyer at
+  UTC-12 reaches their own 1 January twelve hours before a UTC server does, so the renewal
+  notice fired a day early or late — and the tenants of a procurement system are normally in
+  different countries. Migration `0023_tenant_timezone` adds `organizations.timezone` (empty
+  means "inherit", so upgrading changes nothing); resolution is tenant → `CONTRACT_TIMEZONE` →
+  UTC, and an unusable zone at any level falls through rather than stalling the nightly roll.
+- Security headers on the web app's **own** responses, in `frontend/next.config.mjs`. The API's
+  CSP was on the wrong host: a policy delivered by the API governs documents the API serves, so
+  the pages a user reads ran with no CSP at all. Allowed origins are derived from
+  `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded, and HSTS is emitted
+  only when the app is actually served over https.
 - `.env.example` ships `AI_PROVIDER=disabled` and `EMBEDDING_PROVIDER=disabled` to match the
   compose profiles, so a fresh clone is honest (UNKNOWN) rather than failing to connect.
 - Sidebar now lists all 13 workspaces; Requisitions, the Negotiation simulator and Integrations
   were previously reachable only via the command palette.
 - `GET /spend/price-cases` is keyset-paginated like every other list endpoint.
+
+### Fixed
+
+- **`POST /rfqs/{id}/optimize` had no role check at all** — the only endpoint in `sourcing`
+  that skipped `_write`. It commits an audit event and returns the allocation that decides who
+  wins a buy, so any authenticated tenant member, including a supplier-side or read-only
+  account, could enumerate RFQs and harvest that recommendation. Now gated, with tests from
+  both sides: five role sets refused (including the empty set, which must fail closed) and
+  three admitted.
+- **`drain()` defaulted its tenant scope to "every tenant".** The signature was
+  `tenant_id: str = ""` and the filter was applied only `if tenant_id:`, so a caller that
+  omitted the argument would have sent *every* tenant's queued webhook payloads to *every*
+  tenant's registered endpoints. `tenant_id` is now required, and the predicate is part of the
+  statement's own where-clause. The tenant-isolation property had no test at all, which is why
+  it could be weakened unnoticed; two tests now pin it and both were mutation-checked to
+  confirm they fail when the filter is removed.
+- `README.md` line 59 carried a stray `lines="` prefix that stopped the "what works today"
+  checklist from rendering. The test count in the run-locally block also said 298.
+- Three type imprecisions that made a reader's job harder: one name bound to both a tuple and
+  a list in mutually exclusive branches of `security.py`; `_claim` annotated as returning
+  `object` when it always returns an `IdempotencyKey`; and a CORS dedupe that relied on
+  `set.add` returning `None` inside a boolean `or`.
+
+### Audited, no defect found
+
+Recorded so the next reader does not repeat the work:
+
+- **All 137 `select()` calls** in the routers and services were audited for the shape that
+  looks correctly filtered but is not tenant-scoped. 133 carry a tenant predicate; of the four
+  that do not, three delegate to a correct helper and one was the `drain()` bug above.
+  Modify/delete statements were audited the same way and are clean.
+- **Money arithmetic** — every division and rounding in the money paths, and the direction of
+  each. A non-positive price baseline raises rather than dividing by zero, and the budget check
+  takes a row lock on the budget before reading the aggregate, so two concurrent approvals
+  cannot both pass.
 
 ---
 

@@ -81,8 +81,15 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
     decoration: it is a real write against the locked row, so the lock is
     definitely acquired before the read rather than merely requested.
 
-    On SQLite (`with_for_update` renders nothing) this is a no-op, which is why
-    the concurrency proof is `tests/test_pg_concurrency.py`, not a unit test.
+    On SQLite (`with_for_update` renders nothing) this is a no-op, so the lock cannot be
+    exercised by a unit test here.
+
+    **The concurrency proof is still missing.** An earlier version of this comment pointed at
+    `tests/test_pg_concurrency.py`, which does not exist — the reasoning above describes the
+    intended guarantee, not a verified one. Writing that test needs a real PostgreSQL, since
+    SQLite renders no `FOR UPDATE` and would pass regardless of whether the lock is correct.
+    Until it exists, treat the ceiling as enforced by construction but unproven under
+    concurrency.
     """
     if not category_id:
         return {"checked": False}

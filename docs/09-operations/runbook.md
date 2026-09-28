@@ -60,11 +60,26 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
 
 - `python worker/enqueue.py roll_expiry` (needs `SERVICE_API_TOKEN` — Keycloak service account).
 - Queues: `default`, `documents`. Failed RQ jobs stay in the registry for inspection — never silently dropped.
+- **The worker holds one role, `Service Identity`, and not an administrative one.** It can run the
+  contract expiry roll and the webhook drain, and nothing else — it cannot activate, terminate,
+  sign, review or renew a contract or approve a requisition. If you need it to do more, do not
+  widen the role; the fix is a new narrowly-scoped role, because widening `Service Identity`
+  silently widens what every leaked worker secret can reach. `test_realm_parity.py` enforces the
+  grant and the refusals.
+- **The worker only acts on its own tenant.** Both its operations go through tenant-scoped routes,
+  so a service token scoped to tenant A rolls A's contracts and delivers A's webhooks only. In a
+  multi-tenant deployment you need one service account per tenant, or a deliberately
+  cross-tenant identity — which is a different design decision, not a config tweak. Do not solve
+  it by removing the tenant filter from a query.
 - **Nothing schedules these jobs.** There is no beat/cron sidecar in `docker-compose.yml` and no
   periodic enqueue, so `roll_expiry` and `spend_snapshot` run only when a human invokes them. Until a
   scheduler lands, **contract expiry rolling and spend rollups are not automatic in any environment**,
   including local compose. Either trigger them by hand or treat the "Contracts flagged expiring"
   dashboard count as stale.
+- **What "expiring" means depends on the tenant's timezone, not the server's.** The roll evaluates
+  "within N days" in `organizations.timezone`, falling back to `CONTRACT_TIMEZONE` and then UTC.
+  When an operator reports a contract flagged a day early or late, check that tenant's zone before
+  suspecting the date arithmetic.
 - The `documents` queue is currently **dead**: `worker.py` listens on it, but no job functions are
   registered for it and no backend code enqueues to it. It is reserved for the Phase 5 OCR/embed wave.
 - No backend code calls the worker — `worker/enqueue.py` is the only enqueue path, and it is manual.

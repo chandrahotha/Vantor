@@ -52,3 +52,54 @@ The table below is the re-audit source of truth for the current archive. “Veri
 | VNT-043 | Medium | Financial aggregation | Some summary values aggregate only under a single-currency assumption while the client has to suppress mixed-currency totals. | `backend/app/routers/spend.py; frontend/app/page.tsx:65-119` | Strong static finding | Medium |
 | VNT-044 | Medium | Async jobs | Worker jobs depend on a manually provisioned service token and are not self-bootstrapping. | `worker/jobs.py:17-39; worker/beat.py:19-34; .env.example SERVICE_API_TOKEN` | Verified | High |
 | VNT-045 | Medium | Frontend workflow | Key procurement actions are fragmented or missing dedicated operational surfaces in the current navigation. | `frontend/app route inventory; frontend/components/Shell.tsx; frontend/app/shared/orders.tsx and copilot approvals` | Verified | High |
+
+## Resolution status (2026-09-28)
+
+The table above is the **point-in-time audit record** and is deliberately left exactly as it was
+found. Rewriting an audit into a status board destroys the evidence, so it is not edited.
+
+**There is no maintained per-finding status table in this repository, and one should not be
+reconstructed from memory.** A temporary ledger was written during the remediation work and
+deleted at sign-off by request. Anyone who needs per-finding status should re-derive it from the
+regression tests, which is slow but sound; a hand-written status column that nobody re-checks is
+worse than no column at all.
+
+What can be stated from the code as it stands today:
+
+| Claim | Evidence |
+|---|---|
+| The worker holds a dedicated machine role, not an administrative one | `deploy/keycloak/provision.py` (`SERVICE_ACCOUNT_ROLES`); `backend/tests/test_realm_parity.py` |
+| "Within 90 days" is evaluated in the tenant's own timezone | `organizations.timezone`; `alembic/versions/0023_tenant_timezone.py`; `backend/tests/test_contract_authority.py` |
+| The web app serves its own Content-Security-Policy | `frontend/next.config.mjs`; `frontend/next.config.test.ts` |
+| Webhook delivery cannot cross a tenant boundary | `app/services/integration.py` (`drain`, required `tenant_id`); `backend/tests/test_integrations.py` |
+| The sourcing optimizer is role-gated | `app/routers/sourcing.py`; `backend/tests/test_contract_authority.py` |
+| Budget checks serialise against concurrent approvals **by construction** | `app/routers/catalog.py` takes `with_for_update` on the budget row before reading the aggregate — but see the caveat below: the concurrency *proof* does not exist |
+| Money paths raise on a non-positive baseline rather than dividing by zero | `app/services/price_intel.py`, `app/services/should_cost.py` |
+
+Blocked on the environment rather than on the code — these are the findings that cannot be
+closed by writing more code here, and calling them fixed would be false:
+
+- **VNT-035** (mutable image tags) — the digest *structure* is gated in CI; the values need one
+  networked `python scripts/pin_digests.py` run.
+- **VNT-040** (untested production-critical paths) — needs a real browser for E2E, accessibility
+  and visual regression, and a real PostgreSQL for the concurrency proofs. Neither exists in the
+  development environment. The tests are present and skipped, not absent and green.
+- **VNT-016** (pgvector) — the column, HNSW index and dimension validation exist and are
+  exercised on SQLite; no PostgreSQL has run migration 0022, and none is available here.
+- **VNT-034 / VNT-036** — need a production compose profile and a self-contained Keycloak
+  bootstrap, both of which touch deployment topology rather than application code.
+
+Two claims in the code were false and are now corrected, recorded here because a wrong claim is
+worse than a missing one:
+
+- `check_budget` stated that its concurrency proof was `tests/test_pg_concurrency.py`. That file
+  does not exist. The row lock is real, but "enforced by construction" is not "verified", and the
+  docstring now says so. Writing the proof requires PostgreSQL.
+- The RLS test asserted that the *baseline* migration defines its policies. True, but 13 later
+  migrations also enable RLS and no test covers them, so a new tenant table could ship with no
+  policy and the suite would stay green. This is the most consequential gap still open.
+
+Two further defects were found by auditing *after* this register was written, so they have no
+VNT number: the sourcing optimizer had no role gate, and the webhook drain defaulted its tenant
+scope to every tenant. Both are fixed, and the drain's tests were mutation-checked — with the
+filter removed they fail, so they detect the regression rather than describing the fix.

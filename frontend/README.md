@@ -30,17 +30,34 @@ npm run build
 ## Gates
 
 `typecheck` (tsc --noEmit) · `lint` (eslint, `next/core-web-vitals` + `next/typescript`) ·
-`build` (next build). All three must pass; CI runs all three plus the container build.
+`test` (vitest) · `build` (next build). All four must pass; CI runs them plus the container build.
+
+Security headers are part of the build contract, not an afterthought: `next.config.mjs` sets a
+Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
+`Permissions-Policy` on every response from the app. A CSP served by the API governs documents the
+*API* serves, so the app needs its own — without it the pages a user reads are unprotected.
+`next.config.test.ts` asserts the policy exists, is derived from `NEXT_PUBLIC_API_URL` /
+`NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded, and that HSTS appears only over https.
+
+## Theming
+
+Five palettes × light/dark, driven by CSS custom properties under
+`[data-palette="<key>"]` and `[data-theme="light|dark"]`, not by hardcoded surface colours.
+Selection persists via `useSyncExternalStore` (`lib/palette.ts`) and a tenant's identity-token
+brand claim can override it. `check_palette_layer.py` gates the layer: no cycles, no dangling
+tokens, and every contrast pair above its threshold. Rationale, including why there is no
+Tailwind/Zustand layer, is in `../docs/05-frontend/theming-layer-migration.md`.
 
 ## What is NOT here (do not assume it)
 
 - **Every write path is API-only.** RFQ create/quote/award, PO approve/send/receipt/invoice,
   catalog, budgets, integrations, the audit viewer, document extract/search and the HITL decision
   endpoint have no UI. The product is currently read-heavy in the browser by design.
-- **Zero frontend tests.** No runner is configured. `docs/00-plan/ROADMAP.md` Phase 7's a11y and
-  perf gate cannot be met until one exists.
-- **No dark mode.** `globals.css` hardcodes light surfaces; there is no `prefers-color-scheme`
-  block and no theme token indirection.
+- **No browser-level tests.** The 106 vitest tests are unit and component level, run in jsdom —
+  there is no Playwright, so no real end-to-end journey, no automated accessibility audit and no
+  visual regression. `docs/00-plan/ROADMAP.md` Phase 7's a11y and perf gate cannot be met until a
+  browser runner exists. The palette layer's contrast is checked by `check_palette_layer.py`
+  instead, which is a static check and not a substitute.
 - **The declared fonts are not shipped.** `--font-ui: Inter` / `--font-mono: JetBrains Mono` have
   no `@font-face`, no `next/font` and no webfont file, so both fall back to system fonts.
 - **No shared table/pager/card primitives.** The cursor pager is written 4×, the Keycloak boot 5×
