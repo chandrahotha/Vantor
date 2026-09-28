@@ -71,7 +71,9 @@ export function resetKeycloak(): void {
   initPromise = null;
 }
 
-/** Initialize Keycloak idempotently — prevents "A Keycloak instance can only be initialized once". */
+/** Initialize Keycloak idempotently — prevents "A Keycloak instance can only be initialized once".
+ * Does not pass `onLoad: "check-sso"`, preventing automatic window redirect to port 8080 on initial load.
+ */
 export async function initKeycloak(): Promise<boolean> {
   const kc = keycloak();
   if (kc.didInitialize) {
@@ -79,7 +81,7 @@ export async function initKeycloak(): Promise<boolean> {
   }
   if (!initPromise) {
     initPromise = kc
-      .init({ onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
+      .init({ pkceMethod: "S256", checkLoginIframe: false })
       .catch((err) => {
         initPromise = null;
         resetKeycloak();

@@ -271,16 +271,22 @@ Fixed by:
 
 ### B-28 · Port 3000 Keycloak redirect / lock out · **FIXED**
 
-When running the web app on `http://localhost:3000`, if Keycloak on port 8080 was offline or
-unauthenticated, the user was shown an error state whose only action button (`login()`)
-hard-redirected the browser window to `http://localhost:8080` (`ERR_CONNECTION_REFUSED`),
-stranding the user and preventing local review of the UI.
+When running the web app on `http://localhost:3000`, visiting the application immediately
+redirected the browser window to `http://localhost:8080/realms/vantor/protocol/openid-connect/auth?...&prompt=none`.
+This occurred because `keycloak-js`'s `init()` was configured with `onLoad: "check-sso"` while
+`checkLoginIframe: false` was active and no silent iframe redirect URI was configured, causing
+Keycloak's JS adapter to fall back to a full-window navigation with `prompt=none` on initial page load.
+If Keycloak on port 8080 was offline or unauthenticated, the user was stranded on port 8080 (`ERR_CONNECTION_REFUSED`).
 
-Fixed by implementing `loginAsDemo()` in `frontend/lib/auth.ts`, session change subscription
-in `useBoot()` (`frontend/components/ui.tsx`), and a dual-path `AuthScreen` that provides
-one-click instant access to the demo workspace alongside Enterprise Keycloak SSO.
-Regression test added in `components/authboot.test.tsx` asserting both actions render and
-that `loginAsDemo()` hydrates an active session without network hops.
+Fixed by:
+1. Removing `onLoad: "check-sso"` from `initKeycloak()` in `frontend/lib/auth.ts`, ensuring that
+   visiting `http://localhost:3000` performs in-process callback extraction without initiating
+   any automatic window redirects.
+2. Implementing `loginAsDemo()` in `frontend/lib/auth.ts`, session change subscription
+   in `useBoot()` (`frontend/components/ui.tsx`), and a dual-path `AuthScreen` that provides
+   one-click instant access to the demo workspace alongside Enterprise Keycloak SSO.
+3. Adding regression tests in `components/authboot.test.tsx` asserting both actions render and
+   that `loginAsDemo()` hydrates an active session without network hops.
 
 ### B-29 · UI aesthetics and component styling ("bot-made" visual feel) · **FIXED**
 
