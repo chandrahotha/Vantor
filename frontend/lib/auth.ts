@@ -1,231 +1,139 @@
-/** VANTOR Enterprise Authentication — Direct in-memory enterprise session.
- * Fully eliminates Keycloak JS client bottlenecks, duplicate instance errors,
- * and port 8080 redirect loops.
- */
+/** Keycloak OIDC — Authorization Code + PKCE, in-memory tokens only.
+ *
+ * No stored passwords, no fake sessions, no localStorage tokens. An application
+ * session exists if and only if the IdP returned a signed token that carries a
+ * tenant; nothing in this file may manufacture one.
+ *
+ * That constraint is the reason for the absence of any "persona" or "demo"
+ * helper. There was a version of this module that exported a list of executives
+ * and a `switchPersona(id)` that built a session from nothing but a string —
+ * `switchPersona("director")` produced a token `vantor-director-session-token`
+ * with the Admin role. The backend now fails closed outside production, so that
+ * path would only ever have produced a UI that looked signed in and then
+ * received 401 on every request. `components/authboot.test.tsx` asserts the
+ * absence of an identity at module load, and
+ * `backend/tests/test_auth.py::test_forged_tokens_are_401_in_test_env` asserts
+ * the matching server-side refusal.
+ *
+ * Boot is `check-sso`, not `login-required`: the splash paints first, and if
+ * there is no IdP the AuthScreen shows the sign-in card instead of bouncing the
+ * user into an unexplained redirect. Then it runs once. */
+import Keycloak from "keycloak-js";
+import type { KeycloakInitOptions } from "keycloak-js";
+
+let instance: Keycloak | null = null;
 
 export type Session = { token: string; name: string; tenant: string; roles: string[] };
 
-export type EnterprisePersona = {
-  id: string;
-  name: string;
-  title: string;
-  email: string;
-  tenant: string;
-  roles: string[];
-  description: string;
-};
-
-export const ENTERPRISE_PERSONAS: EnterprisePersona[] = [
-  {
-    id: "director",
-    name: "Sarah Chen",
-    title: "Procurement Director",
-    email: "s.chen@vantor-enterprise.com",
-    tenant: "vantor-corp",
-    roles: ["Buyer", "Procurement Manager", "Admin", "Approver"],
-    description: "Full delegation of authority, $5M+ spending gates, category oversight",
-  },
-  {
-    id: "category_lead",
-    name: "Marcus Vance",
-    title: "Strategic Category Manager",
-    email: "m.vance@vantor-enterprise.com",
-    tenant: "vantor-corp",
-    roles: ["Buyer", "Category Manager", "Approver"],
-    description: "Direct sourcing awards, RFQ split allocations, vendor negotiations",
-  },
-  {
-    id: "finance_controller",
-    name: "Elena Rostova",
-    title: "Chief Financial Controller",
-    email: "e.rostova@vantor-enterprise.com",
-    tenant: "vantor-corp",
-    roles: ["Finance Reviewer", "Approver", "Auditor"],
-    description: "3-way invoice matching sign-off, budget ceiling enforcement",
-  },
-  {
-    id: "senior_buyer",
-    name: "David Park",
-    title: "Senior Tactical Buyer",
-    email: "d.park@vantor-enterprise.com",
-    tenant: "vantor-corp",
-    roles: ["Buyer", "Approver"],
-    description: "Requisitions, purchase orders, goods receipt verification",
-  },
-];
-
-export function getPersonas(): EnterprisePersona[] {
-  return ENTERPRISE_PERSONAS;
-}
-
-const SESSION_STORAGE_KEY = "vantor.enterprise.session";
-
-function loadSavedSession(): Session | null {
-  try {
-    if (typeof window === "undefined" || typeof sessionStorage === "undefined") {
-      return null;
-    }
-    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-const REAL_ENTERPRISE_SESSION: Session = {
-  token: process.env.NEXT_PUBLIC_DEMO_TOKEN || "vantor-corp-jwt-session",
-  name: "Sarah Chen",
-  tenant: "vantor-corp",
-  roles: ["Buyer", "Procurement Manager", "Admin", "Approver"],
-};
-
-let current: Session | null = loadSavedSession() ?? { ...REAL_ENTERPRISE_SESSION };
-const listeners = new Set<(s: Session | null) => void>();
-
-export function getSession(): Session | null {
-  return current;
-}
-
-export function setSession(s: Session | null): void {
-  current = s;
-  try {
-    if (typeof window !== "undefined" && typeof sessionStorage !== "undefined") {
-      if (s) {
-        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
-      } else {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      }
-    }
-  } catch {
-    /* storage unavailable */
-  }
-  for (const l of listeners) l(s);
-}
-
-export function subscribeSession(l: (s: Session | null) => void): () => void {
-  listeners.add(l);
-  return () => {
-    listeners.delete(l);
+function config() {
+  return {
+    url: process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
+    realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || "vantor",
+    clientId: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT || "vantor-web",
   };
 }
 
-export function defaultSession(): Session {
-  return { ...REAL_ENTERPRISE_SESSION };
+export function keycloak(): Keycloak {
+  if (!instance) instance = new Keycloak(config());
+  return instance;
 }
 
-export function demoSession(): Session {
-  return { ...REAL_ENTERPRISE_SESSION };
+/** Reset the singleton after a failed init so a retry creates a fresh instance. */
+export function resetKeycloak(): void {
+  instance = null;
+  if (inFlight) inFlight = null;
+  initialised = false;
 }
 
-export function isDemoSession(): boolean {
-  return false;
+/** keycloak-js permits one `init` per instance and throws on a second.
+ *
+ *  React 18/19 StrictMode invokes every effect twice in development, and Fast
+ *  Refresh remounts on save, so a boot that calls `kc.init(...)` straight from
+ *  its effect is initialising a singleton twice and downgrading the whole view
+ *  to "Sign-in problem" on a network that is working fine. Callers that need to
+ *  try again go through `resetKeycloak()`, which clears the memo so the retry
+ *  really does get a fresh instance. */
+let inFlight: Promise<boolean> | null = null;
+let initialised = false;
+
+export function initOnce(kc: Keycloak, options: KeycloakInitOptions): Promise<boolean> {
+  if (initialised) return Promise.resolve(kc.authenticated);
+  if (inFlight) return inFlight;
+  inFlight = kc
+    .init(options)
+    .then((ok) => {
+      initialised = true;
+      return ok;
+    })
+    .catch((e: unknown) => {
+      // A failed init must not poison the singleton: the caller is expected to
+      // offer a retry, and a retry needs to be able to init.
+      inFlight = null;
+      throw e;
+    });
+  return inFlight;
 }
 
-export function loginAsDemo(): Session {
-  const s = defaultSession();
-  setSession(s);
-  return s;
-}
-
-export function switchPersona(personaId: string): Session {
-  const persona = ENTERPRISE_PERSONAS.find((p) => p.id === personaId) || ENTERPRISE_PERSONAS[0];
-  const s: Session = {
-    token: `vantor-${persona.id}-session-token`,
-    name: persona.name,
-    tenant: persona.tenant,
-    roles: [...persona.roles],
-  };
-  setSession(s);
-  return s;
-}
-
-/** Initialize auth idempotently — never throws duplicate instance errors or redirects. */
-export async function initKeycloak(): Promise<boolean> {
-  if (!current) {
-    current = { ...REAL_ENTERPRISE_SESSION };
+/** Start an interactive login. This redirects to the IdP and returns; it does
+ *  not and must not set a session — a session only exists after the redirect
+ *  comes back with a code and `wireSession` reads a real token. */
+export function login(): void {
+  try {
+    const kc = keycloak();
+    if (!kc.didInitialize) {
+      initOnce(kc, { onLoad: "check-sso", pkceMethod: "S256", checkLoginIframe: false })
+        .then(() => { if (!kc.authenticated) kc.login(); })
+        .catch(() => { /* the boot reports an unreachable IdP via AuthScreen */ });
+      return;
+    }
+    if (!kc.authenticated) kc.login();
+  } catch {
+    setSession(null);
   }
-  return true;
 }
 
-export type KeycloakStub = {
-  authenticated: boolean;
-  didInitialize: boolean;
-  token?: string;
-  tokenParsed?: Record<string, unknown>;
-  init: (opts?: Record<string, unknown>) => Promise<boolean>;
-  login: () => void;
-  logout: () => void;
-  updateToken: (minValidity?: number) => Promise<boolean>;
-  onTokenExpired?: () => void;
-};
-
-let kcSingleton: KeycloakStub | null = null;
-
-export function login(personaId?: string, custom?: { name?: string; tenant?: string; roles?: string[] }): Session {
-  let s: Session;
-  if (personaId) {
-    const p = ENTERPRISE_PERSONAS.find((item) => item.id === personaId) || ENTERPRISE_PERSONAS[0];
-    s = {
-      token: `vantor-${p.id}-jwt-session`,
-      name: p.name,
-      tenant: p.tenant,
-      roles: [...p.roles],
-    };
-  } else if (custom) {
-    s = {
-      token: "vantor-custom-jwt-session",
-      name: custom.name || "Enterprise Executive",
-      tenant: custom.tenant || "vantor-corp",
-      roles: custom.roles || ["Buyer", "Procurement Manager"],
-    };
-  } else {
-    s = { ...REAL_ENTERPRISE_SESSION };
-  }
-  setSession(s);
-  return s;
-}
-
+/** Sign out. The local session is dropped unconditionally, including when the
+ *  adapter was never initialised: leaving a session in place because the IdP
+ *  call could not be made is how a signed-out user keeps a working session. */
 export function logout(): void {
+  try {
+    const kc = keycloak();
+    if (kc.didInitialize) kc.logout();
+  } catch { /* ignore — the local session still goes */ }
   setSession(null);
 }
 
-export function resetKeycloak(): void {
-  kcSingleton = null;
-}
-
-/** Compatibility shim that avoids external keycloak-js network calls and redirects */
-export function keycloak(): KeycloakStub {
-  if (!kcSingleton) {
-    kcSingleton = {
-      authenticated: !!current,
-      didInitialize: true,
-      token: current?.token || "vantor-corp-jwt-session",
-      tokenParsed: {
-        sub: "u-admin",
-        name: current?.name || "Enterprise Director",
-        tenant_id: current?.tenant || "vantor-corp",
-        realm_access: { roles: current?.roles || ["Buyer", "Procurement Manager", "Admin"] },
-      },
-      init: async () => true,
-      login: () => login(),
-      logout: () => logout(),
-      updateToken: async () => true,
-    };
-  }
-  return kcSingleton;
-}
-
-export function parseSession(kc: ReturnType<typeof keycloak>): Session | null {
+/** The session an adapter's current token represents, or `null`.
+ *
+ * `null` for a token with no tenant claim is deliberate. The backend answers
+ * 403 "Token carries no tenant" for exactly that token, so inventing a tenant
+ * here would only build a session that fails on its first request while the UI
+ * claims everything is fine. */
+export function parseSession(kc: Keycloak): Session | null {
   if (!kc || !kc.token) return null;
+  const p = (kc.tokenParsed || {}) as Record<string, unknown>;
+  const realmRoles = ((p["realm_access"] as { roles?: string[] }) || {}).roles || [];
+  const clientRoles: string[] = [];
+  const ra = (p["resource_access"] as Record<string, { roles?: string[] }>) || {};
+  for (const v of Object.values(ra)) for (const r of v?.roles || []) clientRoles.push(r);
+  const tenant =
+    (p["tenant_id"] as string) || (p["org_id"] as string) || (p["organization"] as string) || "";
+  if (!tenant) return null;
   return {
     token: kc.token,
-    name: (kc.tokenParsed?.name as string) || "Enterprise Director",
-    tenant: (kc.tokenParsed?.tenant_id as string) || "vantor-corp",
-    roles: ((kc.tokenParsed?.realm_access as { roles?: string[] })?.roles) || ["Buyer", "Procurement Manager"],
+    name: (p["name"] as string) || (p["preferred_username"] as string) || (p["sub"] as string) || "",
+    tenant,
+    // A role that arrives through both the realm and a client grant is one
+    // role. Sorted so the UI cannot flicker between two spellings of the same
+    // set between renders.
+    roles: [...new Set([...realmRoles, ...clientRoles])].sort(),
   };
 }
 
+/** Loop detector. Every auth check is counted as (ok/unauth) pairs so the
+ *  detector can tell "IdP cancelled the login" (safe) from "the client keeps
+ *  getting bounced" (a misconfiguration), and never triggers on a normal
+ *  reload-while-signed-in. */
 const BOUNCE_KEY = "vantor.auth.bounces";
 export function noteBounce(authenticated?: boolean): void {
   try {
@@ -233,9 +141,8 @@ export function noteBounce(authenticated?: boolean): void {
     const prev: { t: number; ok: boolean }[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
     const kept = [...prev, { t: now, ok: !!authenticated }].filter((e) => now - e.t < 30_000);
     sessionStorage.setItem(BOUNCE_KEY, JSON.stringify(kept.slice(-6)));
-  } catch { /* sessionStorage unavailable */ }
+  } catch { /* sessionStorage unavailable (privacy mode) — proceed unguarded */ }
 }
-
 export function isLooping(): boolean {
   try {
     const events: { t: number; ok: boolean }[] = JSON.parse(sessionStorage.getItem(BOUNCE_KEY) || "[]");
@@ -246,20 +153,54 @@ export function isLooping(): boolean {
     return false;
   }
 }
-
 export function clearBounces(): void {
   try { sessionStorage.removeItem(BOUNCE_KEY); } catch { /* ignore */ }
 }
 
-export function keepFresh(_kc?: unknown, _onExpired?: () => void): () => void {
-  void _kc;
-  void _onExpired;
-  return () => {};
+/** Keep the access token fresh, and hand back a teardown.
+ *
+ * A failed refresh is not a UI detail — it means the session is gone — so it
+ * calls `onExpired` rather than retrying quietly, and the view returns to the
+ * sign-in gate. */
+export function keepFresh(kc: Keycloak, onExpired: () => void): () => void {
+  let dead = false;
+  const refresh = () => {
+    kc.updateToken(60).catch(() => {
+      if (!dead) onExpired();
+    });
+  };
+  kc.onTokenExpired = refresh;
+  const id = setInterval(refresh, 45000);
+  return () => {
+    dead = true;
+    clearInterval(id);
+  };
 }
 
-export function wireSession(kc: ReturnType<typeof keycloak>): Session | null {
+type Listener = (s: Session | null) => void;
+/** `null` until a real token is parsed. Never seeded, never restored from
+ *  storage: an access token has a five-minute life and a stale one produces a
+ *  401 that reads like a bug in the app. */
+let current: Session | null = null;
+const listeners = new Set<Listener>();
+
+/** Wire a signed-in Keycloak instance into the app: session store, token, refresh hooks. */
+export function wireSession(kc: Keycloak): Session | null {
   const s = parseSession(kc);
   if (!s) return null;
   setSession(s);
   return s;
+}
+export function setSession(s: Session | null): void {
+  current = s;
+  for (const l of listeners) l(s);
+}
+export function getSession(): Session | null {
+  return current;
+}
+export function subscribeSession(l: Listener): () => void {
+  listeners.add(l);
+  return () => {
+    listeners.delete(l);
+  };
 }

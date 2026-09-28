@@ -6,10 +6,10 @@ native pgvector column lands with the embedding worker in Wave 2).
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_key, tenant_ref
 from .vectortype import Vector
 
 DOC_STATUSES = {"uploaded", "quarantined", "ready"}
@@ -24,20 +24,23 @@ class Document(Base, TenantMixin):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="uploaded", nullable=False)
-    resource: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    resource_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    resource: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "sha256", name="uq_doc_tenant_sha"),
         Index("ix_doc_tenant_resource", "tenant_id", "resource", "resource_id"),
+
+        # Composite, tenant-carrying link — this table is referenced by a composite link.
+        tenant_key("documents"),
     )
 
 
 class DocumentChunk(Base, TenantMixin):
     __tablename__ = "document_chunks"
 
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False, index=True)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     chunk_no: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # VNT-016. Was a bare JSON column holding a list of floats, with similarity
@@ -53,4 +56,21 @@ class DocumentChunk(Base, TenantMixin):
         Vector, default=None, nullable=True
     )
 
-    __table_args__ = (Index("ix_chunk_tenant_doc", "tenant_id", "document_id"),)
+    __table_args__ = (
+        Index("ix_chunk_tenant_doc", "tenant_id", "document_id"),
+        # The HNSW index the vector search actually rides on, declared so the
+        # model and the migrated schema agree. `postgresql_using`/`postgresql_ops`
+        # keep it a no-op on SQLite, which has no operator class for `vector`.
+        # 0022 creates exactly this index; without it here, every
+        # `test_database_matches_metadata` run reported a phantom
+        # `remove_index` and the ORM could not be used to build a fresh
+        # database with the index the embedding worker relies on.
+        Index(
+            "ix_chunk_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("document_chunks", "document_id", "documents"),
+    )

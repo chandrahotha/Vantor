@@ -35,3 +35,8 @@ htmlcov/
 playwright-report/
 test-results/
 .pytest_cache/
+# Throwaway SQLite files from ad-hoc probes and smoke runs. `DATABASE_URL` is a
+# single environment variable, so a hand-typed `sqlite:///./_probe.db` writes
+# into the repo; these are run artifacts, never source.
+backend/_*.db
+*.db-journal

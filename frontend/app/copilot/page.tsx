@@ -65,7 +65,7 @@ export default function Copilot() {
     setProviders((await api<ProviderList>("/api/v1/ai/providers")).data);
   }, []);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
   const shownErr = err || error;
 
   // The provider that needs a key typed in: one that requires a key and has none
@@ -152,6 +152,8 @@ export default function Copilot() {
     }
   }
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -165,8 +167,7 @@ export default function Copilot() {
 
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
-        <>
+      <>
           {providers ? (
             <div className="toolbar" style={{ alignItems: "center", gap: 8 }}>
               <span style={{ color: "var(--muted)", fontSize: 12 }}>Active provider:</span>{" "}
@@ -311,7 +312,6 @@ export default function Copilot() {
 
           <Approvals />
         </>
-      )}
     </Shell>
   );
 }

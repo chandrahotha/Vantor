@@ -6,40 +6,67 @@
    ========================================================================= */
 
 :root {
-  /* Brand */
-  --navy: #0a1931;
-  --navy-2: #0f1f3d;
-  --navy-3: #16294d;
-  --primary: #1b6cff;
-  --primary-strong: #0f5af0;
-  --cyan: #22d3ee;
+  /* Brand — Hyper Cobalt + Skin Sand, docs/05-frontend/design-system.md.
+     Two colours carry the whole brand: cobalt for action and identity, sand for
+     highlight. Everything else is neutral so data stays readable. */
+  --navy: #0b1220;
+  --navy-2: #172033;
+  --navy-3: #24304a;
+  --primary: #0038ff;
+  --primary-strong: #002ec9;
+  --primary-soft: #e8eeff;
+  --accent: #ffd8b8;
+  --accent-hover: #ffc899;
+  --accent-ui: #a16207;
+  --cyan: #0038ff;
   --emerald: #10b981;
   --warn: #f59e0b;
   --danger: #ef4444;
 
   /* Surfaces (light) */
-  --bg: #f7f8fc;
+  --bg: #f8fafc;
   --surface: #ffffff;
-  --surface-2: #f1f4fb;
-  --surface-3: #e8edf7;
-  --line: #e3e8f2;
-  --line-strong: #cdd6e4;
+  --surface-2: #eef2f7;
+  --surface-3: #e3e8ef;
+  --line: #e5e7eb;
+  --line-strong: #d2d6dc;
 
   /* Text */
-  --ink: #0b1220;
+  --ink: #172033;
   --ink-2: #3d4a61;
-  --muted: #65738c;
-  --faint: #93a0b8;
+  --muted: #667085;
+  --faint: #667085;
 
-  /* Sidebar always dark navy */
-  --side-bg: #0a1931;
-  --side-ink: #aeb9d2;
+  /* Sidebar — the brand anchor. Hyper Cobalt in every palette and both modes:
+     it is the one surface a user sees on every screen, so it is the one place
+     the brand is stated unconditionally, and the workspace above carries the
+     palette variation. White labels and icons; the active route is Skin Sand
+     with cobalt text (both tokens below, shared, because sand is light in both
+     modes and the true cobalt is what reads on it). */
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(255, 255, 255, 0.07);
+  --side-line: rgba(255, 255, 255, 0.16);
+  --side-active-bg: #ffd8b8;
+  --side-active-fg: #0038ff;
 
-  /* Type */
-  --font-ui: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Consolas, monospace;
+  /* Type.
+     B-24: these used to read `var(--font-inter), …` and `var(--font-jetbrains), …`
+     when nothing defined those two custom properties — no `@font-face` here and no
+     font file in `public/`. An undefined custom property is invalid inside `var()`
+     at computed-value time, so the stack quietly became the system fallback while
+     the declaration claimed a webfont the build did not ship. Naming the raw
+     system stack made the token honest, but it left the real problem in place:
+     `layout.tsx` *does* pull Inter and JetBrains Mono through `next/font` and
+     applies them to `<html>`, so two webfonts were downloaded on every page load
+     and neither was ever rendered, while this file's own header comment claimed
+     they were in use. A fix that makes the claim true beats a fix that deletes
+     the claim: the tokens reference the shipped fonts, and
+     `components/grade5.test.tsx` asserts both directions — that every custom
+     property here resolves, and that these two tokens actually name the fonts
+     `next/font` provides, so they cannot go back to being dead weight. */
+  --font-ui: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-16: 16px; --fs-20: 20px; --fs-24: 24px; --fs-32: 32px;
 
   /* Radius + elevation */
@@ -97,7 +124,7 @@ h3 { font-size: var(--fs-14); font-weight: 600; }
 .mono, td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-13); }
 code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
 
-::selection { background: rgba(27, 108, 255, 0.22); }
+::selection { background: rgba(0, 56, 255, 0.22); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
 
 /* ---------- app frame --------------------------------------------------- */
@@ -130,13 +157,13 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .side .brand .mark {
   width: 26px; height: 26px; border-radius: 7px;
   display: grid; place-items: center;
-  background: linear-gradient(135deg, #1b6cff 0%, #22d3ee 100%);
+  background: linear-gradient(135deg, #0038ff 0%, #ffd8b8 100%);
   color: #fff; font-weight: 800; font-size: 13px;
 }
 .side .brand small { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0.02em; color: var(--side-ink); }
 .side .section-label {
   font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #5d6b87; padding: 14px 18px 6px;
+  color: inherit; padding: 14px 18px 6px;
 }
 .side a, .side .nav-item {
   display: flex; align-items: center; gap: 10px;
@@ -163,11 +190,16 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .side a::before {
   content: "";
   position: absolute; left: -10px; top: 20%; bottom: 20%;
-  width: 2.5px; border-radius: 2px; background: var(--cyan);
+  width: 2.5px; border-radius: 2px; background: var(--side-active-bg);
   opacity: 0; transition: opacity var(--t-fast) var(--ease);
 }
-.side a:hover { background: var(--navy-3); color: #fff; }
-.side a.active { background: var(--navy-3); color: #fff; font-weight: 600; }
+.side a:hover { background: color-mix(in srgb, var(--side-ink) 9%, transparent); color: #fff; }
+.side a.active {
+  background: var(--side-active-bg);
+  color: var(--side-active-fg);
+  font-weight: 650;
+}
+.side a.active .nav-icon { opacity: 1; }
 .side a.active::before { opacity: 1; }
 .side a .badge { margin-left: auto; }
 .side .foot {
@@ -175,7 +207,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   padding: 12px 18px 0;
   border-top: 1px solid var(--side-line);
   font-size: var(--fs-11);
-  color: #5d6b87;
+  color: inherit;
   line-height: 1.7;
 }
 .side .foot .userchip {
@@ -207,33 +239,25 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   font-size: var(--fs-12);
   font-weight: 600;
 }
-.demo-badge {
-  background: #f59e0b;
-  color: #000;
-  font-size: 9px;
-  font-weight: 800;
-  padding: 1px 4px;
-  border-radius: 3px;
-  letter-spacing: 0.04em;
-}
 .userchip-meta {
   color: var(--side-ink);
   font-size: 11px;
 }
 .userchip-logout {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   color: var(--side-ink);
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: all var(--t-fast) var(--ease);
+  box-shadow: none;
 }
 .userchip-logout:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 .side .foot a { color: var(--side-ink); }
 .side .foot a:hover { color: #fff; }
@@ -394,7 +418,7 @@ input::placeholder { color: var(--faint); }
 input:hover, select:hover { border-color: var(--line-strong); }
 input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(27, 108, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(0, 56, 255, 0.16);
 }
 input:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
 
@@ -405,7 +429,7 @@ button {
   border: 1px solid transparent;
   background: var(--primary); color: #fff; cursor: pointer;
   transition: all var(--t-fast) var(--ease);
-  box-shadow: 0 1px 2px rgba(27, 108, 255, 0.28);
+  box-shadow: 0 1px 2px rgba(0, 56, 255, 0.28);
 }
 button:hover:not(:disabled) { background: var(--primary-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
@@ -449,7 +473,7 @@ table.grid th.num { text-align: right; }
 .badge.ok { background: rgba(16, 185, 129, 0.12); color: #047857; border-color: rgba(16, 185, 129, 0.25); }
 .badge.warn { background: rgba(245, 158, 11, 0.12); color: #b45309; border-color: rgba(245, 158, 11, 0.28); }
 .badge.bad { background: rgba(239, 68, 68, 0.12); color: #b91c1c; border-color: rgba(239, 68, 68, 0.28); }
-.badge.info { background: rgba(27, 108, 255, 0.1); color: var(--primary-strong); border-color: rgba(27, 108, 255, 0.25); }
+.badge.info { background: rgba(0, 56, 255, 0.1); color: var(--primary-strong); border-color: rgba(0, 56, 255, 0.25); }
 [data-theme="dark"] .badge.ok { color: #6ee7b7; }
 [data-theme="dark"] .badge.warn { color: #fcd34d; }
 [data-theme="dark"] .badge.bad { color: #fca5a5; }
@@ -487,8 +511,8 @@ table.grid th.num { text-align: right; }
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(27, 108, 255, 0.18), transparent 70%),
-    radial-gradient(800px 400px at 80% 80%, rgba(34, 211, 238, 0.08), transparent 60%),
+    radial-gradient(1200px 600px at 50% -10%, rgba(0, 56, 255, 0.22), transparent 70%),
+    radial-gradient(800px 400px at 80% 80%, rgba(255, 216, 184, 0.1), transparent 60%),
     var(--navy);
   color: #fff;
   padding: 32px 16px;
@@ -517,7 +541,7 @@ table.grid th.num { text-align: right; }
   position: absolute;
   top: 0; left: 15%; right: 15%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #22d3ee, #1b6cff, transparent);
+  background: linear-gradient(90deg, transparent, #ffd8b8, #0038ff, transparent);
 }
 .authscreen-mark-wrap {
   position: relative;
@@ -525,14 +549,14 @@ table.grid th.num { text-align: right; }
 }
 .authscreen-mark-img {
   border-radius: 18px;
-  box-shadow: 0 12px 36px rgba(34, 211, 238, 0.35);
+  box-shadow: 0 12px 36px rgba(0, 56, 255, 0.35);
   display: block;
 }
 .authscreen-pulse {
   position: absolute;
   inset: -6px;
   border-radius: 24px;
-  border: 2px solid rgba(34, 211, 238, 0.3);
+  border: 2px solid rgba(255, 216, 184, 0.35);
   animation: pulse-ring 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
 }
 @keyframes pulse-ring {
@@ -546,9 +570,9 @@ table.grid th.num { text-align: right; }
   gap: 6px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(27, 108, 255, 0.15);
-  border: 1px solid rgba(27, 108, 255, 0.35);
-  color: #60a5fa;
+  background: rgba(255, 216, 184, 0.16);
+  border: 1px solid rgba(255, 216, 184, 0.38);
+  color: #ffd8b8;
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -578,39 +602,6 @@ table.grid th.num { text-align: right; }
   text-align: left;
   transition: all var(--t-fast) var(--ease);
   font-family: inherit;
-}
-.authscreen-demo-cta {
-  background: linear-gradient(135deg, #1b6cff 0%, #0284c7 100%);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 6px 20px -2px rgba(27, 108, 255, 0.45);
-}
-.authscreen-demo-cta:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px -2px rgba(27, 108, 255, 0.6);
-  background: linear-gradient(135deg, #2563eb 0%, #0369a1 100%);
-}
-.authscreen-sso-cta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 14px;
-  width: 100%;
-  padding: 12px 16px;
-  border-radius: var(--radius-l);
-  background: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--t-fast) var(--ease);
-  font-family: inherit;
-}
-.authscreen-sso-cta:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #fff;
-  transform: translateY(-1px);
 }
 .authscreen-cta-icon {
   width: 34px;
@@ -694,7 +685,7 @@ table.grid th.num { text-align: right; }
 .authscreen-loader-fill {
   height: 100%;
   width: 45%;
-  background: linear-gradient(90deg, #1b6cff, #22d3ee);
+  background: linear-gradient(90deg, #0038ff, #ffd8b8);
   border-radius: 999px;
   animation: loaderpulse 1.2s infinite ease-in-out;
 }
@@ -801,7 +792,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
    red in every tenant's UI; that is the point.
    Colour is never the only signal: every status also carries its label. */
 :root {
-  --chart-1: #2563eb;
+  --chart-1: #0038ff;
   --chart-2: #6c47ff;
   --chart-3: #10b981;
   --chart-4: #f59e0b;
@@ -824,7 +815,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 /* Dark variants of the same nine meanings, tuned for dark surfaces. Still
    identical across all five palettes — consistency is per mode, not per theme. */
 [data-theme="dark"], .dark {
-  --chart-1: #60a5fa;
+  --chart-1: #8ab0ff;
   --chart-2: #a78bfa;
   --chart-3: #34d399;
   --chart-4: #fbbf24;
@@ -835,7 +826,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --chart-grid: #1e2a40;
 
   --status-draft: #94a3b8;
-  --status-in-review: #60a5fa;
+  --status-in-review: #8ab0ff;
   --status-pending: #fbbf24;
   --status-approved: #34d399;
   --status-rejected: #fca5a5;
@@ -845,56 +836,60 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --status-non-compliant: #fca5a5;
 }
 
-/* ---------- palette 1: Vantor Graphite (default) ------------------------ */
-[data-palette="graphite"] {
-  --bg-base: #f6f7f9;
+/* ---------- palette 1: Vantor Cobalt (default) ---------------------------
+   The brand palette: Hyper Cobalt #0038FF for action and identity, Skin Sand
+   #FFD8B8 for highlight, and neutral surfaces so data-heavy screens stay
+   scannable. `--accent-ui` is the sand accent made readable as text — Skin Sand
+   itself is 1.3:1 on white, so it paints fills only and never carries a label. */
+[data-palette="cobalt"] {
+  --bg-base: #f8fafc;
   --bg-elevated: #ffffff;
   --bg-surface: #ffffff;
-  --bg-sunken: #edeff3;
-  --primary: #1f2937;
-  --primary-hover: #111827;
-  --primary-soft: #e5e7eb;
+  --bg-sunken: #eef2f7;
+  --primary: #0038ff;
+  --primary-hover: #002ec9;
+  --primary-soft: #e8eeff;
   --primary-fg: #ffffff;
-  --accent: #6c47ff;
-  --accent-ui: #6c47ff;
-  --accent-hover: #5b36ee;
-  --text-primary: #0b0f17;
-  --text-secondary: #4b5563;
-  --text-muted: #6b7280;
+  --accent: #ffd8b8;
+  --accent-ui: #a16207;
+  --accent-hover: #ffc899;
+  --text-primary: #172033;
+  --text-secondary: #667085;
+  --text-muted: #667085;
   --text-inverse: #ffffff;
   --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --divider: #f3f4f6;
+  --border-strong: #d2d6dc;
+  --divider: #f1f4f8;
   --success: #047857;
   --warning: #b45309;
   --danger: #b91c1c;
   --info: #1d4ed8;
-  --neutral: #4b5563;
-  --shadow-sm: 0 1px 2px rgba(11, 15, 23, 0.06), 0 1px 3px rgba(11, 15, 23, 0.08);
-  --shadow-md: 0 1px 2px rgba(11, 15, 23, 0.06), 0 4px 12px rgba(11, 15, 23, 0.09);
-  --shadow-lg: 0 4px 24px rgba(11, 15, 23, 0.13), 0 1px 4px rgba(11, 15, 23, 0.08);
-  --focus-ring: #1f2937;
-  --side-bg: #111827;
-  --side-ink: #cbd5e1;
+  --neutral: #667085;
+  --shadow-sm: 0 1px 2px rgba(23, 32, 51, 0.06), 0 1px 3px rgba(23, 32, 51, 0.08);
+  --shadow-md: 0 1px 2px rgba(23, 32, 51, 0.06), 0 4px 12px rgba(23, 32, 51, 0.09);
+  --shadow-lg: 0 4px 24px rgba(23, 32, 51, 0.13), 0 1px 4px rgba(23, 32, 51, 0.08);
+  --focus-ring: #0038ff;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(255, 255, 255, 0.08);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
-[data-palette="graphite"][data-theme="dark"], [data-palette="graphite"].dark {
-  --bg-base: #0b0f17;
-  --bg-elevated: #111827;
-  --bg-surface: #161e2e;
-  --bg-sunken: #05070a;
-  --primary: #e5e7eb;
-  --primary-hover: #f9fafb;
-  --primary-soft: rgba(229, 231, 235, 0.1);
-  --primary-fg: #0b0f17;
-  --accent: #8b6cff;
-  --accent-ui: #8b6cff;
-  --accent-hover: #a78bfa;
-  --text-primary: #f3f4f6;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-inverse: #0b0f17;
+[data-palette="cobalt"][data-theme="dark"], [data-palette="cobalt"].dark {
+  --bg-base: #0b1220;
+  --bg-elevated: #141d31;
+  --bg-surface: #172033;
+  --bg-sunken: #060b16;
+  --primary: #8ab0ff;
+  --primary-hover: #a5c2ff;
+  --primary-soft: rgba(138, 176, 255, 0.14);
+  --primary-fg: #0b1220;
+  --accent: #ffd8b8;
+  --accent-ui: #ffd8b8;
+  --accent-hover: #ffc899;
+  --text-primary: #f3f6fb;
+  --text-secondary: #c0c9d8;
+  --text-muted: #98a4bb;
+  --text-inverse: #0b1220;
   --border: rgba(148, 163, 184, 0.18);
   --border-strong: rgba(148, 163, 184, 0.32);
   --divider: rgba(148, 163, 184, 0.09);
@@ -902,15 +897,15 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --warning: #fbbf24;
   --danger: #fca5a5;
   --info: #93c5fd;
-  --neutral: #cbd5e1;
+  --neutral: #c0c9d8;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
-  --focus-ring: #e5e7eb;
-  --side-bg: #05070a;
-  --side-ink: #94a3b8;
+  --focus-ring: #8ab0ff;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(255, 255, 255, 0.07);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- palette 2: Sourcing Emerald --------------------------------- */
@@ -942,10 +937,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 1px 2px rgba(6, 95, 70, 0.06), 0 4px 12px rgba(6, 95, 70, 0.09);
   --shadow-lg: 0 4px 24px rgba(6, 95, 70, 0.12), 0 1px 4px rgba(6, 95, 70, 0.07);
   --focus-ring: #065f46;
-  --side-bg: #04291d;
-  --side-ink: #a7f3d0;
-  --side-ink-strong: #ecfdf5;
-  --side-line: rgba(167, 243, 208, 0.12);
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 [data-palette="emerald"][data-theme="dark"], [data-palette="emerald"].dark {
   --bg-base: #06120d;
@@ -975,10 +970,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
   --focus-ring: #34d399;
-  --side-bg: #030a07;
-  --side-ink: #6ee7b7;
-  --side-ink-strong: #ecfdf5;
-  --side-line: rgba(16, 185, 129, 0.14);
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- palette 3: Contract Sapphire -------------------------------- */
@@ -1016,10 +1011,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 1px 2px rgba(29, 78, 216, 0.06), 0 4px 12px rgba(29, 78, 216, 0.09);
   --shadow-lg: 0 4px 24px rgba(29, 78, 216, 0.12), 0 1px 4px rgba(29, 78, 216, 0.07);
   --focus-ring: #1d4ed8;
-  --side-bg: #0a1a3a;
-  --side-ink: #bfdbfe;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(191, 219, 254, 0.12);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 [data-palette="sapphire"][data-theme="dark"], [data-palette="sapphire"].dark {
   --bg-base: #0a1224;
@@ -1049,10 +1044,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
   --focus-ring: #60a5fa;
-  --side-bg: #060c1a;
-  --side-ink: #93c5fd;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(96, 165, 250, 0.16);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- palette 4: Spend Amber -------------------------------------- */
@@ -1088,10 +1083,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 1px 2px rgba(146, 64, 14, 0.06), 0 4px 12px rgba(146, 64, 14, 0.09);
   --shadow-lg: 0 4px 24px rgba(146, 64, 14, 0.12), 0 1px 4px rgba(146, 64, 14, 0.07);
   --focus-ring: #92400e;
-  --side-bg: #1c1206;
-  --side-ink: #e7d3a8;
-  --side-ink-strong: #fef3c7;
-  --side-line: rgba(231, 211, 168, 0.12);
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 [data-palette="amber"][data-theme="dark"], [data-palette="amber"].dark {
   --bg-base: #14100a;
@@ -1121,10 +1116,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.65);
   --focus-ring: #fbbf24;
-  --side-bg: #0b0805;
-  --side-ink: #dcc9a0;
-  --side-ink-strong: #fef3c7;
-  --side-line: rgba(217, 180, 110, 0.16);
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
+  --side-ink-strong: #ffffff;
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- palette 5: Negotiation Obsidian ----------------------------- */
@@ -1156,10 +1151,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.16), 0 1px 4px rgba(0, 0, 0, 0.1);
   --focus-ring: #0f172a;
-  --side-bg: #000000;
-  --side-ink: #a3a3a3;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(255, 255, 255, 0.14);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 [data-palette="obsidian"][data-theme="dark"], [data-palette="obsidian"].dark {
   --bg-base: #000000;
@@ -1189,10 +1184,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.85);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.9);
   --focus-ring: #ffffff;
-  --side-bg: #000000;
-  --side-ink: #a3a3a3;
+  --side-bg: #0038ff;
+  --side-ink: #ffffff;
   --side-ink-strong: #ffffff;
-  --side-line: rgba(255, 255, 255, 0.12);
+  --side-line: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- the bridge ---------------------------------------------------
@@ -1223,9 +1218,10 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   --navy: var(--bg-sunken);
   --navy-2: var(--bg-elevated);
   --navy-3: color-mix(in srgb, var(--side-bg) 82%, var(--side-ink) 18%);
-  /* The sidebar's active-route bar and any accent-coloured text use the
-     AA-checked small-mark colour, not the vivid accent. */
-  --cyan: var(--accent-ui);
+  /* Fills, never text: the active-route bar and the card accent bar are
+     Skin Sand at non-text sizes. Any accent *text* uses `--accent-ui`, which is
+     the sand accent made readable. */
+  --cyan: var(--accent);
   --emerald: var(--success);
   --warn: var(--warning);
   --elev-1: var(--shadow-sm);
@@ -1259,14 +1255,36 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
   box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-[data-palette] .authscreen-cta {
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: var(--primary-fg);
-}
-[data-palette] .authscreen-cta:hover { background: linear-gradient(135deg, var(--primary-hover), var(--accent-hover)); }
+    /* Text-bearing fill: the AA-checked `--primary` steps only. `--accent` is
+       deliberately vivid (2.77:1 on white under sapphire) and belongs on the
+       focus ring and glow, never behind this label. */
+    [data-palette] .authscreen-cta {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
+      color: var(--primary-fg);
+      border: 1px solid var(--accent, transparent);
+      box-shadow: 0 6px 20px -2px var(--primary);
+    }
+    [data-palette] .authscreen-cta:hover { background: linear-gradient(135deg, var(--primary-hover), var(--primary-strong)); }
 [data-palette] .authscreen { background: radial-gradient(1000px 500px at 50% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--navy); }
 [data-palette] hr.rule { border-top-color: var(--divider); }
-[data-palette] .side .section-label, [data-palette] .side .foot, [data-palette] .authscreen-kbd-note { color: var(--side-ink); opacity: 0.75; }
+[data-palette] .side .section-label, [data-palette] .side .foot { color: var(--side-ink); opacity: 0.75; }
+/* Buttons on the sidebar. `[data-palette] button` above is (0,1,1) and beats
+   these classes' own (0,1,0), so a sidebar button inherited the cobalt CTA fill —
+   invisible on a cobalt sidebar, which is the exact failure the old navy sidebar
+   hid. Scoped here at (0,3,0) so the sidebar's buttons read as quiet, bordered
+   controls on the brand surface, while the workspace keeps the cobalt CTAs. */
+[data-palette] .side .userchip-logout,
+[data-palette] .side .userchip-signin-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  box-shadow: none;
+}
+[data-palette] .side .userchip-logout:hover:not(:disabled),
+[data-palette] .side .userchip-signin-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 1;
+}
 
 /* ---------- evidence chips ----------------------------------------------
    The AI copilot cites sources and shows confidence. Those must read as
@@ -1320,7 +1338,12 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 [data-palette] .series-8 { fill: var(--chart-8); stroke: var(--chart-8); }
 [data-palette] .chart-grid { stroke: var(--chart-grid); }
 
-/* ---------- Enterprise Sign-In Modal & Persona Switcher -------------------- */
+/* ---------- Modal surface -------------------------------------------------- */
+/* Used by `ConfirmDialog` and `CommandPalette`. The persona switcher's tabs,
+   cards and custom-credential form were removed with `SignInModal` — the modal
+   let anyone type a name and pick a role, minting a client-side session that
+   the backend correctly rejected. The styling went with it rather than being
+   left behind as rules for a control that must not come back. */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(10, 25, 49, 0.65);
@@ -1345,123 +1368,16 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
 }
-.modal-eyebrow {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--primary); text-transform: uppercase; margin-bottom: 4px;
-}
 .modal-title {
   margin: 0; font-size: var(--fs-18); font-weight: 700; color: var(--ink);
 }
-.modal-sub {
-  margin: 6px 0 0; font-size: var(--fs-12); color: var(--muted); line-height: 1.5;
-}
-.modal-close {
-  background: transparent; border: 1px solid var(--line); color: var(--muted);
-  width: 30px; height: 30px; border-radius: var(--radius-s); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; font-size: 13px;
-  transition: all var(--t-fast) var(--ease);
-}
-.modal-close:hover {
-  background: var(--surface); color: var(--ink); border-color: var(--line-strong);
-}
-.modal-tabs {
-  display: flex; border-bottom: 1px solid var(--line); background: var(--surface);
-}
-.modal-tab {
-  flex: 1; padding: 11px 16px; font-size: var(--fs-12); font-weight: 600;
-  color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent;
-  cursor: pointer; transition: all var(--t-fast) var(--ease);
-}
-.modal-tab.active {
-  color: var(--primary); border-bottom-color: var(--primary); background: var(--surface-2);
-}
 .modal-body {
   padding: 18px 26px 24px; max-height: 70vh; overflow-y: auto;
-}
-.personas-list {
-  display: flex; flex-direction: column; gap: 10px;
-}
-.persona-card {
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-m);
-  background: var(--surface); cursor: pointer; transition: all var(--t-fast) var(--ease);
-}
-.persona-card:hover {
-  border-color: var(--primary); transform: translateY(-1px); box-shadow: var(--elev-1);
-}
-.persona-card-active {
-  border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface));
-}
-.persona-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
-}
-.persona-name {
-  font-size: var(--fs-13); font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px;
-}
-.persona-active-badge {
-  font-size: 9px; font-weight: 700; background: var(--ok, #059669); color: #fff;
-  padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
-}
-.persona-title {
-  font-size: var(--fs-11); color: var(--primary); font-weight: 600;
-}
-.persona-desc {
-  font-size: var(--fs-12); color: var(--ink-2); margin-bottom: 6px; line-height: 1.35;
-}
-.persona-meta {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
-  font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px;
-}
-.persona-roles {
-  display: flex; gap: 4px; flex-wrap: wrap;
-}
-.persona-role-pill {
-  font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--surface-2);
-  border: 1px solid var(--line); color: var(--ink-2);
-}
-.persona-select-btn {
-  font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius-s);
-  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
-}
-.persona-select-btn:hover, .persona-select-btn.btn-active {
-  background: var(--primary); color: #fff; border-color: var(--primary);
-}
-.custom-login-form {
-  display: flex; flex-direction: column; gap: 12px;
-}
-.custom-login-form label {
-  display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); font-weight: 600; color: var(--ink);
-}
-.custom-login-form input, .custom-login-form select {
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-s);
-  background: var(--surface); color: var(--ink); font-size: var(--fs-12); outline: none;
-}
-.custom-login-form input:focus, .custom-login-form select:focus {
-  border-color: var(--primary);
-}
-.custom-form-actions {
-  margin-top: 6px;
-}
-.custom-submit-btn {
-  width: 100%; padding: 10px; background: linear-gradient(135deg, var(--primary), var(--accent, #6366f1));
-  color: #fff; font-size: var(--fs-12); font-weight: 700; border: none; border-radius: var(--radius-m);
-  cursor: pointer; transition: opacity var(--t-fast) var(--ease);
-}
-.custom-submit-btn:hover {
-  opacity: 0.92;
 }
 
 /* Userchip action buttons */
 .userchip-actions {
   display: flex; align-items: center; gap: 6px;
-}
-.userchip-switch {
-  background: transparent; border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--side-ink); font-size: 11px; padding: 3px 8px; border-radius: 4px;
-  cursor: pointer; transition: all var(--t-fast) var(--ease);
-}
-.userchip-switch:hover {
-  background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.3);
 }
 .userchip-unauth {
   display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
@@ -1471,7 +1387,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 }
 .userchip-signin-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  background: linear-gradient(135deg, var(--primary, #0284c7), var(--accent, #6366f1));
+  background: linear-gradient(135deg, var(--primary, #0038ff), var(--primary-strong, #002ec9));
   color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px;
   border-radius: var(--radius-s); border: none; cursor: pointer;
   transition: opacity var(--t-fast) var(--ease);
@@ -1479,9 +1395,266 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 .userchip-signin-btn:hover { opacity: 0.92; }
 .topbar-signin-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  background: linear-gradient(135deg, var(--primary, #0284c7), var(--accent, #6366f1));
+  background: linear-gradient(135deg, var(--primary, #0038ff), var(--primary-strong, #002ec9));
   color: #fff; font-size: 12px; font-weight: 600; padding: 5px 14px;
   border-radius: var(--radius-s); border: none; cursor: pointer;
   transition: opacity var(--t-fast) var(--ease);
 }
 .topbar-signin-btn:hover { opacity: 0.92; }
+
+/* ------------------------------------------------------------------------- *
+ * Grade-5 design system — VANTOR_MAX_AI_WORKKIT/12_FRONTEND_GRADE5.
+ *
+ * The one rule this layer is built around: a text-bearing fill uses the
+ * AA-checked `--primary` steps, never `--accent`. Every palette declares an
+ * `--accent` that is deliberately vivid — sapphire's is #0ea5e9, 2.77:1 on
+ * white — which is correct for a 3:1 non-text boundary and exactly wrong
+ * behind a button label, which needs 4.5:1. A gradient ending on `--accent`
+ * therefore looked right and shipped unreadable white text. `--accent` is still
+ * used here for borders and glows, where only the 3:1 rule applies.
+ * `components/grade5.test.tsx` reads this file and fails if either rule
+ * regresses.
+ * ------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-s);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-sm { padding: 4px 10px; font-size: var(--fs-11); }
+.btn-md { padding: 8px 14px; font-size: var(--fs-12); }
+.btn-lg { padding: 11px 20px; font-size: var(--fs-13); }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
+  color: #fff;
+  border-color: var(--accent, transparent);
+  box-shadow: 0 6px 18px -8px var(--primary);
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line, var(--accent, #94a3b8));
+}
+.btn-secondary:hover:not(:disabled) { background: var(--primary-soft, rgba(0, 56, 255, 0.08)); }
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) { color: var(--ink); background: var(--primary-soft, rgba(0, 56, 255, 0.08)); }
+.btn-danger {
+  background: var(--status-rejected);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-success {
+  background: var(--status-approved);
+  color: #fff;
+  border-color: transparent;
+}
+.btn:focus-visible,
+.iconbtn:focus-visible,
+.segmented-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.iconbtn:hover { color: var(--ink); background: var(--primary-soft, rgba(0, 56, 255, 0.08)); }
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--radius-s);
+  background: var(--primary-soft, rgba(0, 56, 255, 0.08));
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.35));
+}
+.segmented-item {
+  font-family: inherit;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  padding: 5px 11px;
+  border: none;
+  border-radius: calc(var(--radius-s) - 2px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.segmented-item.is-selected {
+  background: var(--primary);
+  color: #fff;
+}
+
+.filterbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin: 14px 0;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+  background: var(--card, rgba(148, 163, 184, 0.06));
+}
+.filterbar .spacer { flex: 1 1 auto; }
+
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(2, 6, 23, 0.55);
+}
+.drawer {
+  width: min(560px, 100%);
+  height: 100%;
+  overflow: auto;
+  background: var(--bg, #fff);
+  border-left: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+  box-shadow: -18px 0 40px -24px rgba(2, 6, 23, 0.6);
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+}
+.drawer-title { margin: 0; font-size: var(--fs-13); }
+.drawer-body { padding: 18px; }
+
+.confirm-body { font-size: var(--fs-12); line-height: 1.6; color: var(--ink); }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+}
+
+.toast-region {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 36px));
+}
+.toast {
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: #fff;
+  background: var(--ink, #0b1220);
+  border-left: 3px solid var(--primary);
+  box-shadow: 0 12px 30px -14px rgba(2, 6, 23, 0.7);
+}
+.toast-bad { border-left-color: var(--status-rejected); }
+.toast-ok { border-left-color: var(--status-approved); }
+.toast-warn { border-left-color: var(--status-pending); }
+
+.metric {
+  padding: 14px 16px;
+  border-radius: var(--radius-m);
+  background: var(--card, rgba(148, 163, 184, 0.06));
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+}
+.metric-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.metric-hint {
+  cursor: help;
+  color: var(--muted);
+  border-bottom: 1px dotted currentColor;
+  font-size: var(--fs-11);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.metric-hint:hover::after {
+  content: attr(aria-label);
+  display: none;
+}
+.metric-value { margin-top: 6px; font-size: 22px; font-weight: 700; }
+.metric-trend { margin-top: 4px; font-size: var(--fs-11); font-weight: 600; color: var(--muted); }
+.metric-trend[data-dir="down"] { color: var(--status-approved); }
+.metric-trend[data-dir="up"] { color: var(--status-rejected); }
+
+.progress {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary-soft, rgba(0, 56, 255, 0.1));
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline-item {
+  position: relative;
+  padding: 10px 0 10px 18px;
+  border-left: 2px solid var(--line, rgba(148, 163, 184, 0.3));
+}
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.timeline-item[data-tone="ok"]::before { background: var(--status-approved); }
+.timeline-item[data-tone="warn"]::before { background: var(--status-pending); }
+.timeline-item[data-tone="bad"]::before { background: var(--status-rejected); }
+.timeline-title { font-weight: 600; font-size: var(--fs-12); }
+.timeline-meta { font-size: var(--fs-11); color: var(--muted); }
+.timeline-empty {
+  padding: 18px;
+  text-align: center;
+  font-size: var(--fs-12);
+  color: var(--muted);
+  border: 1px dashed var(--line, rgba(148, 163, 184, 0.35));
+  border-radius: var(--radius-m);
+}

@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import Shell from "../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, StatCard, useBoot, type Column } from "../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, MetricCard, useBoot, type Column } from "../components/ui";
 import { api, fmtMinor } from "../lib/api";
 import { getSession } from "../lib/auth";
 
@@ -45,11 +45,27 @@ export default function Dashboard() {
       api<PO[]>("/api/v1/purchase-orders?limit=5"),
     ]);
     const failed: string[] = [];
-    if (sp.status === "fulfilled") setSpend(sp.value.data); else failed.push("spend");
+    const reasons: string[] = [];
+    /** Record *why* a panel failed, not just which one.
+     *
+     *  This used to keep only the panel name, so a total outage produced
+     *  "some live panels could not reach backend: spend, contracts, …" — five
+     *  failures, zero reasons, and no way to tell a 401 from a 503 from the
+     *  backend not running. Each reason carries the status and the request id,
+     *  which is what the backend's own log line is keyed on, so the report can
+     *  be matched to a log entry instead of guessed at. */
+    const why = (panel: string, e: unknown) => {
+      failed.push(panel);
+      const err = e as { status?: number; code?: string; requestId?: string; message?: string };
+      const status = typeof err?.status === "number" && err.status > 0 ? `${err.status} ` : "";
+      const id = err?.requestId ? ` [${err.requestId}]` : "";
+      reasons.push(`${panel}: ${status}${err?.message || err?.code || "failed"}${id}`);
+    };
+    if (sp.status === "fulfilled") setSpend(sp.value.data); else why("spend", sp.reason);
     if (ex.status === "fulfilled") {
       setExpiring(ex.value.data || []);
       setExpiringMore(!!ex.value.pagination?.hasMore);
-    } else failed.push("contracts");
+    } else why("contracts", ex.reason);
 
     // "Open RFQ" is a real count, not a 5-row sample. `limit=100` plus the
     // hasMore flag gives an exact count below 100 and "100+" above it, where the
@@ -61,53 +77,28 @@ export default function Dashboard() {
         rfqItems.push(...(res.value.data || []));
         if (res.value.pagination?.hasMore) rfqMore = true;
       } else {
-        failed.push(`rfq:${name}`);
+        why(`rfq:${name}`, res.reason);
       }
     }
     setOpenRfqs({ items: rfqItems.sort((a, b) => a.code.localeCompare(b.code)), more: rfqMore });
 
     if (po.status === "fulfilled") setOrders({ items: po.value.data || [], more: !!po.value.pagination?.hasMore });
-    else failed.push("purchase orders");
+    else why("purchase orders", po.reason);
 
-    if (failed.length === 5) {
-      setSpend({
-        poTotalMinor: 485000000,
-        invoicedTotalMinor: 312000000,
-        savedMinor: 42000000,
-        totalsArePerCurrency: false,
-        currencyCount: 1,
-        byCurrency: {
-          committed: { INR: 485000000 },
-          invoiced: { INR: 312000000 },
-          saved: { INR: 42000000 },
-        },
-      });
-      setExpiring([
-        { id: "c-1", code: "CNT-2026-001", title: "Enterprise Cloud & Infrastructure Agreement", status: "active", endDate: "2026-12-31" },
-        { id: "c-2", code: "CNT-2026-002", title: "Global Freight & Logistics Master SLA", status: "active", endDate: "2026-10-15" },
-        { id: "c-3", code: "CNT-2026-003", title: "Facility Operations & Maintenance", status: "expiring", endDate: "2026-09-30" },
-      ]);
-      setOpenRfqs({
-        items: [
-          { id: "rfq-1", code: "RFQ-2026-042", title: "Q4 High-Precision Sensor Modules", status: "sent" },
-          { id: "rfq-2", code: "RFQ-2026-043", title: "Industrial Lithium Battery Packs", status: "response" },
-        ],
-        more: false,
-      });
-      setOrders({
-        items: [
-          { id: "po-1", code: "PO-2026-108", status: "approved", totalMinor: 4500000, currency: "INR" },
-          { id: "po-2", code: "PO-2026-109", status: "pending_approval", totalMinor: 12500000, currency: "INR" },
-        ],
-        more: false,
-      });
-      setPartial("");
-      return;
-    }
-    setPartial(failed.length ? `Notice — some live panels could not reach backend: ${failed.join(", ")}.` : "");
+    // VNT-033. This used to substitute a hardcoded spend total, three contracts,
+    // two RFQs and two POs whenever all five panels failed — so an unreachable
+    // backend produced a dashboard of invented money and invented suppliers that
+    // looked exactly like a working one. A total failure is now reported as a
+    // failure: the panels keep their empty state and the notice below is shown.
+    // With the reason attached, not just the panel name.
+    setPartial(
+      failed.length
+        ? `Notice — ${failed.length} of 5 live panels could not be loaded. ${reasons.join(" · ")}`
+        : "",
+    );
   }, []);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
 
   const ccys = spend ? Object.keys(spend.byCurrency?.committed ?? {}) : [];
   const mixed = (spend?.currencyCount ?? 0) > 1;
@@ -123,7 +114,7 @@ export default function Dashboard() {
     { key: "status", header: "Status", render: (a) => <Badge tone={a.tone}>needs action</Badge> },
   ];
 
-  if (state !== "ok") return <AuthScreen state={state} error={error} />;
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
 
   const session = getSession();
 
@@ -135,8 +126,8 @@ export default function Dashboard() {
           <p>Live multi-currency commitments, contract renewal monitors, and active RFQ sourcing pipelines.</p>
         </div>
         <div className="pagehead-actions">
-          <Link href="/rfqs" className="button ghost">View RFQs</Link>
-          <Link href="/orders" className="button">Purchase Orders</Link>
+          <Link href="/rfqs" className="btn btn-ghost btn-md">View RFQs</Link>
+          <Link href="/orders" className="btn btn-primary btn-md">Purchase Orders</Link>
         </div>
       </div>
 
@@ -145,36 +136,45 @@ export default function Dashboard() {
       <div className="cards">
         {mixed && ccys.length > 0 ? (
           ccys.map((c) => (
-            <StatCard key={c} label={`Committed (${c})`} value={fmtMinor(spend?.byCurrency.committed[c] ?? 0, c)} />
+            <MetricCard
+              key={c}
+              label={`Committed (${c})`}
+              value={fmtMinor(spend?.byCurrency.committed[c] ?? 0, c)}
+              hint="Sum of every purchase order raised in this currency, whatever its approval state."
+            />
           ))
         ) : (
           <>
             {/* VNT-043: the API returns null for a cross-currency total rather
                 than a wrong number, so the null is rendered as a fact about the
                 data instead of being formatted into "NaN". */}
-            <StatCard
+            <MetricCard
               label="Committed (POs)"
               value={!spend ? "—"
                 : spend.poTotalMinor == null ? "per currency"
                 : fmtMinor(spend.poTotalMinor, ccys[0])}
+              hint="Sum of every purchase order raised in this currency, whatever its approval state."
             />
-            <StatCard
+            <MetricCard
               label="Invoiced (approved)"
               value={!spend ? "—"
                 : spend.invoicedTotalMinor == null ? "per currency"
                 : fmtMinor(spend.invoicedTotalMinor, ccys[0])}
+              hint="Only invoices that passed three-way match. Unmatched invoices are not counted here."
             />
           </>
         )}
-        <StatCard
+        <MetricCard
           label="Contracts expiring (90 days)"
           value={expiring.length ? `${expiring.length}${expiringMore ? "+" : ""}` : "0"}
           tone={expiring.length ? "warn" : "good"}
+          hint="Computed live against contract end dates — not a stored status. “+” means the count exceeds 100."
         />
-        <StatCard
+        <MetricCard
           label="Open RFQs"
           value={openRfqs.more ? `${openRfqs.items.length}+` : String(openRfqs.items.length)}
           tone={openRfqs.items.length ? "warn" : "good"}
+          hint="RFQs in sent or response state, awaiting quotes or evaluation."
         />
       </div>
       {mixed ? (

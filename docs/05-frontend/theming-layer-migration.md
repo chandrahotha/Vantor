@@ -23,7 +23,7 @@ check.
 | File | Change | Size |
 |---|---|---|
 | `frontend/app/globals.css` | Token layer **appended**. | +552 / −0 |
-| `frontend/app/layout.tsx` | `data-palette="graphite"` on `<html>`. | +5 / −1 |
+| `frontend/app/layout.tsx` | `data-palette="graphite"` on `<html>` (now `cobalt`). | +5 / −1 |
 | `frontend/components/ThemeInit.tsx` | Calls `hydratePalette()` on mount. Existing light/dark logic untouched. | +7 / −1 |
 | `frontend/app/governance/client.tsx` | One import and one `<PaletteSwitcher />` mount. | +3 / −0 |
 
@@ -127,11 +127,18 @@ default stands.
 
 ## One behavioural change worth knowing
 
-Graphite is the default, and its `--primary` is `#1F2937` — near-black — where
-the previous token was `#1b6cff` blue. So the default appearance shifts from
-blue-accented to graphite, as specified. Links, primary buttons, panel summaries
-and focus rings all follow `--primary`. The vivid brand purple survives as
-`--accent`, which drives the logo mark gradient and the sidebar active bar.
+Graphite was the default at the time this migration landed, and its `--primary`
+was `#1F2937` — near-black — where the previous token was `#1b6cff` blue. The
+default appearance shifted from blue-accented to graphite, as specified.
+
+**That default has since been replaced.** The brand is now Hyper Cobalt
+`#0038FF` + Skin Sand `#FFD8B8` (`docs/05-frontend/design-system.md`), and the
+default palette is `cobalt` — this document's Graphite rows describe what
+shipped then, not what ships now. Links, primary buttons, panel summaries and
+focus rings all follow `--primary`, which is cobalt. The sand accent drives the
+logo-mark gradient, the card accent bar and the sidebar's active route, which is
+Skin Sand with cobalt text on the cobalt sidebar — in every palette, because the
+sidebar is the brand anchor and does not retheme.
 
 ## Not done, deliberately
 

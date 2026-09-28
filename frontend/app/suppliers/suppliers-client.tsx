@@ -32,7 +32,7 @@ export default function SuppliersClient() {
     setCursor(cur);
   }, []);
 
-  const { state, error } = useBoot(() => load("", "", "created_at", "desc"));
+  const { state, error, reload } = useBoot(() => load("", "", "created_at", "desc"));
   const shownErr = err || error;
 
   // Command-palette deep link: ?highlight=<id> jumps to and focuses the row.
@@ -100,6 +100,8 @@ export default function SuppliersClient() {
     { key: "currency", header: "Currency", render: (r) => r.currency || "—" },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -128,17 +130,12 @@ export default function SuppliersClient() {
         <button className="ghost" onClick={searchNow}>Search</button>
       </div>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
-          <DataTable caption="Supplier list" rows={rows} rowKey={(r) => r.id} columns={columns}
-            sort={sort} order={order} onSort={resort}
-            empty={<Empty title="No suppliers found" hint="Create one above, or adjust the search." />} />
-          <Pager stack={stack} hasMore={more}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv, search, sort, order); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor, search, sort, order); }} />
-        </>
-      )}
+      <DataTable caption="Supplier list" rows={rows} rowKey={(r) => r.id} columns={columns}
+        sort={sort} order={order} onSort={resort}
+        empty={<Empty title="No suppliers found" hint="Create one above, or adjust the search." />} />
+      <Pager stack={stack} hasMore={more}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv, search, sort, order); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor, search, sort, order); }} />
     </Shell>
   );
 }

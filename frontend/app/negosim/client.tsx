@@ -13,18 +13,41 @@ type SimResult = {
 };
 
 export default function NegoSim() {
-  const [form, setForm] = useState({ listPrice: "100000.00", walkAway: "140000.00", offers: "95000\n100000\n120000", maxRounds: "5", concessionBp: "1500" });
+  const [form, setForm] = useState({ listPrice: "100000.00", walkAway: "75000.00", offers: "70000\n80000\n88000", maxRounds: "5", concessionBp: "1500" });
   const [out, setOut] = useState<SimResult | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { state, error } = useBoot(useCallback(async () => {}, []));
+  const { state, error, reload } = useBoot(useCallback(async () => {}, []));
   const shownErr = err || error;
 
   async function run() {
     setBusy(true); setErr("");
+    const listPriceNum = Number(form.listPrice);
+    const walkAwayNum = Number(form.walkAway);
+    if (listPriceNum <= 0 || isNaN(listPriceNum)) {
+      setErr("Supplier list price must be greater than zero.");
+      setBusy(false);
+      return;
+    }
+    if (walkAwayNum <= 0 || isNaN(walkAwayNum)) {
+      setErr("Supplier walk-away floor must be greater than zero.");
+      setBusy(false);
+      return;
+    }
+    if (walkAwayNum >= listPriceNum) {
+      setErr(`Supplier reserve floor (${walkAwayNum}) must be less than list price (${listPriceNum}) to model concession room.`);
+      setBusy(false);
+      return;
+    }
+
     try {
       const offers = form.offers.split(/\n+/).map((s) => s.trim()).filter(Boolean).map((v) => Math.round(Number(v) * 100));
+      if (offers.length === 0) {
+        setErr("Please provide at least one buyer offer.");
+        setBusy(false);
+        return;
+      }
       const r = await api<SimResult>("/api/v1/ai/negotiate", {
         method: "POST", idemKey: newIdemKey(),
         body: JSON.stringify({
@@ -49,6 +72,8 @@ export default function NegoSim() {
     { key: "counter", header: "Supplier counter", numeric: true, render: (x) => fmtMinor(x.counter_minor, "INR") },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -59,17 +84,16 @@ export default function NegoSim() {
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
-        <>
-          <div className="panel">
+      <>
+        <div className="panel">
             <div className="toolbar">
-              <label>List price<input aria-label="List price" inputMode="decimal" value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })} /></label>
-              <label>Walk-away<input aria-label="Walk-away price" inputMode="decimal" value={form.walkAway} onChange={(e) => setForm({ ...form, walkAway: e.target.value })} /></label>
+              <label>Supplier list price<input aria-label="List price" inputMode="decimal" value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })} /></label>
+              <label>Supplier walk-away floor<input aria-label="Walk-away price" inputMode="decimal" value={form.walkAway} onChange={(e) => setForm({ ...form, walkAway: e.target.value })} /></label>
               <label>Max rounds<input aria-label="Max rounds" inputMode="numeric" size={4} value={form.maxRounds} onChange={(e) => setForm({ ...form, maxRounds: e.target.value })} /></label>
               <label>Concession % (bp)<input aria-label="Concession basis points" inputMode="numeric" size={6} value={form.concessionBp} onChange={(e) => setForm({ ...form, concessionBp: e.target.value })} /></label>
             </div>
             <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "var(--muted)" }}>
-              Your offers, one per line
+              Your buyer offers (one per line, lowest first)
               <textarea aria-label="Buyer offers" rows={4} style={{ marginTop: 4, fontFamily: "var(--font-mono)" }} value={form.offers} onChange={(e) => setForm({ ...form, offers: e.target.value })} />
             </label>
             <div className="toolbar" style={{ marginTop: 12 }}>
@@ -90,8 +114,7 @@ export default function NegoSim() {
           ) : (
             <Empty title="No simulation yet" hint="Describe a price situation and run it." />
           )}
-        </>
-      )}
+      </>
     </Shell>
   );
 }

@@ -3,9 +3,9 @@
 
 # Frontend — VANTOR Web
 
-**Status: `IN DEVELOPMENT` — 19 compiled routes, 107 vitest green across 10 test suites.**
+**Status: `IN DEVELOPMENT` — 15 routes, 150 vitest green across 11 test suites.**
 
-Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Enterprise Session Manager & Role Delegation, ESLint 9 flat config, design tokens per `../docs/05-frontend/design-system.md`.
+Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code + PKCE), ESLint 9 flat config, design tokens per `../docs/05-frontend/design-system.md`.
 
 Rules: real API data only (envelope `{data,pagination,error,requestId}`), explicit empty/error
 states, no localStorage token leaks, no fake sessions, no placeholder charts.
@@ -17,23 +17,25 @@ states, no localStorage token leaks, no fake sessions, no placeholder charts.
 ```powershell
 npm ci
 $env:NEXT_PUBLIC_API_URL="http://localhost:8000"
+$env:NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080"
 npm run dev
 ```
 
-Navigate to `http://localhost:3000`. The application connects to the local API service and mounts the enterprise procurement workspace.
-Users can sign in or switch roles using the integrated **Enterprise Identity & Role Delegation** modal:
-- 👔 **Sarah Chen** — Procurement Director (Full approval authority, $5M+ spending gates)
-- 🎯 **Marcus Vance** — Strategic Category Manager (Strategic sourcing, RFQ awards)
-- ⚖ **Elena Rostova** — Chief Financial Controller (3-way invoice matching, budget ceilings)
-- 🛒 **David Park** — Senior Tactical Buyer (Requisitions, purchase orders, goods receipt)
-- Or authenticate with custom corporate credentials.
+Navigate to `http://localhost:3000`. Boot is `check-sso`: the app paints its own loading
+splash, and if there is no IdP session it renders a sign-in card with one **Continue with
+Vantor ID** button. The window is never navigated to the identity provider without that
+click — an automatic redirect is what stranded users on `:8080` when it was down (B-28).
+
+There is no in-app persona switcher, no role picker, and no path to a session that does not
+come from the IdP. `lib/auth.ts` holds tokens in memory only, and `components/ui.tsx` renders
+`AuthScreen` for every unsigned-in state. Sign-in is Keycloak; sign-out is `kc.logout()`.
 
 ## Verification & Gates
 
 ```powershell
 npm run typecheck    # tsc --noEmit (0 errors)
 npm run lint         # eslint (0 errors, 0 warnings)
-npm test             # vitest (107/107 passed across 10 suites)
+npm test             # vitest (150/150 passed across 11 suites)
 npm run build        # next build (19 routes generated)
 ```
 
@@ -52,14 +54,22 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
 
 Five palettes × light/dark, driven by CSS custom properties under
 `[data-palette="<key>"]` and `[data-theme="light|dark"]`, not by hardcoded surface colours.
+The default is **Vantor Cobalt** — Hyper Cobalt `#0038FF` + Skin Sand `#FFD8B8`
+(`../docs/05-frontend/design-system.md`). The sidebar is the brand anchor: cobalt in every
+palette and both modes, white labels and icons, and the active route in Skin Sand with cobalt
+text.
 Selection persists via `useSyncExternalStore` (`lib/palette.ts`) and a tenant's identity-token
 brand claim can override it. `check_palette_layer.py` gates the layer: no cycles, no dangling
 tokens, and every contrast pair above its threshold.
 
 Shared UI primitives live in `components/ui.tsx` and `components/Shell.tsx`:
-- `useBoot`: Enterprise workspace session boot with bounce-loop detection.
-- `AuthScreen`: Executive glassmorphic entry screen with enterprise persona selection.
-- `SignInModal`: Interactive role delegation and persona switching modal.
+- `useBoot`: Keycloak session boot with bounce-loop detection; `loading` → `ok` → `error` → sign-in.
+- `AuthScreen`: the only unauthenticated surface — one explicit sign-in button, a retry on
+  IdP failure, and no way to reach the app without a token.
 - `StatCard`, `Pager`, `DataTable`: Standardized data grid with accessible ARIA sort.
 - `Badge`, `Empty`, `ErrorBox`, `Skeleton`: Standardized feedback and empty states.
-- Fonts: `Inter` and `JetBrains Mono` are bundled via `next/font` in `layout.tsx`.
+- Fonts: `Inter` and `JetBrains Mono` are bundled via `next/font` in `layout.tsx` and applied
+  to `<html>`; `--font-ui` / `--font-mono` in `globals.css` reference the variables
+  `next/font` emits, with a system stack behind them. `components/grade5.test.tsx` asserts
+  both directions, because a token that names a font the build does not ship (B-24) and a
+  webfont that is downloaded but never rendered are the same defect.

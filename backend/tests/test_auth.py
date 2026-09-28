@@ -2,6 +2,9 @@
 
 Covers: valid token w/ tenant+roles, missing bearer => 401, wrong alg => 401,
 expired => 401, no-tenant claim => 403, unknown kid => 401, wrong role => 403.
+Regression (B-32): unsigned `vantor-*` strings and `demo:` HMAC tokens are
+rejected with 401 in every non-production environment — the old bypasses
+granted a full Admin session to anyone who could guess a prefix.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -94,3 +97,65 @@ def test_none_alg_rejected(keys, monkeypatch):
     tok = jwt.encode({"iss": ISS, "aud": AUD, "sub": "u", "tenant_id": "t1"}, key="", algorithm="none")
     r = c.get("/api/v1/audit-events", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 401
+
+
+# --- B-32 regression: the forged-token bypasses are gone, in every environment ---
+#
+# These deliberately run WITHOUT the `keys`/`override_jwks` fixture: the old
+# bypasses short-circuited before JWKS, so a pass here proves the rejection
+# comes from the verification path, not from an unavailable key set. If the
+# bypass blocks were re-added, every test in this section would fail even
+# with no reachable IdP (mutation-checked).
+
+_FORGED_TOKENS = [
+    "vantor-corp-jwt-session",            # the old Admin-minting default
+    "vantor-director-session-token",      # persona shape from the frontend
+    "vantor-custom-jwt-session",          # client-minted custom identity
+    "vantor-finance_controller-session",  # roles_map persona id
+    "vantor-anything-goes-session",       # the catch-all fallback
+    "vantor-x-session",
+    "demo:reviewer." + "0" * 64,          # unsigned demo token (old HMAC path)
+    "demo:x",
+    "not-a-token-at-all",
+]
+
+
+@pytest.mark.parametrize("forged", _FORGED_TOKENS)
+def test_forged_tokens_are_401_in_test_env(monkeypatch, forged):
+    monkeypatch.setenv("APP_ENV", "test")
+    # Env that used to enable the bypasses: DEMO_* is now unknown to Settings
+    # (extra="ignore"), and `vantor-*` had no gate beyond `not is_prod`.
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_TOKEN", "an-attacker-known-secret")
+    monkeypatch.setenv("NEXT_PUBLIC_DEMO_MODE", "true")
+    monkeypatch.setenv("NEXT_PUBLIC_DEMO_TOKEN", "anything")
+    c = _client_with_env(monkeypatch)
+    r = c.get("/api/v1/audit-events", headers={"Authorization": f"Bearer {forged}"})
+    assert r.status_code == 401, f"bypass accepted forged token {forged!r}: {r.status_code}"
+
+
+def test_development_env_also_fails_closed(monkeypatch):
+    # The old gate was `not settings.is_prod`, so development and staging were
+    # as exposed as test. Fail-closed must hold there too.
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_TOKEN", "x")
+    c = _client_with_env(monkeypatch)
+    r = c.get("/api/v1/audit-events", headers={"Authorization": "Bearer vantor-corp-jwt-session"})
+    assert r.status_code == 401
+
+
+def test_settings_no_longer_expose_demo_fields(monkeypatch):
+    # Guard against a reintroduced `demo_mode`/`demo_token` field: the config
+    # must not know these settings exist, so `DEMO_MODE=true` is inert.
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DEMO_TOKEN", "x")
+    from app.core.config import Settings
+
+    s = Settings()
+    assert not hasattr(s, "demo_mode")
+    assert not hasattr(s, "demo_token")
+
+
+def test_security_module_has_no_demo_helpers():
+    assert not hasattr(security, "_demo_sig_ok")

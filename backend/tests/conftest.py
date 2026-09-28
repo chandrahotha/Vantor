@@ -5,10 +5,18 @@
   module uses.
 - `pg_client` — the same shape against real Postgres with the schema built
   from alembic. RLS, FKs, composite indexes are all live.
+
+The Postgres half of this file used to be duplicated inside
+`test_pg_infrastructure.py` and `test_pg_concurrency.py`, and both copies were
+wrong in the same three ways (wrong driver, alembic migrating SQLite, app
+engine still on SQLite). It now lives in `pgsupport.py`, once, with the reasons
+recorded next to each fix.
 """
 from __future__ import annotations
 
 import os
+import sys
+import uuid
 
 import pytest
 
@@ -19,21 +27,22 @@ os.environ.setdefault("JWT_AUDIENCE", "vantor-web")
 os.environ["S3_ENDPOINT"] = ""
 os.environ["S3_BUCKET"] = ""
 
+# Sibling-module import that does not depend on pytest's import mode deciding to
+# put `tests/` on sys.path before conftest is executed.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from pgsupport import (  # noqa: E402  (must follow the env defaults above)
+    build_schema,
+    pointed_at_postgres,
+    purge_tenant,
+    require_postgres,
+)
+
 PG_TEST_URL = os.getenv("PG_TEST_DATABASE_URL", "").strip()
 
 
 def _pg_or_skip() -> str:
-    if not PG_TEST_URL:
-        pytest.skip("PG_TEST_DATABASE_URL is not set")
-    from sqlalchemy import create_engine
-    from sqlalchemy.exc import OperationalError
-
-    engine = create_engine(PG_TEST_URL, connect_args={"connect_timeout": 3})
-    try:
-        engine.connect().close()
-    except OperationalError as exc:
-        pytest.skip(f"Postgres unreachable at {PG_TEST_URL} ({exc})")
-    return PG_TEST_URL
+    return require_postgres()
 
 
 @pytest.fixture()
@@ -50,44 +59,35 @@ def pg_client():
     from fastapi.testclient import TestClient
     from jwt.algorithms import RSAAlgorithm
 
-    from alembic import command
-    from alembic.config import Config
+    with pointed_at_postgres():
+        build_schema()
 
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("script_location", "alembic")
-    cfg.set_main_option("sqlalchemy.url", url)
-    command.upgrade(cfg, "head")
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = priv.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        jwk = RSAAlgorithm.to_jwk(priv.public_key(), as_dict=True)
+        jwk["kid"] = "pg-kid"
+        from app.core import security
+        from app.core.config import get_settings
+        from app.core.tenant import reset_engine_cache
 
-    priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-    jwk = RSAAlgorithm.to_jwk(priv.public_key(), as_dict=True)
-    jwk["kid"] = "pg-kid"
-    from app.core import security
-    from app.core.config import get_settings
-    from app.core.tenant import get_engine, reset_engine_cache
+        get_settings.cache_clear()
+        reset_engine_cache()
+        security.override_jwks({"pg-kid": RSAAlgorithm.from_jwk(jwk)})
+        from app.main import app as fastapi_app
 
-    get_settings.cache_clear()
-    reset_engine_cache()
-    security.override_jwks({"pg-kid": RSAAlgorithm.from_jwk(jwk)})
-    from app.main import app as fastapi_app
-    import uuid
+        tenant = f"pg-{uuid.uuid4().hex[:12]}"
+        c = TestClient(fastapi_app, raise_server_exceptions=False)
+        yield c, pem, tenant
 
-    tenant = f"pg-{uuid.uuid4().hex[:12]}"
-    c = TestClient(fastapi_app, raise_server_exceptions=False)
-    yield c, pem, tenant
+        # Clean up test rows only — next test sees the same schema.
+        purge_tenant(tenant)
 
-    # Clean up test rows only — next test sees the same schema.
-    from sqlalchemy.orm import Session
+        reset_engine_cache()
+        get_settings.cache_clear()
+        security.override_jwks(None)
 
-    db = Session(get_engine())
-    try:
-        for table in reversed(db.execute(
-                "SELECT tablename FROM pg_tables WHERE schemaname='public'").mappings().scalars()):
-            db.execute(f"DELETE FROM {table} WHERE tenant_id = :t", {"t": tenant})
-        db.commit()
-    finally:
-        db.close()
-
-    reset_engine_cache()
-    get_settings.cache_clear()
-    security.override_jwks(None)
+    assert url  # the URL was validated before the fixture body ran

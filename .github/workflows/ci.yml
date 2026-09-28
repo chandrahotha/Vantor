@@ -136,12 +136,17 @@ jobs:
           alembic downgrade -1
           alembic upgrade head
       - name: Postgres-backed tier (the only tests that run Alembic + FKs + RLS)
+        # Selected by marker, not by path. `pytest tests/test_pg_infrastructure.py`
+        # left `test_pg_concurrency.py` — the budget-atomicity proof that two
+        # approvals cannot both clear one ceiling — out of CI entirely, so the
+        # S1 money check had never once run. Both files carry `@pytest.mark.pg`.
+        # A third PG file must not need this line edited to be included.
         env:
           APP_ENV: test
           PG_TEST_DATABASE_URL: postgresql://vantor:vantor-test@localhost:5432/vantor_test
           OIDC_ISSUER: https://issuer.test/realms/vantor
           JWT_AUDIENCE: vantor-web
-        run: cd backend && python -m pytest tests/test_pg_infrastructure.py -q
+        run: cd backend && python -m pytest -m pg -q
       - name: API contract export (OpenAPI must generate and match the committed copy)
         run: |
           cd backend
@@ -150,6 +155,42 @@ jobs:
           cd ..
           git diff --exit-code -- api/openapi.json \
             || (echo "api/openapi.json is stale — commit the regenerated contract" && exit 1)
+  worker:
+    needs: policy
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Scheduler and worker tests
+        # `worker/beat.py` is the service that makes contract-expiry rolling,
+        # spend snapshots and the webhook drain actually happen (B-17), and
+        # nothing else in this workflow imports it. Its tests — including the
+        # ones that assert the scheduler calls only APIs the pinned `rq` really
+        # exposes — ran nowhere until this step existed. That is B-07's shape
+        # exactly: a check that never runs is not a check.
+        #
+        # The Redis service is not decoration. B-41 (`Worker(queues)` with no
+        # connection, an immediate `AttributeError` in rq 1.16.2) can only be
+        # caught by constructing a real `rq.Worker`, and its `__init__` calls
+        # `connection.client_setname(...)`. Without a Redis here those tests skip
+        # and the regression rides in on nothing.
+        env:
+          RQ_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+        run: |
+          pip install -r worker/requirements.txt
+          pip install pytest ruff
+          cd worker
+          python -m pytest tests -q
+          ruff check .
   frontend:
     needs: policy
     runs-on: ubuntu-latest

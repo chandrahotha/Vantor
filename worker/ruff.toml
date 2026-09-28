@@ -1,0 +1,26 @@
+# ruff configuration for the worker.
+#
+# Mirrors `backend/ruff.toml` deliberately: the worker is a service in its own
+# right (it owns the scheduler that makes contract-expiry rolling, spend
+# snapshots and the webhook drain happen), so it gets the same defect-detecting
+# rules as the backend rather than whatever the linter defaults to. The rules
+# selected are the correctness ones — undefined names, unused bindings,
+# shadowing, syntax — and none of the formatting ones. See the backend config
+# for the full reasoning, including why E741 is off.
+#
+# Standalone rather than `extend = "../backend/ruff.toml"`: a config that points
+# outside the package breaks the moment anyone copies `worker/` on its own,
+# which is exactly what the worker's Dockerfile context assumes.
+#
+# Like the backend's, this is a `ruff.toml` rather than a `[tool.ruff]` table in
+# a `pyproject.toml`: a pyproject.toml here would change pytest's rootdir.
+
+line-length = 120
+target-version = "py313"
+
+[lint]
+select = ["E7", "E9", "F"]
+ignore = ["E741"]
+
+[lint.per-file-ignores]
+"tests/*" = ["F811"]

@@ -19,10 +19,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, CheckConstraint, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_ref
 
 
 class CatalogItem(Base, TenantMixin):
@@ -30,7 +30,7 @@ class CatalogItem(Base, TenantMixin):
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(300), nullable=False)
-    category_id: Mapped[str] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), default="", nullable=False)
+    category_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     uom: Mapped[str] = mapped_column(String(16), default="each", nullable=False)
     ref_price_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
@@ -39,18 +39,26 @@ class CatalogItem(Base, TenantMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_catalog_tenant_code"),
         Index("ix_catalog_tenant_cat", "tenant_id", "category_id"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("catalog_items", "category_id", "categories"),
     )
 
 
 class Budget(Base, TenantMixin):
     __tablename__ = "budgets"
 
-    category_id: Mapped[str] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), default="", nullable=False)
+    category_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     period: Mapped[str] = mapped_column(String(7), nullable=False)  # YYYY-MM
     ceiling_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
-    __table_args__ = (UniqueConstraint("tenant_id", "category_id", "period", name="uq_budget_tenant_cat_period"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "category_id", "period", name="uq_budget_tenant_cat_period"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("budgets", "category_id", "categories"),
+    )
 
 
 class ContractSignature(Base, TenantMixin):
@@ -72,7 +80,7 @@ class ContractSignature(Base, TenantMixin):
 
     __tablename__ = "contract_signatures"
 
-    contract_id: Mapped[str] = mapped_column(String(36), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False, index=True)
+    contract_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     signer: Mapped[str] = mapped_column(String(256), nullable=False)
     method: Mapped[str] = mapped_column(String(16), default="internal", nullable=False)  # internal|esign
     provider: Mapped[str] = mapped_column(String(64), default="", nullable=False)
@@ -92,6 +100,18 @@ class ContractSignature(Base, TenantMixin):
     # The provider's own response, verbatim. Kept so a dispute can be settled
     # against what the provider actually said rather than against our summary.
     provider_payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # B-19. The digest of the last accepted provider callback, over
+    # `{timestamp}.{body}` under the provider's secret. The MAC covered a
+    # timestamp rather than a consumed nonce, so a captured callback could be
+    # re-sent for as long as that timestamp was fresh: the state transition was
+    # idempotent, but every agreeing replay was still *accepted*. This is the
+    # consumed nonce, stored on the row the callback is scoped to — one envelope
+    # per provider is already the uniqueness constraint above, so the row IS the
+    # nonce's scope and a separate table would be a second lookup for the same
+    # fact. A replayed capture matches the digest and is refused before the
+    # terminal-state check; a genuinely fresh callback has a new timestamp and
+    # therefore a new digest, so a provider retry is not a replay.
+    last_callback_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
         Index("ix_sig_tenant_contract", "tenant_id", "contract_id"),
@@ -137,4 +157,7 @@ class ContractSignature(Base, TenantMixin):
             # that arrived from nowhere.
             "method = 'internal' or status <> 'signed' or verified_via <> ''",
             name="ck_signature_esign_verified_via"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("contract_signatures", "contract_id", "contracts"),
     )

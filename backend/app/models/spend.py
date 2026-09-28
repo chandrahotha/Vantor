@@ -7,19 +7,19 @@ from these rows — empty states when no data, never synthetic numbers.
 """
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_ref
 
 
 class SpendTransaction(Base, TenantMixin):
     __tablename__ = "spend_transactions"
 
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # commitment|actual
-    po_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), default="", nullable=False)
-    invoice_id: Mapped[str] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="RESTRICT"), default="", nullable=False)
-    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False)
+    po_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    invoice_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    supplier_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
     amount_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
@@ -40,18 +40,27 @@ class SpendTransaction(Base, TenantMixin):
         CheckConstraint("kind in ('commitment','actual')", name="ck_spend_kind"),
         CheckConstraint("amount_minor >= 0", name="ck_spend_amount_nonneg"),
         CheckConstraint("(currency = '' OR length(currency) = 3)", name="ck_spend_currency_iso3"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("spend_transactions", "po_id", "purchase_orders"),
+        tenant_ref("spend_transactions", "invoice_id", "invoices"),
+        tenant_ref("spend_transactions", "supplier_id", "suppliers"),
     )
 
 
 class SavingsRecord(Base, TenantMixin):
     __tablename__ = "savings_records"
 
-    rfq_id: Mapped[str] = mapped_column(String(36), ForeignKey("rfqs.id", ondelete="RESTRICT"), default="", nullable=False)
-    award_id: Mapped[str] = mapped_column(String(36), ForeignKey("awards.id", ondelete="RESTRICT"), default="", nullable=False)
+    rfq_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    award_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
     saved_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     basis: Mapped[str] = mapped_column(String(64), default="max-evaluated-vs-award", nullable=False)
 
     __table_args__ = (UniqueConstraint("tenant_id", "award_id", name="uq_saving_tenant_award"),
                       CheckConstraint("saved_minor >= 0", name="ck_saving_nonneg"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("savings_records", "rfq_id", "rfqs"),
+        tenant_ref("savings_records", "award_id", "awards"),
                       CheckConstraint("(currency = '' OR length(currency) = 3)", name="ck_saving_currency_iso3"))

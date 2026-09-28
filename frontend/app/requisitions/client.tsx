@@ -25,7 +25,7 @@ export default function Requisitions() {
     setCursor(cur);
   }, []);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function create() {
@@ -74,6 +74,8 @@ export default function Requisitions() {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -99,15 +101,11 @@ export default function Requisitions() {
         </div>
       </details>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
-        <>
-          <DataTable caption="Requisitions" rows={rows} rowKey={(r) => r.id} columns={columns}
-            empty={<Empty title="No requisitions yet" hint="Create one above." />} />
-          <Pager stack={stack} hasMore={more}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-        </>
-      )}
+      <DataTable caption="Requisitions" rows={rows} rowKey={(r) => r.id} columns={columns}
+        empty={<Empty title="No requisitions yet" hint="Create one above." />} />
+      <Pager stack={stack} hasMore={more}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
     </Shell>
   );
 }

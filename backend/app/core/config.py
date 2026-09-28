@@ -20,14 +20,17 @@ class Settings(BaseSettings):
     api_url: str = Field(default="http://localhost:8000", alias="API_URL")
     log_level: str = Field(default="info", alias="LOG_LEVEL")
 
-    # Demo mode. When true the API accepts a synthetic sibling identity
-    # (tenant `demo` read-only, from a signed HMAC token) so a reviewer can see
-    # the product without Keycloak running. Nothing else is faked — writes
-    # are rejected state-wide. It is refused in production by `is_prod`.
-    demo_mode: bool = Field(default=False, alias="DEMO_MODE")
-    demo_token: str = Field(default="", alias="DEMO_TOKEN")  # shared secret for the demo login
-
-    database_url: str = Field(default="postgresql://vantor:change-me-in-env@postgres:5432/vantor", alias="DATABASE_URL")
+    # The defaults are the *host* names, because the default case is running the
+    # API on the developer machine. Compose overrides all three per service
+    # (see docker-compose.yml), because inside that network the right answers are
+    # `postgres`, `redis` and `keycloak`.
+    #
+    # These used to default to the Compose service names, which is the same
+    # inversion: a native `uvicorn app.main:app` picked them up, failed to
+    # resolve `keycloak` or `postgres`, and answered `503 Identity provider
+    # unavailable` on every authenticated request while `/health` — which touches
+    # no dependency — stayed green. A default should work when nothing is set.
+    database_url: str = Field(default="postgresql://vantor:vagrant@127.0.0.1:5432/vantor", alias="DATABASE_URL")
 
     @property
     def database_url_resolved(self) -> str:
@@ -41,7 +44,7 @@ class Settings(BaseSettings):
         if url.startswith("postgresql://"):
             return url.replace("postgresql://", "postgresql+psycopg://", 1)
         return url
-    redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
 
     # Document ingestion and storage — VNT-009/010/012.
     max_upload_mb: int = Field(default=50, alias="MAX_UPLOAD_MB", ge=1, le=1024)
@@ -87,7 +90,19 @@ class Settings(BaseSettings):
     keycloak_url: str = Field(default="http://keycloak:8080", alias="KEYCLOAK_URL")
     keycloak_realm: str = Field(default="vantor", alias="KEYCLOAK_REALM")
     keycloak_client_id: str = Field(default="vantor-web", alias="KEYCLOAK_CLIENT_ID")
-    oidc_issuer: str = Field(default="http://keycloak:8080/realms/vantor", alias="OIDC_ISSUER")
+    # `127.0.0.1`, not `keycloak`. See the note on `database_url`: the default is
+    # the host-network case, and compose sets the container name explicitly.
+    # The issuer must be byte-identical to the `iss` claim Keycloak puts in the
+    # token, and `jwt.decode(issuer=...)` compares it exactly. The realm's issuer
+    # comes from KC_HOSTNAME, which docker-compose pins to `http://localhost:8080`
+    # (KC_HOSTNAME_STRICT is false so host-reachable and in-network callers can
+    # both work), so the token says `localhost` — not `127.0.0.1`, which is the
+    # same server and a *different* string. Defaulting to `127.0.0.1` made every
+    # real token fail `Invalid token` with 401 while `/health` stayed green, which
+    # is the same class of quiet total failure the Compose-service default caused.
+    # `tests/test_config.py::test_default_oidc_issuer_matches_env_example` pins this
+    # to .env.example so the two cannot drift.
+    oidc_issuer: str = Field(default="http://localhost:8080/realms/vantor", alias="OIDC_ISSUER")
     jwt_audience: str = Field(default="vantor-web", alias="JWT_AUDIENCE")
 
     # AI gateway — free-first; all optional, `disabled` is the deterministic mode.
@@ -103,6 +118,15 @@ class Settings(BaseSettings):
     # the server's (VNT-041). IANA zone name; an unknown value falls back to UTC and
     # the roll reports the zone it actually used.
     contract_timezone: str = Field(default="UTC", alias="CONTRACT_TIMEZONE")
+
+    # B-20. What happens when a purchase order is approved against a category that
+    # has no budget row for the period. `allow` is the historical reading of
+    # "no ceiling set" — the approval proceeds. `block` turns the missing row into
+    # a 422, which is the reading an operator who expects "no uncontrolled spend"
+    # has. It is a field rather than a string compared at the call site so a
+    # misconfiguration is refused here, at startup, instead of silently behaving
+    # as whichever of the two the comparison happened to pick.
+    budget_unset_policy: str = Field(default="allow", alias="BUDGET_UNSET_POLICY")
 
     # Self-hosted.
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
@@ -144,6 +168,14 @@ class Settings(BaseSettings):
             raise ValueError(f"APP_ENV must be one of {sorted(allowed)}")
         return v
 
+    @field_validator("budget_unset_policy")
+    @classmethod
+    def _budget_policy_known(cls, v: str) -> str:
+        allowed = {"allow", "block"}
+        if v not in allowed:
+            raise ValueError(f"BUDGET_UNSET_POLICY must be one of {sorted(allowed)}")
+        return v
+
     @property
     def is_prod(self) -> bool:
         return self.app_env == "production"
@@ -156,12 +188,6 @@ class Settings(BaseSettings):
         """Fail-closed: production must not run on placeholder secrets."""
         if not self.is_prod:
             return
-        if self.demo_mode:
-            raise RuntimeError(
-                "DEMO_MODE=true is a refusal: production must never boot with an "
-                "open authentication neither and the IdP contract. Turn it off, or "
-                "set APP_ENV to development/test before touching this."
-            )
         placeholders = ("change-me", "generate-32-bytes-min", "")
         for name in ("DATABASE_URL", "OIDC_ISSUER", "JWT_AUDIENCE", "POSTGRES_PASSWORD",
                      "JWT_SECRET", "REFRESH_TOKEN_SECRET", "ENCRYPTION_KEY",

@@ -46,7 +46,7 @@ const REQUIRED_TOKENS = [
 describe("palette manifest", () => {
   it("offers exactly the five specified palettes", () => {
     expect(PALETTES.map((p) => p.key)).toEqual([
-      "graphite",
+      "cobalt",
       "emerald",
       "sapphire",
       "amber",
@@ -54,8 +54,8 @@ describe("palette manifest", () => {
     ]);
   });
 
-  it("defaults to Graphite", () => {
-    expect(DEFAULT_PALETTE).toBe("graphite");
+  it("defaults to Cobalt", () => {
+    expect(DEFAULT_PALETTE).toBe("cobalt");
   });
 
   it("gives every palette a name, tagline, intended use and swatch", () => {
@@ -116,12 +116,12 @@ describe("palette store", () => {
   });
 
   it("hydration prefers the stored choice over the server default", async () => {
-    // The server renders `graphite` for every visitor, so reading the DOM first
+    // The server renders `Cobalt` for every visitor, so reading the DOM first
     // would mean a returning user's palette never applies: the preference would
     // look saved, survive nothing, and reset on every reload.
     vi.resetModules();
     localStorage.setItem("vantor.palette", "emerald");
-    document.documentElement.dataset.palette = "graphite";
+    document.documentElement.dataset.palette = "cobalt";
     const fresh = await import("./palette");
     expect(fresh.hydratePalette()).toBe("emerald");
     expect(document.documentElement.dataset.palette).toBe("emerald");
@@ -130,9 +130,9 @@ describe("palette store", () => {
   it("hydration keeps the server default for a first-time visitor", async () => {
     vi.resetModules();
     localStorage.removeItem("vantor.palette");
-    document.documentElement.dataset.palette = "graphite";
+    document.documentElement.dataset.palette = "cobalt";
     const fresh = await import("./palette");
-    expect(fresh.hydratePalette()).toBe("graphite");
+    expect(fresh.hydratePalette()).toBe("cobalt");
   });
 
   it("hydration does not re-persist what it just read", async () => {
@@ -142,7 +142,7 @@ describe("palette store", () => {
     localStorage.setItem("vantor.palette", "amber");
     // Spy after seeding: the seeding write is this test's own setup.
     const spy = vi.spyOn(Storage.prototype, "setItem");
-    document.documentElement.dataset.palette = "graphite";
+    document.documentElement.dataset.palette = "cobalt";
     const fresh = await import("./palette");
     fresh.hydratePalette();
     expect(spy).not.toHaveBeenCalled();
@@ -150,8 +150,8 @@ describe("palette store", () => {
   });
 
   it("applyPalette can skip persistence, for the hydration path", () => {
-    applyPalette("graphite", { persist: false });
-    expect(document.documentElement.dataset.palette).toBe("graphite");
+    applyPalette("cobalt", { persist: false });
+    expect(document.documentElement.dataset.palette).toBe("cobalt");
     expect(localStorage.getItem("vantor.palette")).toBeNull();
   });
 
@@ -208,14 +208,17 @@ describe("stylesheet agreement", () => {
 
   it("bridges the new tokens onto the names the existing CSS reads", () => {
     // Without these the palettes would be inert: every existing rule reads
-    // --ink, --line, --primary, not --text-primary.
+    // --ink, --line, --primary, not --text-primary. `--cyan` is the name the
+    // fill-only accent bars read (the card accent bar); it maps to the vivid
+    // `--accent`, because those bars are fills at non-text sizes and accent
+    // *text* is `--accent-ui`'s job.
     for (const bridged of [
       "--bg: var(--bg-base)",
       "--surface: var(--bg-surface)",
       "--ink: var(--text-primary)",
       "--line: var(--border)",
       "--primary-strong: var(--primary-hover)",
-      "--cyan: var(--accent-ui)",
+      "--cyan: var(--accent)",
       "--emerald: var(--success)",
       "--warn: var(--warning)",
     ]) {

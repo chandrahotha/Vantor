@@ -96,6 +96,13 @@ def baseline_for(db: Session, *, tenant_id: str, item: str, supplier_id: str, ex
     descriptions = cache._po_line_descriptions()
     prices: list[int] = []
     for il in db.execute(select(InvoiceLine).where(InvoiceLine.tenant_id == tenant_id, InvoiceLine.invoice_id.in_(inv_ids))).scalars():
+        # An invoice line with no PO line has no like-for-like counterpart, so it
+        # cannot contribute a baseline point. `invoices_lines.po_line_id` is
+        # nullable, and saying so here is both the skip and the narrowing: a
+        # `dict.get` on a `str | None` key is exactly the "handles it fine"
+        # shape that hides an invariant from the next reader.
+        if il.po_line_id is None:
+            continue
         desc = descriptions.get(il.po_line_id)
         if desc is None or normalize_item(desc) != norm or il.unit_price_minor <= 0:
             continue

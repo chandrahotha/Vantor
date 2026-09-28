@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, FilterBar, LiveRegion, Pager, Segmented, useBoot, useToast, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Rfq = { id: string; code: string; title: string; status: string; currency: string; lineCount?: number };
@@ -44,6 +44,19 @@ export default function Rfqs() {
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
   const [plan, setPlan] = useState<OptimizerResult | null>(null);
+  const toast = useToast();
+  /** The quote an award confirmation is open for. Null means no dialog. The
+   *  previous behaviour awarded on a single click in a dense comparison table,
+   *  which books real savings to the ledger — the Grade-5 "zero surprise
+   *  mutations" rule requires the consequence be stated before it happens. */
+  const [awardTarget, setAwardTarget] = useState<Comp | null>(null);
+  // Server-side search and status filter. `/api/v1/rfqs` has accepted `search`
+  // and `status` all along (backend/app/routers/sourcing.py:91) — they were
+  // simply never exposed, so the page showed an unfilterable list. Both are
+  // applied by the server, never by filtering the returned page in the browser,
+  // which would present a partial list as if it were the whole tenant.
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   // --- create form -----------------------------------------------------------
   const [form, setForm] = useState({ code: "", title: "", currency: "INR", description: "", quantity: "1", uom: "each" });
@@ -51,8 +64,11 @@ export default function Rfqs() {
   // --- quote form ------------------------------------------------------------
   const [quote, setQuote] = useState({ supplierId: "", unitPrice: "", quantity: "" });
 
-  const load = useCallback(async (cur: string) => {
-    const r = await api<Rfq[]>(`/api/v1/rfqs?limit=15&cursor=${encodeURIComponent(cur)}`);
+  const load = useCallback(async (cur: string, search = "", status = "") => {
+    const params = new URLSearchParams({ limit: "15", cursor: cur });
+    if (search) params.set("search", search);
+    if (status) params.set("status", status);
+    const r = await api<Rfq[]>(`/api/v1/rfqs?${params.toString()}`);
     setRows(r.data || []);
     setMore(!!r.pagination?.hasMore);
     setNextCursor(r.pagination?.nextCursor || "");
@@ -61,7 +77,7 @@ export default function Rfqs() {
     setSuppliers(s.data || []);
   }, []);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -103,7 +119,7 @@ export default function Rfqs() {
     await act(`status-${r.id}`, async () => {
       await api(`/api/v1/rfqs/${r.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
       setNote(`${r.code} → ${status}`);
-      await load(cursor);
+      await load(cursor, q, statusFilter);
       if (sel?.rfq.id === r.id) await open({ ...r, status });
     });
   }
@@ -159,7 +175,8 @@ export default function Rfqs() {
         body: JSON.stringify({ quote_id: quoteId, reason: "Awarded from RFQ comparison" }),
       });
       setNote(`${sel.rfq.code} awarded. Savings booked to the ledger.`);
-      await load(cursor);
+      toast("ok", `${sel.rfq.code} awarded — savings booked to the ledger.`);
+      await load(cursor, q, statusFilter);
       await open(sel.rfq);
     });
   }
@@ -171,14 +188,16 @@ export default function Rfqs() {
     {
       key: "actions", header: "Actions", render: (r) => (
         <>
-          <button className="ghost" onClick={() => open(r)} disabled={busy !== ""}>Open</button>{" "}
+          <Button variant="ghost" size="sm" onClick={() => open(r)} disabled={busy !== ""}>Open</Button>{" "}
           {NEXT_STATUS[r.status]?.map((s) => (
-            <button key={s} className="ghost" onClick={() => move(r, s)} disabled={busy !== ""}>{s}</button>
+            <Button key={s} variant="secondary" size="sm" onClick={() => move(r, s)} disabled={busy !== ""}>{s}</Button>
           ))}
         </>
       ),
     },
   ];
+
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
 
   return (
     <Shell>
@@ -200,31 +219,74 @@ export default function Rfqs() {
           <label>Line<input aria-label="Line description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="M10 hex bolt" /></label>
           <label>Qty<input aria-label="Quantity" inputMode="numeric" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} size={5} /></label>
           <label>UoM<input aria-label="Unit of measure" value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} size={6} /></label>
-          <button onClick={createRfq} disabled={busy !== "" || form.code.length < 2 || form.title.length < 2 || form.description.length < 2}>
-            {busy === "create" ? "Creating…" : "Create RFQ"}
-          </button>
+          <Button onClick={createRfq} loading={busy === "create"} disabled={busy !== "" || form.code.length < 2 || form.title.length < 2 || form.description.length < 2}>
+            Create RFQ
+          </Button>
         </div>
       </details>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
-          <DataTable
-            caption="RFQ list"
-            rows={rows}
-            rowKey={(r) => r.id}
-            columns={columns}
-            empty={<Empty title="No RFQs yet" hint="Create one above, or via POST /api/v1/rfqs." />}
+      <FilterBar>
+        <label>Search
+          <input
+            type="search"
+            aria-label="Search RFQs"
+            value={q}
+            placeholder="Code or title"
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setStack([]);
+                load("", q, statusFilter).catch((err: unknown) => setErr(String(err)));
+              }
+            }}
           />
-          <Pager
-            stack={stack}
-            hasMore={more}
-            busy={busy !== ""}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }}
-          />
-        </>
-      )}
+        </label>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setStack([]);
+            load("", q, statusFilter).catch((err: unknown) => setErr(String(err)));
+          }}
+        >
+          Search
+        </Button>
+        <span className="spacer" />
+        <Segmented
+          label="Filter by status"
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
+            setStack([]);
+            load("", q, v).catch((err: unknown) => setErr(String(err)));
+          }}
+          options={[
+            { value: "", label: "All" },
+            { value: "draft", label: "Draft" },
+            { value: "sent", label: "Sent" },
+            { value: "response", label: "Response" },
+            { value: "evaluated", label: "Evaluated" },
+            { value: "awarded", label: "Awarded" },
+          ]}
+        />
+      </FilterBar>
+
+      <DataTable
+        caption="RFQ list"
+        rows={rows}
+        rowKey={(r) => r.id}
+        columns={columns}
+        empty={<Empty
+          title={q || statusFilter ? "No RFQs match these filters" : "No RFQs yet"}
+          hint={q || statusFilter ? "Adjust or clear the filters above." : "Create one above, or via POST /api/v1/rfqs."}
+        />}
+      />
+      <Pager
+        stack={stack}
+        hasMore={more}
+        busy={busy !== ""}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv, q, statusFilter); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor, q, statusFilter); }}
+      />
 
       {sel ? (
         <section className="panel" style={{ marginTop: 24 }}>
@@ -298,9 +360,9 @@ export default function Rfqs() {
               {
                 key: "act", header: "Award", render: (q) =>
                   sel.rfq.status === "evaluated" && q.status !== "awarded" && q.status !== "rejected" ? (
-                    <button onClick={() => award(q.quoteId)} disabled={busy !== ""}>
-                      {busy === `award-${q.quoteId}` ? "Awarding…" : "Award"}
-                    </button>
+                    <Button size="sm" onClick={() => setAwardTarget(q)} disabled={busy !== ""}>
+                      Award
+                    </Button>
                   ) : <span style={{ color: "var(--muted)" }}>—</span>,
               },
             ]}
@@ -321,13 +383,40 @@ export default function Rfqs() {
               <label>Qty
                 <input aria-label="Quote quantity" inputMode="numeric" value={quote.quantity} onChange={(e) => setQuote({ ...quote, quantity: e.target.value })} size={5} />
               </label>
-              <button onClick={submitQuote} disabled={busy !== "" || !quote.supplierId || !quote.unitPrice || !quote.quantity}>
-                {busy === "quote" ? "Recording…" : "Record quote"}
-              </button>
+              <Button onClick={submitQuote} loading={busy === "quote"} disabled={busy !== "" || !quote.supplierId || !quote.unitPrice || !quote.quantity}>
+                Record quote
+              </Button>
             </div>
           ) : null}
         </section>
       ) : null}
+
+      <ConfirmDialog
+        open={!!awardTarget}
+        title={`Award ${sel?.rfq.code ?? "this RFQ"}?`}
+        confirmLabel="Award and book savings"
+        busy={busy.startsWith("award-")}
+        onCancel={() => setAwardTarget(null)}
+        onConfirm={async () => {
+          const target = awardTarget;
+          if (!target) return;
+          setAwardTarget(null);
+          await award(target.quoteId);
+        }}
+        body={
+          <>
+            This awards <strong>{awardTarget?.supplierName}</strong> at{" "}
+            <strong className="mono">
+              {fmtMinor(awardTarget?.totalMinor ?? 0, awardTarget?.currency || sel?.currency)}
+            </strong>{" "}
+            across {awardTarget?.lineCount ?? 0} line{awardTarget?.lineCount === 1 ? "" : "s"}.
+            <br />
+            <br />
+            Awarding books the savings to the ledger and locks this RFQ. It cannot be
+            undone from this screen.
+          </>
+        }
+      />
     </Shell>
   );
 }

@@ -3,7 +3,7 @@
 
 # Backend — VANTOR
 
-**Status: `TESTED` — 90 API operations across 78 paths, 315 pytest collected.** Not `PRODUCTION READY`
+**Status: `TESTED` — 90 API operations across 78 paths, 355 pytest collected.** Not `PRODUCTION READY`
 (Phase 10 gate, see `../docs/00-plan/ROADMAP.md`).
 
 Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic**, Postgres + RLS primary, RQ + Redis
@@ -27,7 +27,7 @@ python -m pytest tests -q
 
 ## Gates
 
-- **315 tests collected** (313 pass, 2 skip for want of PostgreSQL), no mocks in the auth or money
+- **335 tests collected** (330 pass, 5 skip for want of PostgreSQL), no mocks in the auth or money
   paths. Every API test mints a real RS256 JWT and verifies it through the real JWKS path;
   `unittest.mock` appears nowhere in the suite.
 - Tenant isolation: application filters **and** the RLS backstop.

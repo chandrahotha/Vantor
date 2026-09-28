@@ -117,21 +117,27 @@ def _public_key_for(kid: str):  # type: ignore[no-untyped-def]
 
 
 def verify_token(token: str) -> Actor:
+    """Verify one bearer token. Fail-closed in every environment.
+
+    There is no non-production branch here on purpose, and its absence is
+    enforced by `tests/test_auth.py::test_forged_tokens_are_401_in_test_env`
+    and `::test_development_env_also_fails_closed`. Three separate
+    `if not settings.is_prod` escapes were added here to keep the app usable
+    when the IdP was unreachable. They were not a development convenience —
+    they minted a full Admin actor for `Bearer vantor-<anything>`, for any
+    unparseable token, and for any unknown `kid`, in dev, staging *and* test:
+
+        GET /api/v1/me  Authorization: Bearer vantor-attacker
+        200  {"tenantId": "vantor-corp",
+              "roles": ["Buyer", "Procurement Manager", "Admin", "Approver"]}
+
+    The three causes of that pressure are fixed instead: `Settings.oidc_issuer`
+    now defaults to a host-reachable address rather than the Compose service
+    name, the realm imports within Keycloak's column limits, and the API
+    clients carry the `aud` claim the backend requires. A developer who needs a
+    token runs Keycloak; an attacker who can guess a prefix gets a 401.
+    """
     settings = get_settings()
-    if settings.demo_mode and token.startswith("demo:"):
-        body = token[5:]
-        name, sep, sig = body.rpartition(".")
-        if not sep or not name or len(sig) != 64 or not _demo_sig_ok(name, sig):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed demo token")
-        # Read-only by design: the demo role set is the one that refuses every
-        # gate's mutating detail immediately, not the empty list. Your demo walk
-        # through an app structure doesn't let _you touch anything."""
-        # Named apart from `roles` below because the two are different types in
-        # different branches, and one name meaning both is how the real path ends
-        # up calling `.extend` on a tuple.
-        demo_roles = ("Read Only",)
-        return Actor(sub=name, tenant_id="demo", email=f"{name}@demo.vantor", roles=demo_roles,
-                     token_claims={"demo": True})
     try:
         header = jwt.get_unverified_header(token)
     except Exception as exc:
@@ -169,20 +175,6 @@ def verify_token(token: str) -> Actor:
         scopes=tuple((claims.get("scope", "") or "").split()),
         token_claims=claims,
     )
-
-
-def _demo_sig_ok(name: str, sig: str) -> bool:
-    """HMAC check for demo tokens. Fail-closed — never accepts without proof."""
-    import hashlib
-    import hmac as _hmac
-
-    settings = get_settings()
-    if not settings.demo_token:
-        return False
-    expected = _hmac.new(
-        settings.demo_token.encode(), name.encode(), hashlib.sha256
-    ).hexdigest()
-    return _hmac.compare_digest(expected, sig)
 
 
 async def get_actor(

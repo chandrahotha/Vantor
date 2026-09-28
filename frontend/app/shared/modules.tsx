@@ -24,7 +24,7 @@ export function ContractsPage() {
     setCursor(cur);
   }, []);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
 
   const columns: Column<Contract>[] = [
     { key: "code", header: "Code", render: (c) => <span className="mono">{c.code}</span> },
@@ -34,20 +34,17 @@ export function ContractsPage() {
     { key: "value", header: "Value", numeric: true, render: (c) => fmtMinor(c.valueMinor, c.currency) },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead"><div><h1>Contracts</h1><p>Enterprise contract lifecycle management: master services agreements, automated 90-day renewal tracking, and obligation milestones.</p></div></div>
       {error ? <ErrorBox message={error} /> : null}
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
-          <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
-            empty={<Empty title="No contracts yet" hint="Create one via POST /api/v1/contracts." />} />
-          <Pager stack={stack} hasMore={more}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-        </>
-      )}
+      <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
+        empty={<Empty title="No contracts yet" hint="Create one via POST /api/v1/contracts." />} />
+      <Pager stack={stack} hasMore={more}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
     </Shell>
   );
 }
@@ -89,7 +86,7 @@ export function SpendPage() {
     setCases((await api<Case[]>("/api/v1/spend/price-cases?status=open")).data || []);
   }, []);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
   const shownErr = err || error;
 
   /** Client-side guard mirroring the server's `le=10000` basis-point bound, so
@@ -143,13 +140,14 @@ export function SpendPage() {
   const ccys = s?.byCurrency ? Object.keys(s.byCurrency.committed) : [];
   const mixed = (s?.currencyCount ?? 0) > 1;
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead"><div><h1>Spend intelligence</h1><p>Autonomous spend analytics: category distribution, vendor concentration, tail-spend leakage detection, and parametric should-cost baselines.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : !s ? <Empty title="No spend posted" hint="Approved POs and invoices aggregate here." />
+      {!s ? <Empty title="No spend posted" hint="Approved POs and invoices aggregate here." />
         : (
         <>
           <div className="cards">
@@ -244,7 +242,7 @@ export function DocumentsPage() {
     setRows((await api<Doc[]>("/api/v1/documents?limit=25")).data || []);
   }, []);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
   const shownErr = err || error;
 
   async function upload(f: File) {
@@ -318,6 +316,8 @@ export function DocumentsPage() {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead"><div><h1>Documents</h1><p>Cryptographic document repository: SHA-256 integrity verification, automated contract metadata extraction, and compliance archiving.</p></div></div>
@@ -329,26 +329,21 @@ export function DocumentsPage() {
         <button onClick={search} disabled={busy !== "" || q.trim().length < 2}>{busy === "search" ? "Searching…" : "Search"}</button>
       </div>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
-          <DataTable caption="Document list" rows={rows} rowKey={(d) => d.id} columns={columns}
-            empty={<Empty title="No documents yet" hint="Upload a PDF, DOCX, XLSX or CSV to begin." />} />
+      <DataTable caption="Document list" rows={rows} rowKey={(d) => d.id} columns={columns}
+        empty={<Empty title="No documents yet" hint="Upload a PDF, DOCX, XLSX or CSV to begin." />} />
 
-          {hits.length > 0 ? (
-            <>
-              <h2 style={{ marginTop: 20 }}>Search results for “{q}”</h2>
-              <DataTable caption={`Search results for ${q}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
-                columns={[
-                  { key: "doc", header: "Document", render: (h) => <span className="mono">{h.documentId.slice(0, 8)}</span> },
-                  { key: "chunk", header: "Chunk", numeric: true, render: (h) => h.chunkNo },
-                  { key: "ex", header: "Excerpt", render: (h) => h.excerpt },
-                ]}
-                empty={<Empty title="No matches" />} />
-            </>
-          ) : null}
+      {hits.length > 0 ? (
+        <>
+          <h2 style={{ marginTop: 20 }}>Search results for “{q}”</h2>
+          <DataTable caption={`Search results for ${q}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
+            columns={[
+              { key: "doc", header: "Document", render: (h) => <span className="mono">{h.documentId.slice(0, 8)}</span> },
+              { key: "chunk", header: "Chunk", numeric: true, render: (h) => h.chunkNo },
+              { key: "ex", header: "Excerpt", render: (h) => h.excerpt },
+            ]}
+            empty={<Empty title="No matches" />} />
         </>
-      )}
+      ) : null}
     </Shell>
   );
 }

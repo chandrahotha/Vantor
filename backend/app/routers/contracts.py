@@ -506,7 +506,7 @@ async def provider_signature_callback(
     provider = provider.strip()
     raw = await request.body()
     try:
-        esign.verify_callback(
+        callback_digest = esign.verify_callback(
             provider=provider,
             timestamp=request.headers.get("X-ESign-Timestamp", ""),
             body=raw,
@@ -519,6 +519,7 @@ async def provider_signature_callback(
             envelope_id=str(payload.get("envelope_id") or ""),
             status=str(payload.get("status") or ""),
             payload=payload,
+            digest=callback_digest,
         )
     except esign.CallbackError as exc:
         db.rollback()
@@ -536,6 +537,13 @@ async def provider_signature_callback(
             "ESIGN_PROVIDER_NOT_CONFIGURED",
         }:
             code, message = status.HTTP_401_UNAUTHORIZED, "Callback rejected"
+        elif exc.code == "ESIGN_REPLAY":
+            # B-19. A replay *is* the provider — the MAC checked — re-sending a
+            # claim that was already accepted. 409 rather than 401/422: it is
+            # neither an authentication failure nor a malformed request, and the
+            # caller that legitimately retries with a fresh signature is not a
+            # replay and never reaches this branch.
+            code, message = status.HTTP_409_CONFLICT, exc.message
         else:
             code, message = status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message
         raise HTTPException(status_code=code, detail={

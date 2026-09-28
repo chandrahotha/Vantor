@@ -34,7 +34,7 @@ export default function Integrations() {
     setDeliveries(d.data || []);
   }, []);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -74,6 +74,8 @@ export default function Integrations() {
     { key: "attempts", header: "Attempts", numeric: true, render: (d) => d.attempts },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -84,8 +86,7 @@ export default function Integrations() {
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
-        <>
+      <>
           <div className="cards">
             <div className="card"><div className="k">Adapters available</div><div className="v mono">{types.length}</div></div>
             <div className="card"><div className="k">Registered</div><div className="v mono">{rows.length}</div></div>
@@ -133,8 +134,7 @@ export default function Integrations() {
           <h2 style={{ marginTop: 20 }}>Webhook deliveries</h2>
           <DataTable caption="Webhook deliveries" rows={deliveries} rowKey={(d) => d.id} columns={delCols}
             empty={<Empty title="No deliveries" hint="Only real domain events fan out to endpoints." />} />
-        </>
-      )}
+      </>
     </Shell>
   );
 }

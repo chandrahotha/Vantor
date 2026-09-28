@@ -223,8 +223,108 @@ def test_a_replayed_callback_outside_the_window_is_refused(client, monkeypatch):
     assert res.json()["error"]["code"] == "ESIGN_TIMESTAMP_STALE"
 
 
+def test_a_replay_inside_the_window_is_refused_as_a_replay(client, monkeypatch):
+    """B-19, closed. The MAC used to cover a timestamp rather than a consumed
+    nonce, so a captured callback was accepted for as long as the timestamp was
+    fresh — the state transition was idempotent, and the acceptance rested on
+    idempotency rather than on freshness.
+
+    The digest of every accepted callback is now consumed on the row, so the same
+    captured bytes are refused as a replay *before* the terminal-state check, and
+    the answer is what happened rather than a consequence of it.
+
+    Asserted on the record, not on the status code: a replay that answered 200
+    while writing a second signature row would pass a status-only test.
+    """
+    monkeypatch.setenv("ESIGN_SECRET_DOCUSIGN", SECRET)
+    c, pem = client
+    _contract, sig_id = _open_envelope(client)
+
+    ts = int(time.time())
+    raw, mac = _signed_callback({"envelope_id": "env-abc", "status": "signed"}, timestamp=ts)
+    headers = {"X-ESign-Timestamp": str(ts), "X-ESign-Signature": mac}
+
+    first = c.post(f"{CALLBACK}?provider=docusign", content=raw, headers=headers)
+    assert first.status_code == 200, first.text
+
+    def signature_rows() -> list[dict]:
+        h = _h(pem, sub="legal2", roles=("Legal Reviewer",))
+        rows = c.get(f"/api/v1/contracts/{_contract}/signatures", headers=h).json()["data"]
+        return [r for r in rows if r["id"] == sig_id]
+
+    after_first = signature_rows()
+    assert len(after_first) == 1, after_first
+    assert after_first[0]["status"] == "signed", after_first[0]
+    # The API serialises provenance in camelCase, unlike the column name.
+    verified_at = after_first[0].get("verifiedAt")
+    assert verified_at, (
+        f"a provider callback must record when it was verified: {after_first[0]}")
+
+    # The same captured bytes, replayed immediately — inside the window, so the
+    # timestamp check cannot be what stops it. The consumed digest is.
+    second = c.post(f"{CALLBACK}?provider=docusign", content=raw, headers=headers)
+    assert second.status_code == 409, (
+        f"a replay inside the window was accepted: {second.status_code} {second.text}")
+    assert second.json()["error"]["code"] == "ESIGN_REPLAY"
+
+    after_second = signature_rows()
+    assert len(after_second) == 1, (
+        f"a replayed callback created a second signature row: {after_second}")
+    assert after_second[0]["status"] == "signed", after_second[0]
+    assert after_second[0].get("verifiedAt") == verified_at, (
+        "a replayed callback re-stamped verifiedAt, so the recorded provenance "
+        "of the signature now describes the replay rather than the original")
+
+
+def test_a_provider_retrying_with_a_fresh_signature_is_not_a_replay(client, monkeypatch):
+    """The inverse of the replay test, and the one that catches a nonce store
+    that is too aggressive.
+
+    A legitimate provider retry carries a new timestamp, so a new MAC over
+    `{timestamp}.{body}` — a new digest. Refusing it would mean one lost callback
+    confirmation could never be re-delivered, which is exactly the stranded
+    envelope the operator-attested path exists for. The replay refusal has to
+    key on the digest, not on "this envelope already got a callback".
+    """
+    monkeypatch.setenv("ESIGN_SECRET_DOCUSIGN", SECRET)
+    c, pem = client
+    _contract, sig_id = _open_envelope(client)
+
+    first = c.post(f"{CALLBACK}?provider=docusign", content=_signed_callback(
+        {"envelope_id": "env-abc", "status": "signed"}, timestamp=int(time.time()))[0],
+        headers=_callback_headers(int(time.time())))
+    assert first.status_code == 200, first.text
+
+    later = int(time.time()) + 5
+    raw, mac = _signed_callback({"envelope_id": "env-abc", "status": "signed"}, timestamp=later)
+    retry = c.post(f"{CALLBACK}?provider=docusign", content=raw,
+                   headers=_callback_headers(later, signature=mac))
+    assert retry.status_code == 200, (
+        f"a fresh, correctly signed retry was refused as a replay: {retry.text}")
+
+    def signature_rows() -> list[dict]:
+        h = _h(pem, sub="legal2", roles=("Legal Reviewer",))
+        rows = c.get(f"/api/v1/contracts/{_contract}/signatures", headers=h).json()["data"]
+        return [r for r in rows if r["id"] == sig_id]
+
+    rows = signature_rows()
+    assert len(rows) == 1, rows
+    assert rows[0]["status"] == "signed", rows[0]
+
+
+def _callback_headers(ts: int, *, signature: str | None = None) -> dict:
+    """Headers for a callback with a known timestamp.
+
+    Separate from `_signed_callback` so the retry test can sign and send at the
+    same timestamp without the two helpers disagreeing about the clock.
+    """
+    if signature is None:
+        raw = json.dumps({"envelope_id": "env-abc", "status": "signed"}).encode()
+        signature = hmac.new(SECRET.encode(), f"{ts}.".encode() + raw, hashlib.sha256).hexdigest()
+    return {"X-ESign-Timestamp": str(ts), "X-ESign-Signature": signature}
+
+
 def test_a_future_timestamp_is_also_refused(client, monkeypatch):
-    """A clock-skew allowance in one direction is a replay window in the other."""
     monkeypatch.setenv("ESIGN_SECRET_DOCUSIGN", SECRET)
     c, _pem = client
     _open_envelope(client)
@@ -307,24 +407,37 @@ def test_a_provider_cannot_speak_for_another_provider(client, monkeypatch):
 def test_a_terminal_envelope_cannot_be_flipped(client, monkeypatch):
     """`signed` then `voided` from the provider is a real dispute, not a state
     change to accept silently. The provider is authenticated here, so the refusal
-    is a 422 with a real message rather than a flat 401."""
+    is a 422 with a real message rather than a flat 401.
+
+    B-19 changed what a re-assert is. The replay refusal keys on the exact
+    callback bytes — `{timestamp}.{body}` — so re-sending byte-identical bytes is
+    a replay even when it only re-asserts the status the row already holds. A
+    real provider retry carries a fresh timestamp on every delivery attempt, so
+    the re-assert below is sent at a guaranteed-distinct timestamp: the same
+    outcome, without relying on the clock happening to differ.
+    """
     monkeypatch.setenv("ESIGN_SECRET_DOCUSIGN", SECRET)
     c, _pem = client
     _open_envelope(client, envelope="env-term")
 
-    def post(status):
-        raw, mac = _signed_callback({"envelope_id": "env-term", "status": status})
+    def post(status, *, offset: int = 0):
+        ts = int(time.time()) + offset
+        raw, mac = _signed_callback({"envelope_id": "env-term", "status": status}, timestamp=ts)
         return c.post(f"{CALLBACK}?provider=docusign", content=raw,
-                      headers={"X-ESign-Timestamp": str(int(time.time())),
+                      headers={"X-ESign-Timestamp": str(ts),
                                "X-ESign-Signature": mac})
 
     assert post("signed").status_code == 200
     flipped = post("voided")
     assert flipped.status_code == 422
     assert flipped.json()["error"]["code"] == "ESIGN_ALREADY_TERMINAL"
-    # Re-asserting the same terminal status is idempotent, not a conflict.
-    assert post("signed").status_code == 200
-    assert post("voided").status_code == 422
+    # Re-asserting the same terminal status, at a fresh timestamp, is a fresh
+    # authenticated claim — not a replay.
+    assert post("signed", offset=5).status_code == 200
+    assert post("voided", offset=6).status_code == 422
+    # The byte-identical replay of a captured callback is covered deterministically
+    # by `test_a_replay_inside_the_window_is_refused_as_a_replay`, which re-sends
+    # the captured bytes; re-deriving it here would depend on the wall clock.
 
 
 def test_a_signed_callback_for_an_unknown_envelope_is_refused(client, monkeypatch):

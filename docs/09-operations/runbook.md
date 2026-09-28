@@ -58,7 +58,18 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
 
 ## 6. Worker ops
 
-- `python worker/enqueue.py roll_expiry` (needs `SERVICE_API_TOKEN` — Keycloak service account).
+- **The scheduler exists and is a service.** `worker/beat.py` runs as the `beat` container
+  (`docker compose up -d beat`); it arms `roll_expiry` (daily), `drain_webhooks` (every 30s) and
+  `spend_snapshot` (hourly) and promotes them onto the `default` queue. Intervals are overridable
+  with `ROLL_EXPIRY_INTERVAL_S`, `WEBHOOK_DRAIN_INTERVAL_S`, `SPEND_SNAPSHOT_INTERVAL_S`; a
+  non-positive or unparseable value falls back to the default rather than becoming a tight loop.
+- **The scheduler used to die on boot.** It called `RQScheduler(queue_name=…)` and
+  `scheduler.schedule(…)`, neither of which exists in the pinned rq 1.16.2, so the container
+  exited immediately and no recurring job had ever run in any environment (B-34). The unit tests
+  in `worker/tests/` run in CI and pin the real rq surface.
+- `python worker/enqueue.py roll_expiry` still runs one job immediately, by hand. The worker
+  authenticates with a Keycloak client-credentials grant; `SERVICE_API_TOKEN` remains only as an
+  escape hatch for environments where the grant is unavailable.
 - Queues: `default`, `documents`. Failed RQ jobs stay in the registry for inspection — never silently dropped.
 - **The worker holds one role, `Service Identity`, and not an administrative one.** It can run the
   contract expiry roll and the webhook drain, and nothing else — it cannot activate, terminate,
@@ -70,19 +81,20 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
   so a service token scoped to tenant A rolls A's contracts and delivers A's webhooks only. In a
   multi-tenant deployment you need one service account per tenant, or a deliberately
   cross-tenant identity — which is a different design decision, not a config tweak. Do not solve
-  it by removing the tenant filter from a query.
-- **Nothing schedules these jobs.** There is no beat/cron sidecar in `docker-compose.yml` and no
-  periodic enqueue, so `roll_expiry` and `spend_snapshot` run only when a human invokes them. Until a
-  scheduler lands, **contract expiry rolling and spend rollups are not automatic in any environment**,
-  including local compose. Either trigger them by hand or treat the "Contracts flagged expiring"
-  dashboard count as stale.
+  it by removing the tenant filter from a query. (B-18, still open by design.)
 - **What "expiring" means depends on the tenant's timezone, not the server's.** The roll evaluates
   "within N days" in `organizations.timezone`, falling back to `CONTRACT_TIMEZONE` and then UTC.
   When an operator reports a contract flagged a day early or late, check that tenant's zone before
   suspecting the date arithmetic.
 - The `documents` queue is currently **dead**: `worker.py` listens on it, but no job functions are
   registered for it and no backend code enqueues to it. It is reserved for the Phase 5 OCR/embed wave.
-- No backend code calls the worker — `worker/enqueue.py` is the only enqueue path, and it is manual.
+- **No backend code calls the worker.** `worker/enqueue.py` and `beat.py` are the only producers;
+  there is no `rq_queue.enqueue(...)` anywhere in `backend/app/`. Work the app hands to the worker
+  has to go through the HTTP routes the jobs call.
+- **Before trusting the dashboard's "expiring" count, check `beat` is running.** The live
+  `/contracts?expiring=true` calculation is a live query (B-13), but the *stored* status is still
+  written by the roll. If `beat` is down, the roll-dependent surfaces are as fresh as the last
+  successful run — `docker compose logs beat` is the thing to read.
 
 ## 6a. RLS session discipline (added 2026-09-26)
 

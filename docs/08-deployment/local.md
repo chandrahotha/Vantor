@@ -37,13 +37,27 @@ docker compose --profile storage up -d minio
 | postgres | 5432 | — | primary store + RLS |
 | redis | 6379 | — | rate limiting, RQ queue, scheduler |
 | keycloak | 8080 | — | OIDC login |
+| keycloak-init | — | — | one-shot realm/role/client bootstrap; exits when done |
+| beat | — | — | the RQ scheduler (expiry roll, webhook drain, spend snapshot) |
 | ollama | 11434 | `ai` | local LLM + `nomic-embed-text` |
 | minio | 9000 / 9001 | `storage` | S3-compatible blobs |
 
-- First-run Keycloak: `admin / admin-change-me` → create realm `vantor`, client `vantor-web`, roles from `../04-security/architecture.md`.
+- **Keycloak is bootstrapped for you.** `keycloak` imports `deploy/keycloak/realm-vantor.json`
+  with `--import-realm`, and `keycloak-init` then creates the roles, the worker's
+  `vantor-service` machine identity and the bootstrap user, and keeps the client secret in step
+  with `.env` on every start. Both are not behind a profile: without them there is no realm to log
+  in to and no credential for the worker. To check what the realm ended up with, or to see why a
+  grant is missing, read `docker compose logs keycloak-init`.
+- Sign-in is Keycloak, and only Keycloak. The web app has no demo mode, no persona picker and no
+  local credential path — a session exists if and only if the IdP returned a signed token carrying
+  a tenant, and the API refuses a forged one in every environment including development.
 - MinIO: create bucket `vantor-docs` (tenant prefixes enforced in code).
 - Online AI instead of Ollama: no profile needed. Put a free key in `.env`
   (`OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `OPENCODE_ZEN_API_KEY`) and set
   `AI_PROVIDER` to that provider's name. Keys are never stored by the server and
   are never written to the audit log.
+- **The scheduler is a service, so check it is running.** `beat` arms `roll_expiry` daily,
+  `drain_webhooks` every 30s and `spend_snapshot` hourly. If it is not up, contract expiry
+  rolling and spend rollups do not happen at all — the dashboard's live `expiring` query still
+  works, but the stored statuses do not move. `docker compose logs beat` is the place to look.
 - Staging/prod reuse same images; swap to managed Postgres/Redis/S3/OIDC via env only. Backups + restore drills: see `../09-operations/runbook.md`. Full prod checklist: masterdoc §55.

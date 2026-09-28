@@ -12,10 +12,10 @@ checked before a write can ever reach Postgres's `RESTRICT` fails.
 """
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_key, tenant_ref
 
 REQ_STATUSES = {"draft", "submitted", "approved", "rejected", "ordered"}
 PO_STATUSES = {"draft", "approved", "sent", "received", "invoiced", "closed", "cancelled"}
@@ -55,13 +55,16 @@ class Requisition(Base, TenantMixin):
         UniqueConstraint("tenant_id", "code", name="uq_req_tenant_code"),
         Index("ix_req_tenant_status", "tenant_id", "status"),
         CheckConstraint(_in("status", REQ_STATUSES), name="ck_requisition_status"),
+
+        # Composite, tenant-carrying link — this table is referenced by a composite link.
+        tenant_key("requisitions"),
     )
 
 
 class RequisitionLine(Base, TenantMixin):
     __tablename__ = "requisition_lines"
 
-    requisition_id: Mapped[str] = mapped_column(String(36), ForeignKey("requisitions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    requisition_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -69,6 +72,9 @@ class RequisitionLine(Base, TenantMixin):
 
     __table_args__ = (UniqueConstraint("tenant_id", "requisition_id", "line_no", name="uq_reql_tenant_req_no"),
                       CheckConstraint("quantity > 0", name="ck_reql_qty_pos"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("requisition_lines", "requisition_id", "requisitions"),
                       CheckConstraint("est_price_minor >= 0", name="ck_reql_price_nonneg"))
 
 
@@ -76,15 +82,15 @@ class PurchaseOrder(Base, TenantMixin):
     __tablename__ = "purchase_orders"
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
-    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), default="", nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
     total_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    category_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True)
+    category_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # Link back to the requisition this PO answers. Added by 0017; NULL means a
     # PO raised without a requisition, which is legitimate and the maverick
     # report is the one thing allowed to flag it.
-    requisition_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("requisitions.id", ondelete="RESTRICT"), nullable=True)
+    requisition_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "code", name="uq_po_tenant_code"),
@@ -92,13 +98,19 @@ class PurchaseOrder(Base, TenantMixin):
         Index("ix_po_tenant_req", "tenant_id", "requisition_id"),
         CheckConstraint(_in("status", PO_STATUSES), name="ck_po_status"),
         CheckConstraint("total_minor >= 0", name="ck_po_total_nonneg"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("purchase_orders"),
+        tenant_ref("purchase_orders", "supplier_id", "suppliers"),
+        tenant_ref("purchase_orders", "category_id", "categories"),
+        tenant_ref("purchase_orders", "requisition_id", "requisitions"),
     )
 
 
 class PurchaseOrderLine(Base, TenantMixin):
     __tablename__ = "purchase_order_lines"
 
-    po_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    po_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -108,27 +120,41 @@ class PurchaseOrderLine(Base, TenantMixin):
     __table_args__ = (UniqueConstraint("tenant_id", "po_id", "line_no", name="uq_pol_tenant_po_no"),
                       CheckConstraint("quantity > 0", name="ck_pol_qty_pos"),
                       CheckConstraint("unit_price_minor > 0", name="ck_pol_price_pos"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("purchase_order_lines"),
+        tenant_ref("purchase_order_lines", "po_id", "purchase_orders"),
                       CheckConstraint("line_total_minor = unit_price_minor * quantity", name="ck_pol_line_math"))
 
 
 class Receipt(Base, TenantMixin):
     __tablename__ = "receipts"
 
-    po_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    po_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     received_by: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
-    __table_args__ = (Index("ix_receipt_tenant_po", "tenant_id", "po_id"),)
+    __table_args__ = (
+        Index("ix_receipt_tenant_po", "tenant_id", "po_id"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("receipts"),
+        tenant_ref("receipts", "po_id", "purchase_orders"),
+    )
 
 
 class ReceiptLine(Base, TenantMixin):
     __tablename__ = "receipt_lines"
 
-    receipt_id: Mapped[str] = mapped_column(String(36), ForeignKey("receipts.id", ondelete="RESTRICT"), nullable=False, index=True)
-    po_line_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_order_lines.id", ondelete="RESTRICT"), nullable=False)
+    receipt_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    po_line_id: Mapped[str] = mapped_column(String(36), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (Index("ix_receiptline_tenant_receipt", "tenant_id", "receipt_id"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("receipt_lines", "receipt_id", "receipts"),
+        tenant_ref("receipt_lines", "po_line_id", "purchase_order_lines"),
                       CheckConstraint("quantity > 0", name="ck_receiptline_qty_pos"))
 
 
@@ -136,10 +162,16 @@ class Invoice(Base, TenantMixin):
     __tablename__ = "invoices"
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
-    po_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # `index=True` removed: the migrated schema has no `ix_invoices_po_id`, and
+    # a single-column index here is exactly the thing the composite link makes
+    # unnecessary. Declaring one the database does not have is not a harmless
+    # extra — it is a diff, so it made `test_database_matches_metadata` fail on
+    # every run for a column that is already indexed by
+    # `ix_invoice_tenant_po` on the tenant-scoped access path.
+    po_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="received", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
-    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), default="", nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
     total_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (
@@ -148,14 +180,19 @@ class Invoice(Base, TenantMixin):
         CheckConstraint(_in("status", INVOICE_STATUSES), name="ck_invoice_status"),
         CheckConstraint("total_minor > 0", name="ck_invoice_total_pos"),
         CheckConstraint("(currency = '' OR length(currency) = 3)", name="ck_invoice_currency_iso3"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("invoices"),
+        tenant_ref("invoices", "po_id", "purchase_orders"),
+        tenant_ref("invoices", "supplier_id", "suppliers"),
     )
 
 
 class InvoiceLine(Base, TenantMixin):
     __tablename__ = "invoice_lines"
 
-    invoice_id: Mapped[str] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="RESTRICT"), nullable=False, index=True)
-    po_line_id: Mapped[str] = mapped_column(String(36), ForeignKey("purchase_order_lines.id", ondelete="RESTRICT"), nullable=False)
+    invoice_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    po_line_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     unit_price_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     line_total_minor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -165,6 +202,10 @@ class InvoiceLine(Base, TenantMixin):
         CheckConstraint("quantity > 0", name="ck_invline_qty_pos"),
         CheckConstraint("unit_price_minor > 0", name="ck_invline_price_pos"),
         CheckConstraint("line_total_minor = unit_price_minor * quantity", name="ck_invline_line_math"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("invoice_lines", "invoice_id", "invoices"),
+        tenant_ref("invoice_lines", "po_line_id", "purchase_order_lines"),
     )
 
 

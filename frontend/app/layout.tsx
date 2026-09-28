@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeInit from "../components/ThemeInit";
+import AppProviders from "../components/AppProviders";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -48,8 +49,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
-  // Canonical marks: vantor-icon-source.png (glossy V+orbit squircle) is the one
-  // brand — rasterized into public/icons/. No generated letter-marks anywhere.
+  // Two presentations of the one brand, both rasterized from assets/brand/ by
+  // scripts/build_brand_icons.py:
+  //   vantor-icon-source.png          V+orbit on its navy squircle — the app
+  //                                  icons below, because an OS renders a
+  //                                  favicon on an unknown background and it
+  //                                  needs its own field.
+  //   vantor-icon-bg-less-source.png  the same V+orbit alone — the in-app
+  //                                  sidebar, whose surface is #0a1931, the same
+  //                                  navy as the squircle. Drawing the squircle
+  //                                  there produced a dark box with a muddy edge
+  //                                  rather than a mark.
+  // No generated letter-marks anywhere.
   icons: {
     icon: [
       { url: "/icons/favicon-16.png", sizes: "16x16", type: "image/png" },
@@ -135,14 +146,14 @@ export default function Root({ children }: { children: React.ReactNode }) {
     // active on the very first paint. Without it the app would paint with the
     // un-bridged tokens and then re-paint once ThemeInit adopts the stored
     // choice — a visible flash for every user who chose a non-default palette.
-    <html lang="en" data-palette="graphite" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang="en" data-palette="cobalt" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body>
         <ThemeInit />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
         />
-        {children}
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

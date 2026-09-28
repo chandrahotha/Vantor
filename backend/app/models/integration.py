@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, CheckConstraint, DateTime, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_key, tenant_ref
 
 INTEGRATION_TYPES = {"erp", "finance", "email", "storage", "idp", "notify"}
 DELIVERY_STATUSES = {"pending", "delivered", "failed", "dead"}
@@ -50,13 +50,18 @@ class WebhookEndpoint(Base, TenantMixin):
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     secret_ref: Mapped[str] = mapped_column(String(256), default="", nullable=False)
 
-    __table_args__ = (Index("ix_hook_tenant_url", "tenant_id", "url"),)
+    __table_args__ = (
+        Index("ix_hook_tenant_url", "tenant_id", "url"),
+
+        # Composite, tenant-carrying link — this table is referenced by a composite link.
+        tenant_key("webhook_endpoints"),
+    )
 
 
 class WebhookDelivery(Base, TenantMixin):
     __tablename__ = "webhook_deliveries"
 
-    endpoint_id: Mapped[str] = mapped_column(String(36), ForeignKey("webhook_endpoints.id", ondelete="RESTRICT"), nullable=False, index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     event: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
@@ -77,4 +82,7 @@ class WebhookDelivery(Base, TenantMixin):
         CheckConstraint(
             "status in ('pending','delivered','failed','dead')", name="ck_delivery_status"),
         CheckConstraint("attempts >= 0", name="ck_delivery_attempts_nonneg"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("webhook_deliveries", "endpoint_id", "webhook_endpoints"),
     )

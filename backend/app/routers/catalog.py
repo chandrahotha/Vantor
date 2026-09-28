@@ -82,14 +82,21 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
     definitely acquired before the read rather than merely requested.
 
     On SQLite (`with_for_update` renders nothing) this is a no-op, so the lock cannot be
-    exercised by a unit test here.
+    exercised by a unit test here. The concurrency proof is `tests/test_pg_concurrency.py`,
+    which needs a real PostgreSQL and runs in CI by marker (`pytest -m pg`), so the
+    guarantee above is verified and not merely described. (B-07.)
 
-    **The concurrency proof is still missing.** An earlier version of this comment pointed at
-    `tests/test_pg_concurrency.py`, which does not exist — the reasoning above describes the
-    intended guarantee, not a verified one. Writing that test needs a real PostgreSQL, since
-    SQLite renders no `FOR UPDATE` and would pass regardless of whether the lock is correct.
-    Until it exists, treat the ceiling as enforced by construction but unproven under
-    concurrency.
+    B-20. When no budget row exists for (category, period), the historical reading of
+    "no ceiling set" was that the approval proceeds — a silent pass on a money control
+    that an operator could reasonably expect to mean the opposite. `BUDGET_UNSET_POLICY`
+    makes that choice explicit: `allow` (the default, today's behaviour) or `block`,
+    which turns the missing row into a 422 naming the category and the period. The
+    policy is validated at startup read, so a typo such as `BUDGET_UNSET_POLICY=BLOCK`
+    is refused rather than silently behaving as neither.
+
+    **Residual, stated:** a purchase order with no category assigned bypasses this
+    gate entirely, in both modes — there is no (category, period) to look up. The
+    strict mode governs the missing row, not the missing category.
     """
     if not category_id:
         return {"checked": False}
@@ -105,6 +112,14 @@ def check_budget(db: Session, *, tenant_id: str, category_id: str, this_total: i
         .with_for_update()
     ).scalar_one_or_none()
     if b is None:
+        from ..core.config import get_settings
+
+        if get_settings().budget_unset_policy == "block":
+            raise HTTPException(status_code=422, detail={
+                "code": "BUDGET_UNSET",
+                "message": f"No budget ceiling is set for category {category_id} in {period}, "
+                           "and BUDGET_UNSET_POLICY=block refuses uncontrolled spend",
+                "details": {"categoryId": category_id, "period": period, "currency": currency}})
         return {"checked": False}
     start = datetime(int(period[:4]), int(period[5:7]), 1, tzinfo=timezone.utc)
     end = datetime(start.year + (start.month == 12), start.month % 12 + 1, 1, tzinfo=timezone.utc)
@@ -217,7 +232,19 @@ def create_category(payload: CategoryIn, request: Request, actor: Actor = Depend
         # accepted and any future tree traversal would then loop forever.
         require_no_cycle(db, Category, actor.tenant_id, payload.parent_id, field="parent_id")
     row = Category(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
-                   code=payload.code.strip().upper(), name=payload.name.strip(), parent_id=payload.parent_id.strip())
+                   code=payload.code.strip().upper(), name=payload.name.strip(),
+                   # `parent_id` is a *composite* FK: (tenant_id, parent_id) ->
+                   # categories (tenant_id, id). "No parent" is therefore NULL, not
+                   # the empty string. The API's default was `""`, and writing that
+                   # literal asked the database to match a category whose id is "",
+                   # so every root-category create violated the constraint and came
+                   # back as `409 Category code exists` — a message about a
+                   # uniqueness conflict for a create that had nothing to do with
+                   # one. On SQLite, which does not enforce foreign keys unless
+                   # asked, the same insert always succeeded, so 330 tests on the
+                   # default database never saw it. Normalised here so the value
+                   # that reaches the column means what it says.
+                   parent_id=payload.parent_id.strip() or None)
     db.add(row)
     try:
         db.flush()

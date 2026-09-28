@@ -4,7 +4,7 @@
 # VANTOR — Intelligent Procurement Operating System
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 315 backend + 107 frontend](https://img.shields.io/badge/tests-315%20backend%20%2B%20107%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 330 backend + 146 frontend](https://img.shields.io/badge/tests-330%20backend%20%2B%20146%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 90 operations](https://img.shields.io/badge/API-90%20operations-blue.svg)](api/openapi.json)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status: `TESTED` backend (315 pytest collected, 90 API operations, all 10 products verified) + Next.js 16 app (107 vitest green across 10 suites, 19 compiled routes) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).**
+**Status: `TESTED` backend (355 pytest collected, 90 API operations, all 10 products verified) + Next.js 16 app (150 vitest green across 11 suites, 19 compiled routes) + worker scheduler (31 tests) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).**
 
 ## Why VANTOR
 
@@ -56,9 +56,9 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-- [x] Backend API (FastAPI, 90 operations, 315 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
-- [x] AuthN/Z: Keycloak OIDC (check-sso boot, splash, loop breaker) + instant Demo Mode fallback + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`
-- [x] Web app (Next.js 16 / React 19, 19 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
+- [x] Backend API (FastAPI, 90 operations, 355 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
+- [x] AuthN/Z: Keycloak OIDC (Authorization Code + PKCE, `check-sso` boot, splash + sign-in card, one init per instance) + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`. There is no demo or persona sign-in: a session exists only if the IdP returned a signed token carrying a tenant, and the API refuses a forged one in every environment.
+- [x] Web app (Next.js 16 / React 19, 15 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
 - [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
 - [ ] Real-world providers live-checks: OCR engine not shipped, native pgvector index migration pending (cosine re-rank in-Python is the current honest path), full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
@@ -78,13 +78,22 @@ npm run dev
 ```
 
 1. Open **`http://localhost:3000`** in your browser.
-2. The application boots directly into the enterprise workspace (`tenant: vantor-corp`).
-3. Use the **Enterprise Sign-In & Role Delegation** modal to seamlessly authenticate or switch between verified executive personas:
-   - 👔 **Sarah Chen** — Procurement Director (Full approval authority, $5M+ spending gates)
-   - 🎯 **Marcus Vance** — Strategic Category Manager (Strategic sourcing, RFQ awards)
-   - ⚖ **Elena Rostova** — Chief Financial Controller (3-way invoice matching, budget ceilings)
-   - 🛒 **David Park** — Senior Tactical Buyer (Requisitions, purchase orders, goods receipt)
-   - Or authenticate with custom corporate credentials.
+2. Click **Continue with Vantor ID** to sign in through Keycloak (realm `vantor`, client `vantor-web`).
+3. The realm ships one user for local work: `admin` / `admin`. It holds the `Admin`
+   role in tenant `vantor-corp` and is the only identity the app accepts.
+
+There is no in-app persona switcher, and there is no local identity that bypasses
+the identity provider. A session exists if and only if Keycloak returned a signed
+token carrying a tenant, so the only way to be an admin locally is to sign in as
+one. This is deliberate: the previous build offered a modal that minted a session
+from a name and a role chosen in a dropdown, and the backend accepted any
+`Bearer vantor-*` string as a full Admin outside production. Both are gone, and
+`backend/tests/test_auth.py` and `frontend/components/authboot.test.tsx` fail if
+either comes back.
+
+If sign-in fails, the cause is on the sign-in screen, not hidden behind it: an
+unreachable identity provider, a token with no tenant claim, and a redirect loop
+are three different messages.
 
 ### 2. Launch the Backend API Service
 
@@ -94,9 +103,27 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 $env:DATABASE_URL="sqlite:///./_dev.db"
-$env:JWT_SECRET="vantor-enterprise-jwt-secret-key-32-chars-min"
 python -m uvicorn app.main:app --port 8000 --reload
 ```
+
+`OIDC_ISSUER` and `JWT_AUDIENCE` have working defaults (`http://localhost:8080/realms/vantor`
+and `vantor-web`) that match `.env.example`, so they are usually unnecessary. Set
+`OIDC_ISSUER` only if your Keycloak is not on `http://localhost:8080` — it must be
+byte-identical to the `iss` claim in the token, and `127.0.0.1` is a different
+string from `localhost` even for the same server. A mismatch is not a crash: every
+authenticated request answers `401 Invalid token` while `/health` stays green,
+because `/health` touches no dependency.
+
+To populate the dev database with realistic suppliers, contracts and notifications:
+
+```powershell
+$env:DATABASE_URL="sqlite:///./_dev.db"
+python scripts/seed_enterprise_data.py
+```
+
+It seeds suppliers, contracts and notifications. RFQs, purchase orders, invoices and
+budgets are left empty, so those panels show their empty state until you create
+records through the API.
 
 - API Documentation: `http://localhost:8000/docs` (Interactive OpenAPI Swagger, 90 operations across all 10 modules).
 - Health & Readiness: `http://localhost:8000/healthz` and `http://localhost:8000/ready`.
@@ -182,7 +209,7 @@ encoding guards); the long weekly job adds the PG migration chain and the heavie
 suites. Run the same gates locally before you push:
 
 ```powershell
-python -m pytest backend/tests -q     # 315 tests
+python -m pytest backend/tests -q     # 330 tests (5 need PostgreSQL)
 python scripts/verify_brain_links.py  # docs brain-link gate
 cd frontend; npm run typecheck; npm run lint; npm run build
 ```

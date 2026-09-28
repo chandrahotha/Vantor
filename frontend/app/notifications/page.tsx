@@ -23,7 +23,7 @@ export default function Notifications() {
     setRows((await api<Notif[]>(`/api/v1/notifications?limit=25${unread ? "&unread=true" : ""}`)).data || []);
   }, []);
 
-  const { state, error } = useBoot(() => load(false));
+  const { state, error, reload } = useBoot(() => load(false));
   const shownErr = err || error;
 
   // The filter is applied by re-querying from the button handler, not by an
@@ -83,6 +83,8 @@ export default function Notifications() {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -98,16 +100,13 @@ export default function Notifications() {
         <button className="ghost" onClick={() => setFilterAndLoad("unread")} aria-pressed={filter === "unread"}>Unread only</button>
       </div>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <DataTable
-          caption="Notification feed"
-          rows={rows}
-          rowKey={(n) => n.id}
-          columns={columns}
-          empty={<Empty title={filter === "unread" ? "All caught up" : "No alerts yet"} hint="Awards, approvals and expiries appear here automatically." />}
-        />
-      )}
+      <DataTable
+        caption="Notification feed"
+        rows={rows}
+        rowKey={(n) => n.id}
+        columns={columns}
+        empty={<Empty title={filter === "unread" ? "All caught up" : "No alerts yet"} hint="Awards, approvals and expiries appear here automatically." />}
+      />
     </Shell>
   );
 }

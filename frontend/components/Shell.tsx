@@ -4,10 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
-import SignInModal from "./SignInModal";
 import { toggleTheme } from "./ThemeInit";
 import { api } from "../lib/api";
-import { getSession, logout, subscribeSession, type Session } from "../lib/auth";
+import { getSession, login, logout, subscribeSession, type Session } from "../lib/auth";
 
 const NAV: { section?: string; items: [icon: string, label: string, href: string][] }[] = [
   {
@@ -96,7 +95,6 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
   const path = usePathname();
   const base = path.split("?")[0];
   const [session, setSessionState] = useState<Session | null>(() => getSession());
-  const [signInOpen, setSignInOpen] = useState(false);
   useEffect(() => subscribeSession(setSessionState), []);
   const shown = user ?? (session ? { name: session.name, tenant: session.tenant } : undefined);
   const pageName = PAGE_NAMES[base] ?? "VANTOR";
@@ -150,14 +148,6 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               <div className="userchip-actions">
                 <button
                   type="button"
-                  className="userchip-switch"
-                  onClick={() => setSignInOpen(true)}
-                  title="Switch enterprise persona or role"
-                >
-                  Switch
-                </button>
-                <button
-                  type="button"
                   className="userchip-logout"
                   onClick={() => logout()}
                   title="Sign out of current workspace"
@@ -172,7 +162,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               <button
                 type="button"
                 className="userchip-signin-btn"
-                onClick={() => setSignInOpen(true)}
+                onClick={() => login()}
               >
                 <span aria-hidden="true">🔑</span> Sign In
               </button>
@@ -193,7 +183,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
             <button
               type="button"
               className="topbar-signin-btn"
-              onClick={() => setSignInOpen(true)}
+              onClick={() => login()}
             >
               <span aria-hidden="true">🔑</span> Sign In
             </button>
@@ -212,7 +202,6 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
       </main>
 
       <CommandPalette />
-      <SignInModal isOpen={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>
   );
 }

@@ -58,7 +58,7 @@ export function OrdersPage() {
     setSuppliers(s.data || []);
   }, []);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -185,6 +185,8 @@ export function OrdersPage() {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -216,16 +218,11 @@ export function OrdersPage() {
         </div>
       </details>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
-          <DataTable caption="Purchase order list" rows={rows} rowKey={(p) => p.id} columns={columns}
-            empty={<Empty title="No purchase orders yet" hint="Create one above, or via POST /api/v1/purchase-orders." />} />
-          <Pager stack={stack} hasMore={more} busy={busy !== ""}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-        </>
-      )}
+      <DataTable caption="Purchase order list" rows={rows} rowKey={(p) => p.id} columns={columns}
+        empty={<Empty title="No purchase orders yet" hint="Create one above, or via POST /api/v1/purchase-orders." />} />
+      <Pager stack={stack} hasMore={more} busy={busy !== ""}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
 
       {detail ? (
         <section className="panel" style={{ marginTop: 24 }}>

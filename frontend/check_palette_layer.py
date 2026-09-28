@@ -20,7 +20,7 @@ import re
 import sys
 
 CSS = pathlib.Path(__file__).with_name("app") / "globals.css"
-PALETTES = ["graphite", "emerald", "sapphire", "amber", "obsidian"]
+PALETTES = ["cobalt", "emerald", "sapphire", "amber", "obsidian"]
 
 # The block that declares a palette's tokens, per palette and mode.
 BLOCK_RE = re.compile(r"^\[data-palette=\"(?P<key>[a-z]+)\"\](?P<dark>\[data-theme=\"dark\"\])?")

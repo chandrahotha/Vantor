@@ -103,8 +103,13 @@ def _constant_time_equal(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
 
 
-def verify_callback(provider: str, timestamp: str, body: bytes, signature: str) -> None:
-    """Authenticate a callback, or raise `CallbackError`.
+def verify_callback(provider: str, timestamp: str, body: bytes, signature: str) -> str:
+    """Authenticate a callback, or raise `CallbackError`. Returns the digest.
+
+    The returned digest is the HMAC over `{sent_at}.{body}` under the provider's
+    secret — the same material that was checked. The caller consumes it: a
+    callback that has already been accepted carries a digest the row remembers,
+    and a second identical claim is a replay rather than a confirmation (B-19).
 
     Order matters. The secret is checked for presence first, then the timestamp
     window, then the MAC. A missing secret must not fall through to a MAC
@@ -135,6 +140,7 @@ def verify_callback(provider: str, timestamp: str, body: bytes, signature: str) 
     ).hexdigest()
     if not _constant_time_equal(expected, (signature or "").strip()):
         raise CallbackError("ESIGN_SIGNATURE_INVALID", "Callback signature does not match")
+    return expected
 
 
 def apply_callback(
@@ -144,14 +150,24 @@ def apply_callback(
     envelope_id: str,
     status: str,
     payload: dict,
+    digest: str = "",
 ) -> tuple[ContractSignature, str]:
     """Apply a verified provider answer to the matching signature row.
 
     Returns `(row, previous_status)` so the caller can record the transition.
 
+    `digest` is the authenticated callback's HMAC, consumed here (B-19). A
+    captured callback re-sent inside the replay window carries the same digest
+    and is refused as a replay before the terminal-state check, rather than being
+    accepted because the transition happens to be idempotent. A genuinely fresh
+    callback has a new timestamp and therefore a new digest, so a provider
+    retrying is not a replay. The window is still real — a timestamp outside
+    `REPLAY_WINDOW_S` is refused before the MAC — but a capture inside it is now
+    consumed rather than merely bounded.
+
     Raises `CallbackError` for an unknown envelope, an ambiguous one, a status we
-    do not model, or a terminal row that is being changed to a different terminal
-    status.
+    do not model, a replay, or a terminal row that is being changed to a
+    different terminal status.
     """
     target = (status or "").strip().lower()
     if target not in ALLOWED_STATUSES:
@@ -185,6 +201,17 @@ def apply_callback(
         )
 
     sig = matches[0]
+    if digest and sig.last_callback_digest == digest:
+        # B-19. The same authenticated claim, re-sent: a replay, refused before
+        # the terminal-state check so the answer is what happened rather than a
+        # consequence of it. This is reached only by a caller who holds the
+        # shared secret — an attacker without it never gets past the MAC — and
+        # the only thing a replay can do here is re-assert a status the row
+        # already holds, so a 409 reveals nothing it did not already know.
+        raise CallbackError(
+            "ESIGN_REPLAY",
+            "This exact callback has already been accepted; re-sending it is a replay",
+        )
     if sig.status in {"signed", "declined", "voided"} and target != sig.status:
         raise CallbackError(
             "ESIGN_ALREADY_TERMINAL",
@@ -195,7 +222,15 @@ def apply_callback(
     sig.status = target
     sig.provider_payload = payload
     sig.verified_via = "provider_callback"
-    if target == "signed":
+    # Consumed whether or not the status moved: a fresh, authenticated claim is
+    # recorded even when it re-asserts the current state, so the digest always
+    # names the last thing the provider actually said.
+    sig.last_callback_digest = digest or None
+    if target == "signed" and (before != "signed" or sig.verified_at is None):
+        # Stamped only on the transition, not on every callback that agrees
+        # with the current state. `verified_at` is the record of when the
+        # provider confirmed this envelope; a second, identical claim is not a
+        # second confirmation.
         sig.verified_at = datetime.now(timezone.utc)
     sig.updated_by = f"provider:{provider}"
     db.flush()

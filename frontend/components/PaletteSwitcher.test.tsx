@@ -46,8 +46,8 @@ describe("palette switcher accessibility", () => {
     render(<PaletteSwitcher />);
     const pressed = screen.getAllByRole("button", { pressed: true });
     expect(pressed).toHaveLength(1);
-    // The default is Graphite.
-    expect(pressed[0]).toHaveAttribute("data-palette-card", "graphite");
+    // The default is Cobalt.
+    expect(pressed[0]).toHaveAttribute("data-palette-card", "cobalt");
     // And the choice is stated in text as well, so it does not depend on colour.
     expect(pressed[0].textContent).toMatch(/active/i);
   });

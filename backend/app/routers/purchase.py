@@ -596,9 +596,10 @@ def match_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor),
     if inv.status != "received":
         raise HTTPException(status_code=422, detail="Only received invoices can be matched")
     _check_invoice_transition(inv.status, "matched")
+    po_id = _require_po_id(inv)
     try:
         check_sod(inv.created_by, actor.sub)
-        detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=inv.po_id, invoice_id=iid)
+        detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=po_id, invoice_id=iid)
     except PurchaseError as exc:
         code = 403 if exc.code == "APPROVAL_SOD" else 422
         raise HTTPException(status_code=code, detail={"code": exc.code, "message": exc.message,
@@ -708,12 +709,13 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
     if inv.status not in ("received", "matched"):
         raise HTTPException(status_code=422, detail="Only received or matched invoices can be approved")
     _check_invoice_transition(inv.status, "approved")
+    po_id = _require_po_id(inv)
     try:
         check_sod(inv.created_by, actor.sub)
         # `three_way_match` locks the PO row and reads every other approved
         # invoice on it, so the cumulative quantity check below is atomic
         # against a concurrent approval of a second invoice for the same PO.
-        detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=inv.po_id, invoice_id=iid)
+        detail = three_way_match(db, tenant_id=actor.tenant_id, po_id=po_id, invoice_id=iid)
     except PurchaseError as exc:
         code = 403 if exc.code == "APPROVAL_SOD" else 422
         raise HTTPException(status_code=code, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
@@ -734,7 +736,7 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
     # inside the same locked transaction as the match, so a second invoice on the
     # same PO cannot also claim the PO. VNT-018: this state had no writer at all,
     # so the dashboard's "awaiting payment" filter matched nothing ever.
-    _mark_po_invoiced(db, actor, inv.po_id, iid)
+    _mark_po_invoiced(db, actor, po_id, iid)
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="INVOICE_APPROVED", resource="invoice",
                  resource_id=iid, after={"matched": detail}, source="api", created_by=actor.sub)
     from ..services.notify import notify as _notify2
@@ -752,6 +754,27 @@ def approve_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor
                             detail={"code": "LEDGER_ALREADY_POSTED",
                                     "message": "This invoice is already posted to the spend ledger"}) from exc
     return envelope({"id": iid, "status": "approved", "matched": detail}, None, getattr(request.state, "request_id", ""))
+
+
+def _require_po_id(inv: Invoice) -> str:
+    """The PO an invoice is matched against, or a 422 that says why not.
+
+    `invoices.po_id` is nullable — the migration allows NULL and a draft
+    invoice can legitimately have no PO yet — while `three_way_match` and
+    `_mark_po_invoiced` both take a `str`. Nothing enforced that at the call
+    site, so the type was wrong and the runtime behaviour was accidentally
+    safe: `PurchaseOrder.id == None` renders as `id IS NULL`, matches no row,
+    and the match failed with `MATCH_NO_PO "Purchase order None not found"`.
+
+    That is a 422 for the wrong reason, naming an id the caller never sent, on
+    the one path in the product whose job is to decide whether an invoice may
+    become money. The invariant is now stated where it is relied on.
+    """
+    if inv.po_id is None:
+        raise HTTPException(status_code=422, detail={"code": "INVOICE_NO_PO",
+                                                     "message": "Invoice is not linked to a purchase order",
+                                                     "details": {"invoiceId": inv.id}})
+    return inv.po_id
 
 
 def _mark_po_invoiced(db: Session, actor: Actor, po_id: str, invoice_id: str) -> bool:

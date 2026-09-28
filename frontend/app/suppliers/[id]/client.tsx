@@ -104,6 +104,8 @@ export default function SupplierDetail({ id }: { id: string }) {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -115,7 +117,7 @@ export default function SupplierDetail({ id }: { id: string }) {
 
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : supplier ? (
+      {supplier ? (
         <>
           <div className="cards">
             <StatCard label="Status" value={supplier.status} />

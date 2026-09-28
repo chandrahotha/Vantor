@@ -126,13 +126,34 @@ def resolve_digest(ref: str) -> str:
         if params.get("scope"):
             query["scope"] = params["scope"]
         token_req = urllib.request.Request(f"{realm}?{urllib.parse.urlencode(query)}")
-        with _open(token_req) as tok:
-            token = json.loads(tok.read())["token"]
-        req = urllib.request.Request(
-            base, headers={"Accept": ACCEPT, "Authorization": f"Bearer {token}"}
-        )
-        with _open(req) as resp:
-            return resp.headers["Docker-Content-Digest"]
+        # The token exchange and the authenticated manifest GET are both ordinary
+        # network calls that can fail for reasons that have nothing to do with the
+        # image — a proxy returning 400, a captive portal, a transient 5xx. Left
+        # unhandled, that `urllib.error.HTTPError` propagated out of this function
+        # and aborted the entire run, so one unreachable registry discarded the
+        # digests for every other image that had resolved fine. Each image is
+        # pinned independently in `main`, and an exception that escapes here broke
+        # that isolation. A network error is a per-image failure, not a crash.
+        try:
+            with _open(token_req) as tok:
+                token = json.loads(tok.read())["token"]
+            req = urllib.request.Request(
+                base, headers={"Accept": ACCEPT, "Authorization": f"Bearer {token}"}
+            )
+            with _open(req) as resp:
+                return resp.headers["Docker-Content-Digest"]
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read()[:200].decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001 - the body is diagnostic only
+                pass
+            raise SystemExit(
+                f"{ref}: authenticated manifest request returned {exc.code} "
+                f"{exc.reason}{f' ({body})' if body else ''}"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise SystemExit(f"{ref}: could not reach {registry} ({exc})") from exc
 
 
 def read_env(path: pathlib.Path) -> list[str]:

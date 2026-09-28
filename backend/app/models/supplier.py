@@ -6,10 +6,10 @@ Lifecycle: draft → active → on_hold → blocked → archived.
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, TenantMixin
+from .base import Base, TenantMixin, tenant_key, tenant_ref
 
 SUPPLIER_STATUSES = {"draft", "active", "on_hold", "blocked", "archived"}
 
@@ -19,9 +19,15 @@ class Category(Base, TenantMixin):
 
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    parent_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_cat_tenant_code"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_cat_tenant_code"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("categories"),
+        tenant_ref("categories", "parent_id", "categories"),
+    )
 
 
 class Supplier(Base, TenantMixin):
@@ -32,7 +38,7 @@ class Supplier(Base, TenantMixin):
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     country: Mapped[str] = mapped_column(String(2), default="", nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="", nullable=False)
-    category_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True)
+    category_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     payment_terms: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     risk_tier: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
     source_repo: Mapped[str] = mapped_column(String(64), default="", nullable=False)
@@ -43,16 +49,25 @@ class Supplier(Base, TenantMixin):
         UniqueConstraint("tenant_id", "code", name="uq_supplier_tenant_code"),
         Index("ix_supplier_tenant_status", "tenant_id", "status"),
         Index("ix_supplier_tenant_name", "tenant_id", "name"),
+
+        # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
+        tenant_key("suppliers"),
+        tenant_ref("suppliers", "category_id", "categories"),
     )
 
 
 class SupplierContact(Base, TenantMixin):
     __tablename__ = "supplier_contacts"
 
-    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(320), default="", nullable=False)
     phone: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     role: Mapped[str] = mapped_column(String(120), default="", nullable=False)
 
-    __table_args__ = (Index("ix_contact_tenant_supplier", "tenant_id", "supplier_id"),)
+    __table_args__ = (
+        Index("ix_contact_tenant_supplier", "tenant_id", "supplier_id"),
+
+        # Composite, tenant-carrying links — this table is itself linked by a composite reference.
+        tenant_ref("supplier_contacts", "supplier_id", "suppliers"),
+    )

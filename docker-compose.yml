@@ -13,7 +13,7 @@
 #
 # What changed, and why each matters:
 #
-# * **Nothing but the app is published.** Postgres, Redis, MinIO and Keycloak were
+# * **Nothing but the app is published.** Postgres, Redis and Keycloak were
 #   all reachable from the host. They now listen on the internal network only, and
 #   the published ports moved behind the `debug` profile. A database that any host
 #   on the network can reach is a database that will be reached.
@@ -108,28 +108,18 @@ services:
   # Optional services, behind profiles so `docker compose up -d` stays light and
   # offline-friendly:
   #   docker compose --profile ai up -d ollama
-  #   docker compose --profile storage up -d minio
   # `.env.example` ships AI_PROVIDER=disabled and EMBEDDING_PROVIDER=disabled, so a
   # fresh clone is honest (UNKNOWN, keyword search) rather than broken.
-  minio:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}@${MINIO_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
-    profiles: ["storage"]
-    <<: *hardened
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
-    volumes:
-      - minio-data:/data
-    networks: [backend, frontend]
-    expose:
-      - "9000"
-      - "9001"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+  #
+  # There is deliberately no bundled object-storage service. It used to be
+  # `minio/minio:RELEASE.2025-04-22T22-12-26Z`, and MinIO has withdrawn its
+  # container images from both Docker Hub and quay.io, so that reference could
+  # never be started and no digest could ever be pinned to it. Rather than leave
+  # a service that fails on `docker compose --profile storage up`, the S3 path is
+  # brought by whatever you already run: set `S3_ENDPOINT`, `S3_BUCKET`,
+  # `S3_ACCESS_KEY`, `S3_SECRET_KEY` (and `S3_REGION` / `S3_PREFIX` if you use
+  # them) against any S3-compatible endpoint. `app/services/document.py` refuses
+  # local-disk storage in production precisely so this cannot be forgotten.
 
   keycloak:
     # quay.io/keycloak/keycloak:25.0 — digest pinned by scripts/pin_digests.py
@@ -211,6 +201,7 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
       SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_TENANT: ${SERVICE_TENANT:-vantor-corp}
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
     depends_on:
       keycloak:
@@ -238,6 +229,15 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vantor}
+      # Spelled out here rather than inherited from `.env` on purpose. `.env` is
+      # also what a native (non-Docker) run reads, and there `keycloak` is a name
+      # that does not resolve — the API came up healthy and answered every
+      # authenticated request with `503 Identity provider unavailable`, because
+      # it could not fetch the JWKS from a host that is not there. Inside this
+      # network `keycloak` *is* the name; outside it, it is not. Stating it per
+      # service is what lets the same file serve both without the run mode
+      # changing a single value by accident.
+      OIDC_ISSUER: http://keycloak:8080/realms/vantor
       # VNT-009: documents were written into the container's own filesystem, so
       # every uploaded file died with the container while the API answered 201 and
       # audited the success. The volume is on the backend, because the backend is
@@ -278,12 +278,21 @@ services:
       # VNT-044: the worker now performs a client-credentials grant itself, so it
       # needs a client id and secret rather than a pasted, non-expiring token.
       SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_TENANT: ${SERVICE_TENANT:-vantor-corp}
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_healthy
+      # The client-credentials grant above only works once the realm holds the
+      # `Service Identity` role and the matching client secret. Nothing declared
+      # that dependency, so `docker compose up` never started `keycloak-init` and
+      # the worker came up with a credential no realm knew about — the failure
+      # surfaced much later as a 401 from the API, nowhere near the cause. This
+      # is the dependency VNT-044 described in a comment.
+      keycloak-init:
+        condition: service_completed_successfully
     networks: [backend]
 
   # Scheduled jobs (RQ scheduler): contract expiry roll daily, webhook drain every
@@ -295,6 +304,7 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
       SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
+      SERVICE_TENANT: ${SERVICE_TENANT:-vantor-corp}
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
     command: ["python", "beat.py"]
     depends_on:
@@ -302,6 +312,8 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
     networks: [backend]
 
 networks:
@@ -315,7 +327,6 @@ volumes:
   postgres-data:
   keycloak-db-data:
   redis-data:
-  minio-data:
   ollama-data:
   # VNT-009: documents survive a redeploy.
   uploads-data:

@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
-import { Badge, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, type Column } from "../../components/ui";
+import { Badge, Button, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, useToast, type Column } from "../../components/ui";
 import { ApiError, api, newIdemKey } from "../../lib/api";
 
 /** One row of `GET /approvals`. */
@@ -30,6 +30,7 @@ export default function Approvals() {
   // reason box is per-row and only shown while a rejection is being composed.
   const [rejecting, setRejecting] = useState("");
   const [reason, setReason] = useState("");
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setErr("");
@@ -53,6 +54,10 @@ export default function Approvals() {
   async function decide(id: string, approve: boolean) {
     if (!approve && !reason.trim()) {
       setErr("A rejection needs a written reason.");
+      // Announced as an error, because the button looks like it was pressed and
+      // nothing happened. Without this the user cannot tell the difference
+      // between a rejected keystroke and a hung request.
+      toast("bad", "A rejection needs a written reason.");
       return;
     }
     setBusyId(id);
@@ -68,11 +73,19 @@ export default function Approvals() {
         },
       );
       setNotice(`Approval ${r.data.status}${r.data.resourceStatus ? ` · document is now ${r.data.resourceStatus}` : ""}.`);
+      toast(
+        r.data.status === "approved" ? "ok" : "warn",
+        `Approval ${r.data.status}${r.data.resourceStatus ? ` — document is now ${r.data.resourceStatus}` : ""}.`,
+      );
       setRejecting("");
       setReason("");
       await load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Decision failed");
+      const msg = e instanceof Error ? e.message : "Decision failed";
+      setErr(msg);
+      // A failed decision is the one result the user must not miss, so it is
+      // also an assertive toast rather than only the inline ErrorBox.
+      toast("bad", msg);
     } finally {
       setBusyId("");
     }
@@ -88,17 +101,24 @@ export default function Approvals() {
       header: "Decision",
       render: (a: Approval) => (
         <span className="toolbar" style={{ gap: 6 }}>
-          <button className="ghost" disabled={busyId === a.id} onClick={() => decide(a.id, true)}>
-            {busyId === a.id ? "Saving…" : "Approve"}
-          </button>
-          <button
-            className="ghost"
+          <Button
+            variant="success"
+            size="sm"
+            loading={busyId === a.id}
+            disabled={busyId === a.id}
+            onClick={() => decide(a.id, true)}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
             aria-pressed={rejecting === a.id}
             disabled={busyId === a.id}
             onClick={() => { setRejecting(rejecting === a.id ? "" : a.id); setReason(""); }}
           >
             Reject
-          </button>
+          </Button>
           {rejecting === a.id ? (
             <span className="toolbar" style={{ gap: 6 }}>
               <label className="sr-only" htmlFor={`reason-${a.id}`}>Reason for rejection</label>
@@ -109,7 +129,9 @@ export default function Approvals() {
                 placeholder="Why is this rejected?"
                 style={{ minWidth: 200 }}
               />
-              <button disabled={busyId === a.id} onClick={() => decide(a.id, false)}>Confirm</button>
+              <Button size="sm" variant="danger" loading={busyId === a.id} disabled={busyId === a.id} onClick={() => decide(a.id, false)}>
+                Confirm rejection
+              </Button>
             </span>
           ) : null}
         </span>

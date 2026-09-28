@@ -26,7 +26,7 @@
 import { useSyncExternalStore } from "react";
 
 export type PaletteKey =
-  | "graphite"
+  | "cobalt"
   | "emerald"
   | "sapphire"
   | "amber"
@@ -43,15 +43,15 @@ export type PaletteDef = {
   swatch: { primary: string; accent: string; surface: string; text: string };
 };
 
-export const DEFAULT_PALETTE: PaletteKey = "graphite";
+export const DEFAULT_PALETTE: PaletteKey = "cobalt";
 
 export const PALETTES: readonly PaletteDef[] = [
   {
-    key: "graphite",
-    name: "Vantor Graphite",
-    tagline: "Brand-neutral operating system",
+    key: "cobalt",
+    name: "Vantor Cobalt",
+    tagline: "Hyper Cobalt + Skin Sand",
     suitedFor: "Default. Whole-platform navigation, cross-product oversight.",
-    swatch: { primary: "#1f2937", accent: "#6c47ff", surface: "#ffffff", text: "#0b0f17" },
+    swatch: { primary: "#0038ff", accent: "#ffd8b8", surface: "#ffffff", text: "#172033" },
   },
   {
     key: "emerald",
@@ -127,15 +127,15 @@ function readStorage(): PaletteKey | null {
  * Adopt the persisted palette into module state.
  *
  * Precedence is **stored choice, then the DOM, then the default**. The DOM
- * attribute is server-rendered as `graphite` for everyone, so reading it first
+ * attribute is server-rendered as `cobalt` for everyone, so reading it first
  * would mean the stored choice never applies: the preference would appear to be
- * saved, survive nothing, and reset to Graphite on every reload. The
+ * saved, survive nothing, and reset to Cobalt on every reload. The
  * server-rendered value is therefore only a fallback — the pre-JS default that
  * stops a flash, and the value to keep for a first-time visitor.
  *
  * Called by `ThemeInit` on mount, before anything reads `usePalette()`, so the
  * first subscriber sees the real value rather than the default and the switcher
- * cannot render "Graphite selected" for a user who chose Emerald.
+ * cannot render "Cobalt selected" for a user who chose Emerald.
  */
 export function hydratePalette(): PaletteKey {
   if (hydrated) return current;

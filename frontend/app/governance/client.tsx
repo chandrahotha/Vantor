@@ -48,7 +48,7 @@ export default function GovernanceClient() {
     setItems(its.data || []);
   }, [action]);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -85,6 +85,8 @@ export default function GovernanceClient() {
     { key: "hash", header: "Hash", render: (e) => <span className="mono" style={{ fontSize: 11 }}>{e.hash.slice(0, 12)}…</span> },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -95,9 +97,7 @@ export default function GovernanceClient() {
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} />
-        : (
-        <>
+      <>
           <div className="cards">
             <div className="card">
               <div className="k">Audit chain</div>
@@ -205,8 +205,7 @@ export default function GovernanceClient() {
           <Pager stack={stack} hasMore={more}
             onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
             onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-        </>
-      )}
+      </>
     </Shell>
   );
 }

@@ -46,7 +46,7 @@ export default function ContractsPage() {
     setSuppliers(s.data || []);
   }, []);
 
-  const { state, error } = useBoot(() => load(""));
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -118,6 +118,8 @@ export default function ContractsPage() {
     },
   ];
 
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
+
   return (
     <Shell>
       <div className="pagehead">
@@ -136,8 +138,8 @@ export default function ContractsPage() {
           <label>Title<input aria-label="Contract title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Steel supply — FY27" /></label>
           <label>Supplier
             <select aria-label="Contract supplier" value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })}>
-              <option value="">Internal</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}
+              <option value="">Internal (No external supplier)</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
             </select>
           </label>
           <label>Value<input aria-label="Contract value" inputMode="decimal" size={10} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="100000.00" /></label>
@@ -150,15 +152,11 @@ export default function ContractsPage() {
         </div>
       </details>
 
-      {state !== "ok" ? <AuthScreen state={state} error={error} /> : (
-        <>
-          <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
-            empty={<Empty title="No contracts yet" hint="Create one above." />} />
-          <Pager stack={stack} hasMore={more}
-            onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-            onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-        </>
-      )}
+      <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
+        empty={<Empty title="No contracts yet" hint="Create one above." />} />
+      <Pager stack={stack} hasMore={more}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
 
       {sel ? (
         <section className="panel" style={{ marginTop: 24 }}>

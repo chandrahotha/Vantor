@@ -47,6 +47,10 @@ ADMIN_USER = os.environ.get("KEYCLOAK_ADMIN", "admin")
 ADMIN_PASSWORD = os.environ.get("KEYCLOAK_ADMIN_PASSWORD", "")
 SERVICE_CLIENT_ID = os.environ.get("SERVICE_CLIENT_ID", "vantor-service")
 SERVICE_CLIENT_SECRET = os.environ.get("SERVICE_CLIENT_SECRET", "")
+#: The tenant the worker's service identity acts on (B-18: one worker, one
+#: tenant). Stamped onto the service-account user, where the `tenant_id` claim
+#: mapper reads it from — the API refuses a token that carries no tenant.
+SERVICE_TENANT = os.environ.get("SERVICE_TENANT", "vantor-corp")
 TEMPLATE = pathlib.Path(__file__).with_name("realm-vantor.json")
 
 #: The only roles the worker's service account holds.
@@ -160,7 +164,7 @@ class Admin:
         for name in names:
             if name in have:
                 continue
-            payload = {"name": name, "description": f"Provisioned by deploy/keycloak/provision.py"}
+            payload = {"name": name, "description": "Provisioned by deploy/keycloak/provision.py"}
             status, body = self._request(
                 "POST", f"/admin/realms/{REALM}/roles", payload
             )
@@ -241,6 +245,40 @@ class Admin:
             list(wanted.values()),
         )
         print(f"    * service account holds {', '.join(SERVICE_ACCOUNT_ROLES)}")
+
+    def ensure_service_account_tenant(self) -> None:
+        """Stamp the worker's tenant onto its service-account user.
+
+        The API refuses a token that carries no tenant (`403 Token carries no
+        tenant`), and the `tenant_id` claim is mapped from the *user attribute*
+        of the same name. Nothing ever set that attribute on the service account,
+        so the client-credentials token — the documented identity path — carried
+        no tenant and every worker operation was refused with 403. The escape
+        hatch (`SERVICE_API_TOKEN`, a token minted by hand) worked, which is why
+        the defect survived: the scheduled jobs ran on the path nobody
+        documents, and the documented path was never exercised end to end.
+
+        `SERVICE_TENANT` is the tenant the worker acts on. One worker covers one
+        tenant (B-18); a multi-tenant deployment runs one identity per tenant.
+        """
+        status, body = self._request(
+            "GET", f"/admin/realms/{REALM}/clients/{SERVICE_CLIENT_ID}/service-account-user"
+        )
+        if status != 200 or not body:
+            raise SystemExit(f"service account not found ({status}): {body}")
+        user_id = body["id"]
+        attributes = body.get("attributes") or {}
+        if attributes.get("tenant_id") == [SERVICE_TENANT]:
+            print(f"    * service account tenant is {SERVICE_TENANT}")
+            return
+        attributes["tenant_id"] = [SERVICE_TENANT]
+        body["attributes"] = attributes
+        status, resp = self._request(
+            "PUT", f"/admin/realms/{REALM}/users/{user_id}", body
+        )
+        if status not in (204, 200):
+            raise SystemExit(f"could not set the service account tenant ({status}): {resp}")
+        print(f"    * service account tenant set to {SERVICE_TENANT}")
 
     # -- users -------------------------------------------------------------
     def find_user(self, username: str):
@@ -340,6 +378,7 @@ def main() -> int:
     print("==> ensuring the worker machine identity")
     admin.ensure_service_client()
     admin.ensure_service_account_roles()
+    admin.ensure_service_account_tenant()
 
     print("==> ensuring the bootstrap user")
     for user in template.get("users", []):
