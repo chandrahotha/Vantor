@@ -154,6 +154,22 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   border-bottom: 1px solid var(--side-line);
   margin-bottom: 12px;
 }
+.side .brand.brand-logo-full {
+  background: #ffffff;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
 .side .brand .mark {
   width: 26px; height: 26px; border-radius: 7px;
   display: grid; place-items: center;
@@ -217,13 +233,13 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .side .foot .userchip span { color: var(--side-ink); font-weight: 400; }
 .userchip-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--side-line);
   border-radius: var(--radius-m);
-  padding: 8px 10px;
+  padding: 12px;
   margin-bottom: 10px;
 }
 .userchip-main {
@@ -435,17 +451,49 @@ button:hover:not(:disabled) { background: var(--primary-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 button.ghost {
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--line);
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid transparent;
   box-shadow: none;
+  font-weight: 500;
 }
-button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); border-color: var(--line-strong); }
+button.ghost:hover:not(:disabled) { 
+  background: var(--surface-2); 
+  color: var(--ink); 
+  border-color: var(--line); 
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+.pager button {
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.pager button:first-of-type {
+  background: var(--bad);
+}
+.pager button:first-of-type:hover:not(:disabled) {
+  background: #cc2233; /* Darker red */
+}
+.pager button:last-of-type {
+  background: var(--ok);
+}
+.pager button:last-of-type:hover:not(:disabled) {
+  background: #008855; /* Darker green */
+}
 button.link { all: unset; cursor: pointer; color: var(--primary); font-size: var(--fs-13); font-weight: 600; }
 
 /* ---------- data grid ------------------------------------------------------ */
 .gridwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-l); background: var(--surface); box-shadow: var(--elev-1); }
 table.grid { width: 100%; border-collapse: collapse; background: transparent; }
 table.grid th, table.grid td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: var(--fs-13); }
+table.grid td button { padding: 4px 10px; font-size: 12px; }
 table.grid th {
   background: var(--surface-2);
   font-size: var(--fs-11); text-transform: uppercase; letter-spacing: 0.05em;

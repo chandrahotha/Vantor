@@ -40,3 +40,10 @@ test-results/
 # into the repo; these are run artifacts, never source.
 backend/_*.db
 *.db-journal
+
+# Kilo worktrees and local editor cache
+.kilo/
+
+# Next.js auto-generated agent prompt rules
+frontend/AGENTS.md
+frontend/CLAUDE.md

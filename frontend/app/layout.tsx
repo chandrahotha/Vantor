@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeInit from "../components/ThemeInit";
 import AppProviders from "../components/AppProviders";
+import NextTopLoader from "nextjs-toploader";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -148,6 +149,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
     // choice — a visible flash for every user who chose a non-default palette.
     <html lang="en" data-palette="cobalt" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body>
+        <NextTopLoader color="var(--primary)" showSpinner={false} />
         <ThemeInit />
         <script
           type="application/ld+json"

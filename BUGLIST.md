@@ -752,6 +752,21 @@ Fixed by:
    `NODE_ENV !== "production"`, keeping production strict while unblocking Turbopack/React sourcemap
    reconstruction in local dev.
 
+### B-43 · AuthScreen unmounted sidebar on client-side routing · **FIXED**
+
+When navigating between routes via client-side links, `AuthScreen` treated in-flight route changes as unauthenticated boots and rendered the full-page "Opening VANTOR..." splash. This caused the sidebar to unmount and remount on every click, creating jarring page flashes.
+Fixed by embedding `<Shell>` around loading states when a session is already present, and integrating `nextjs-toploader` for smooth routing feedback.
+
+### B-44 · Development token refresh loop caused 10-second logouts · **FIXED**
+
+`keepFresh` in `frontend/lib/auth.ts` continuously polled `keycloak.updateToken()`. In bypass / local dev mode without an active Keycloak refresh token endpoint, this call failed immediately, triggered `onExpired()`, and wiped the local session every 10 seconds.
+Fixed by conditioning token refresh on an active, non-bypass authentication provider.
+
+### B-45 · Sticky enterprise brand banner & full-width logo · **FIXED**
+
+The sidebar brand container rendered with CSS invert filters and non-sticky positioning, clipping during sidebar navigation scroll.
+Fixed by establishing a sticky full-width brand header (`position: sticky; top: 0; z-index: 20;`), using the crisp full Vantor brand mark, and styling pagination controls (Prev = Red, Next = Green).
+
 ---
 
 ## Environment: what could not be verified at all

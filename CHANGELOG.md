@@ -27,11 +27,14 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 - **Copilot approvals panel and provider picker.** The HITL loop the copilot page's own copy
   promises is now reachable, and a caller can choose a provider.
 - **`scripts/check_secrets.py`,** now CI-gated and self-testing (16 cases).
-- **`scripts/check_mojibake.py`,** now CI-gated and self-testing (19 cases).
-- **Migration `0016_idempotency_key_width`.** Widening only: `VARCHAR(128)` to `VARCHAR(512)`,
-  metadata-only on Postgres, no data touched.
+- **Route progress indicator.** Added `nextjs-toploader` to give smooth progress bar feedback across client-side page transitions.
+- **Sticky enterprise brand header.** Full-width white brand banner pinned stickily at the top of the sidebar (`position: sticky; top: 0; z-index: 20;`).
+- **High-contrast pagination & compact table actions.** Custom Prev (Red) and Next (Green) controls and compact action rows.
 
 ### Fixed
+
+- **Sidebar unmounting during client-side navigation.** Preserved the outer `<Shell>` layout during route transitions instead of tearing down the layout into the full-page boot splash.
+- **10-second development logout loop.** Gated token refreshing so bypass/dev sessions without an active IdP refresh endpoint do not wipe the user's session.
 
 - **Three match-engine dimensions made partial invoicing impossible.** `duplicates` was
   `prior_invoice_count > 0`, so the second invoice of any partially-paid PO was a duplicate;

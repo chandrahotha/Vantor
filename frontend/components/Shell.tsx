@@ -104,12 +104,15 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
       <a href="#main" className="skip-link">Skip to content</a>
 
       <nav className="side" aria-label="Primary">
-        <div className="brand">
-          <Image src="/icons/mark-64.png" alt="VANTOR" width={26} height={26} style={{ borderRadius: 7 }} />
-          <span>
-            VANTOR
-            <small>by Digi Tracks</small>
-          </span>
+        <div className="brand brand-logo-full">
+          <Image
+            src="/vantor-logo.png"
+            alt="VANTOR"
+            width={220}
+            height={65}
+            style={{ width: "100%", height: "auto", maxHeight: "48px", objectFit: "contain" }}
+            priority
+          />
         </div>
 
         {NAV.map((group) => (

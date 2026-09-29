@@ -74,10 +74,27 @@ export function initOnce(kc: Keycloak, options: KeycloakInitOptions): Promise<bo
   return inFlight;
 }
 
+export function isAuthBypassed(): boolean {
+  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_DISABLE_AUTH === "true") {
+    return true;
+  }
+  return false;
+}
+
 /** Start an interactive login. This redirects to the IdP and returns; it does
  *  not and must not set a session — a session only exists after the redirect
  *  comes back with a code and `wireSession` reads a real token. */
 export function login(): void {
+  if (isAuthBypassed()) {
+    setSession({
+      token: "dev-bypass-token",
+      name: "Admin",
+      tenant: "vantor-corp",
+      roles: ["Admin", "Buyer", "Procurement Manager", "Approver"]
+    });
+    window.dispatchEvent(new Event("storage"));
+    return;
+  }
   try {
     const kc = keycloak();
     if (!kc.didInitialize) {
@@ -96,11 +113,17 @@ export function login(): void {
  *  adapter was never initialised: leaving a session in place because the IdP
  *  call could not be made is how a signed-out user keeps a working session. */
 export function logout(): void {
+  if (isAuthBypassed()) {
+    setSession(null);
+    window.dispatchEvent(new Event("storage"));
+    return;
+  }
   try {
     const kc = keycloak();
     if (kc.didInitialize) kc.logout();
   } catch { /* ignore — the local session still goes */ }
   setSession(null);
+  window.dispatchEvent(new Event("storage"));
 }
 
 /** The session an adapter's current token represents, or `null`.
@@ -163,6 +186,9 @@ export function clearBounces(): void {
  * calls `onExpired` rather than retrying quietly, and the view returns to the
  * sign-in gate. */
 export function keepFresh(kc: Keycloak, onExpired: () => void): () => void {
+  if (isAuthBypassed()) {
+    return () => {};
+  }
   let dead = false;
   const refresh = () => {
     kc.updateToken(60).catch(() => {

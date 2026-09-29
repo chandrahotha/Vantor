@@ -22,6 +22,7 @@ import {
   clearBounces,
   getSession,
   initOnce,
+  isAuthBypassed,
   isLooping,
   keepFresh,
   keycloak,
@@ -32,6 +33,7 @@ import {
   wireSession,
 } from "../lib/auth";
 import { setRefreshFn, setTokenGetter, setUnauthorizedHandler } from "../lib/api";
+import Shell from "./Shell";
 
 export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info"; children: React.ReactNode }) {
   return <span className={`badge${tone ? ` ${tone}` : ""}`}>{children}</span>;
@@ -86,9 +88,9 @@ export function Pager({ stack, onPrev, hasMore, onNext, busy }: {
 }) {
   return (
     <div className="pager">
-      <button className="ghost" disabled={busy || stack.length === 0} onClick={onPrev}>← Prev</button>
+      <button disabled={busy || stack.length === 0} onClick={onPrev}>← Prev</button>
       <span className="mono" style={{ fontSize: 12 }}>page {stack.length + 1}</span>
-      <button className="ghost" disabled={busy || !hasMore} onClick={onNext}>Next →</button>
+      <button disabled={busy || !hasMore} onClick={onNext}>Next →</button>
     </div>
   );
 }
@@ -198,6 +200,10 @@ export function useBoot(load: () => Promise<void>) {
       setState("signin");
     };
     setUnauthorizedHandler(endSession);
+    const onUnauth = () => endSession();
+    if (typeof window !== "undefined") {
+      window.addEventListener("vantor:unauthorized", onUnauth);
+    }
     // Re-read the session on every request rather than capturing a token once:
     // a refresh replaces it, and a captured value would go stale and 401.
     setTokenGetter(() => getSession()?.token);
@@ -205,7 +211,7 @@ export function useBoot(load: () => Promise<void>) {
     // no-op and a merely-expired token is indistinguishable from a dead one.
     setRefreshFn(() => kc.updateToken(60).then(() => true).catch(() => false));
 
-    if (isLooping()) {
+    if (!isAuthBypassed() && isLooping()) {
       // Deferred by a microtask: this reads sessionStorage, and setting state
       // synchronously in the effect body would cascade a render before the
       // first paint.
@@ -225,11 +231,34 @@ export function useBoot(load: () => Promise<void>) {
     };
 
     (async () => {
+      if (isAuthBypassed()) {
+        if (!getSession()) {
+          setSession({
+            token: "dev-bypass-token",
+            name: "Admin",
+            tenant: "vantor-corp",
+            roles: ["Admin", "Buyer", "Procurement Manager", "Approver"]
+          });
+        }
+        noteBounce(true);
+        clearBounces();
+        try {
+          await loadRef.current();
+        } catch (e: unknown) {
+          if (!disposed) setError(e instanceof Error ? e.message : "Load failed");
+        }
+        if (!disposed && !unauthorized.current) {
+          setState("ok");
+          document.documentElement.dataset.booted = "true";
+        }
+        return;
+      }
+
       try {
         await initOnce(kc, {
           onLoad: "check-sso",
           pkceMethod: "S256",
-          checkLoginIframe: true,
+          checkLoginIframe: false,
           silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
         });
       } catch (e: unknown) {
@@ -281,6 +310,9 @@ export function useBoot(load: () => Promise<void>) {
       stopFresh();
       unsubscribe();
       setUnauthorizedHandler(null);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("vantor:unauthorized", onUnauth);
+      }
     };
   }, []);
 
@@ -310,6 +342,19 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
   if (state === "ok") return null;
 
   if (state === "loading") {
+    if (getSession()) {
+      return (
+        <Shell>
+          <div className="pagehead">
+            <div>
+              <div className="skel" style={{ width: 160, height: 32, marginBottom: 12, borderRadius: 4 }} />
+              <div className="skel" style={{ width: 400, height: 20, borderRadius: 4 }} />
+            </div>
+          </div>
+          <Skeleton rows={6} />
+        </Shell>
+      );
+    }
     return (
       <main className="authscreen">
         <div className="authscreen-card" role="status" aria-live="polite">

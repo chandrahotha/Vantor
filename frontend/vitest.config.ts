@@ -19,7 +19,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.{test,spec}.{ts,tsx}"],
-    exclude: ["node_modules/**", ".next/**"],
+    exclude: ["node_modules/**", ".next/**", "e2e/**"],
     // forks pool hangs on Windows (worker never answers). threads are the
     // supported default; single-fork debugging hangs the run entirely.
     pool: "threads",

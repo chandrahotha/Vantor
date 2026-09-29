@@ -105,15 +105,15 @@ export default function ContractsPage() {
     { key: "value", header: "Value", numeric: true, render: (c) => fmtMinor(c.valueMinor, c.currency) },
     {
       key: "act", header: "", render: (c) => (
-        <>
-          <button className="ghost" onClick={() => open(c)} disabled={busy !== ""}>Open</button>{" "}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button className="ghost" onClick={() => open(c)} disabled={busy !== ""}>Open</button>
           {(NEXT[c.status] || []).map((s) => (
             <button key={s} className="ghost" onClick={() => move(c, s)} disabled={busy !== ""}>{s}</button>
           ))}
           {(c.status === "review" || c.status === "active" || c.status === "expiring") ? (
             <button onClick={() => sign(c)} disabled={busy !== ""}>Sign</button>
           ) : null}
-        </>
+        </div>
       ),
     },
   ];

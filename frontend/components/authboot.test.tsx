@@ -218,7 +218,7 @@ describe("useBoot", () => {
     // unless silentCheckSsoRedirectUri is set (lib/keycloak.js:834-844).
     expect(opts.onLoad).toBe("check-sso");
     expect(opts.pkceMethod).toBe("S256");
-    expect(opts.checkLoginIframe).toBe(true);
+    expect(opts.checkLoginIframe).toBe(false);
     expect(String(opts.silentCheckSsoRedirectUri)).toContain("/silent-check-sso.html");
   });
 

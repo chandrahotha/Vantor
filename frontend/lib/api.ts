@@ -57,6 +57,7 @@ let unauthorizedFn: (() => void) | null = null;
  *  otherwise a page that unmounts would leave its handler installed and the next
  *  page's 401 would drive a closure over dead state. */
 export function setUnauthorizedHandler(fn: (() => void) | null) {
+  // Kept for signature compatibility if needed, but we now use events.
   unauthorizedFn = fn;
 }
 
@@ -118,7 +119,12 @@ export async function api<T>(path: string, init?: ApiOptions, retried = false): 
   }
   if (!res.ok || body.error) {
     const code = body.error?.code || "REQUEST_FAILED";
-    if (unauthorized) unauthorizedFn?.();
+    if (unauthorized) {
+      unauthorizedFn?.();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("vantor:unauthorized"));
+      }
+    }
     throw new ApiError(res.status, code, friendly(res.status, code, body.error?.message || ""), body.requestId || rid);
   }
   return { data: body.data as T, pagination: body.pagination, requestId: body.requestId || rid };

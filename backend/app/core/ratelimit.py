@@ -116,6 +116,7 @@ _client_checked_at = 0.0
 _local_lock = threading.Lock()
 _local_counts: dict[str, deque] = defaultdict(deque)
 
+_redis_lock = threading.Lock()
 
 def _redis():  # type: ignore[no-untyped-def]
     """A live Redis client, or raise. Retried after `RETRY_AFTER_S`.
@@ -128,21 +129,27 @@ def _redis():  # type: ignore[no-untyped-def]
     global _client, _client_checked_at
     if _client is not None:
         return _client
-    now = time.monotonic()
-    if _client_checked_at and (now - _client_checked_at) < RETRY_AFTER_S:
-        raise _RedisUnavailable("recently failed")
-    try:
-        from redis import Redis as _R
+    
+    with _redis_lock:
+        if _client is not None:
+            return _client
+            
+        now = time.monotonic()
+        if _client_checked_at and (now - _client_checked_at) < RETRY_AFTER_S:
+            raise _RedisUnavailable("recently failed")
+        try:
+            from redis import Redis as _R
 
-        from .config import get_settings
+            from .config import get_settings
 
-        client = _R.from_url(get_settings().redis_url, socket_timeout=0.5)
-        client.ping()
-    except Exception as exc:  # noqa: BLE001
-        _client_checked_at = now
-        raise _RedisUnavailable(str(exc)) from exc
-    _client, _client_checked_at = client, 0.0
-    return _client
+            client = _R.from_url(get_settings().redis_url, socket_timeout=0.5)
+            client.ping()
+        except Exception as exc:  # noqa: BLE001
+            _client_checked_at = time.monotonic()
+            raise _RedisUnavailable(str(exc)) from exc
+        _client, _client_checked_at = client, 0.0
+        return _client
+
 
 
 def _local_increment(key: str, limit: int) -> tuple[bool, int]:
@@ -250,6 +257,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 actor = await verify_token_async(auth[7:].strip())
                 identity = actor.sub or ""
                 tenant = actor.tenant_id or ""
+                request.state.actor = actor
+                request.state.tenant_id = tenant
         except Exception:
             # Fall through to the peer-address bucket rather than skipping the
             # limiter.
