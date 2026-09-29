@@ -311,8 +311,8 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
 
   if (state === "loading") {
     return (
-      <div className="authscreen" role="status" aria-live="polite">
-        <div className="authscreen-card">
+      <main className="authscreen">
+        <div className="authscreen-card" role="status" aria-live="polite">
           <div className="authscreen-mark-wrap">
             <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
             <div className="authscreen-pulse" />
@@ -322,14 +322,14 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
           <p className="authscreen-sub">Checking your enterprise identity.</p>
           <div className="authscreen-loader-bar"><div className="authscreen-loader-fill" /></div>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (state === "error") {
     return (
-      <div className="authscreen" role="alert">
-        <div className="authscreen-card">
+      <main className="authscreen">
+        <div className="authscreen-card" role="alert">
           <div className="authscreen-mark-wrap">
             <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
           </div>
@@ -351,13 +351,13 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
             </Button>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="authscreen" role="status">
-      <div className="authscreen-card">
+    <main className="authscreen">
+      <div className="authscreen-card" role="status">
         <div className="authscreen-mark-wrap">
           <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
         </div>
@@ -385,7 +385,7 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
           <span className="authscreen-pill">Real-time Spend Graph</span>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

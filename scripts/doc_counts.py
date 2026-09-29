@@ -126,6 +126,7 @@ def _collect_backend() -> int | None:
 
 def _collect_frontend() -> int | None:
     output = _run(["npx", "vitest", "run"], ROOT / "frontend")
+    output = re.sub(r'\x1b\[[0-9;]*[mK]', '', output)
     match = re.search(r"Tests\s+(\d+)\s+(?:passed|failed)", output)
     return int(match.group(1)) if match else None
 
