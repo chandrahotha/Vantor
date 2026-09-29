@@ -233,50 +233,84 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .side .foot .userchip span { color: var(--side-ink); font-weight: 400; }
 .userchip-card {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--side-line);
-  border-radius: var(--radius-m);
-  padding: 12px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  backdrop-filter: blur(4px);
+  transition: all var(--t-fast) var(--ease);
 }
-.userchip-main {
+.userchip-card:hover {
+  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.userchip-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.1) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.userchip-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 .userchip-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #fff;
-  font-size: var(--fs-12);
+  color: #ffffff;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
 }
-.userchip-meta {
-  color: var(--side-ink);
-  font-size: 11px;
+.userchip-tenant {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
 }
 .userchip-logout {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  color: var(--side-ink);
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 5px;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all var(--t-fast) var(--ease);
   box-shadow: none;
 }
 .userchip-logout:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ffffff;
 }
-.side .foot a { color: var(--side-ink); }
-.side .foot a:hover { color: #fff; }
+.side .foot .foot-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+.side .foot .foot-links a { color: rgba(255, 255, 255, 0.6); font-size: 11px; text-decoration: none; }
+.side .foot .foot-links a:hover { color: #fff; }
 
 .main { padding: 28px 32px 96px; max-width: 1280px; min-width: 0; }
 

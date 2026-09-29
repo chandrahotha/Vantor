@@ -88,7 +88,7 @@ export function login(): void {
   if (isAuthBypassed()) {
     setSession({
       token: "dev-bypass-token",
-      name: "Admin",
+      name: "Administrator",
       tenant: "vantor-corp",
       roles: ["Admin", "Buyer", "Procurement Manager", "Approver"]
     });

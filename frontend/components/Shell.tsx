@@ -142,22 +142,23 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
         <div className="foot">
           {shown ? (
             <div className="userchip-card">
-              <div className="userchip-main">
+              <div className="userchip-avatar" aria-hidden="true">
+                {(shown.name.replace(/\s*\(Bypass\)/i, "").trim() || "AD").slice(0, 2).toUpperCase()}
+              </div>
+              <div className="userchip-info">
                 <div className="userchip-name">
-                  <span>{shown.name}</span>
+                  {shown.name.replace(/\s*\(Bypass\)/i, "").trim() || "Administrator"}
                 </div>
-                <div className="userchip-meta">tenant: <span className="mono">{shown.tenant}</span></div>
+                <div className="userchip-tenant">{shown.tenant}</div>
               </div>
-              <div className="userchip-actions">
-                <button
-                  type="button"
-                  className="userchip-logout"
-                  onClick={() => logout()}
-                  title="Sign out of current workspace"
-                >
-                  Sign out
-                </button>
-              </div>
+              <button
+                type="button"
+                className="userchip-logout"
+                onClick={() => logout()}
+                title="Sign out of current workspace"
+              >
+                Sign out
+              </button>
             </div>
           ) : (
             <div className="userchip-unauth">
@@ -171,7 +172,11 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               </button>
             </div>
           )}
-          <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">Source · AGPL-3.0</a>
+          <div className="foot-links">
+            <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">
+              Source · AGPL-3.0
+            </a>
+          </div>
         </div>
       </nav>
 

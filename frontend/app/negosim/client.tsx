@@ -4,12 +4,20 @@ import Shell from "../../components/Shell";
 import { AuthScreen, DataTable, Empty, ErrorBox, LiveRegion, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
-type Round = { round: number; offer_minor: number; counter_minor: number };
+type Round = {
+  round: number;
+  offer_minor?: number;
+  counter_minor?: number;
+  buyer?: number;
+  supplier?: number;
+  event?: string;
+};
 type SimResult = {
   result: string;
   score: number;
   rounds: Round[];
   reason?: string;
+  settled_minor?: number | null;
 };
 
 export default function NegoSim() {
@@ -68,8 +76,9 @@ export default function NegoSim() {
 
   const roundCols: Column<Round>[] = [
     { key: "r", header: "Round", numeric: true, render: (x) => x.round },
-    { key: "offer", header: "Your offer", numeric: true, render: (x) => fmtMinor(x.offer_minor, "INR") },
-    { key: "counter", header: "Supplier counter", numeric: true, render: (x) => fmtMinor(x.counter_minor, "INR") },
+    { key: "offer", header: "Your offer", numeric: true, render: (x) => fmtMinor(x.buyer ?? x.offer_minor ?? 0, "INR") },
+    { key: "counter", header: "Supplier counter", numeric: true, render: (x) => fmtMinor(x.supplier ?? x.counter_minor ?? 0, "INR") },
+    { key: "event", header: "Status", render: (x) => x.event ? <span className="badge">{x.event.replace("_", " ")}</span> : null },
   ];
 
   if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;

@@ -235,7 +235,7 @@ export function useBoot(load: () => Promise<void>) {
         if (!getSession()) {
           setSession({
             token: "dev-bypass-token",
-            name: "Admin",
+            name: "Administrator",
             tenant: "vantor-corp",
             roles: ["Admin", "Buyer", "Procurement Manager", "Approver"]
           });
