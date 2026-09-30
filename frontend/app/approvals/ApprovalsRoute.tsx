@@ -23,8 +23,7 @@ export default function ApprovalsRoute() {
         <div>
           <h1>Approvals</h1>
           <p>
-            Executive approval workbench: pending purchase requisitions, capital expenditure thresholds,
-            and contract signing authorities requiring governance sign-off.
+            Everything waiting on a decision from you. Rejecting one needs a written reason.
           </p>
         </div>
       </div>

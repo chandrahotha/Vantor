@@ -40,6 +40,16 @@ describe("fmtMinor — money must never be mis-scaled", () => {
     expect(fmtMinor(123456, "inr")).toBe("1,234.56 INR");
   });
 
+  it("groups digits by the currency's own convention, not the app's home locale", () => {
+    // Indian grouping is lakh/crore: 1,00,000 not 100,000.
+    expect(fmtMinor(9999999999, "INR")).toBe("9,99,99,999.99 INR");
+    expect(fmtMinor(9999999999, "PKR")).toBe("9,99,99,999.99 PKR");
+    // Everything else groups in threes. This used to render "9,99,99,999.99 USD".
+    expect(fmtMinor(9999999999, "USD")).toBe("99,999,999.99 USD");
+    expect(fmtMinor(9999999999, "EUR")).toBe("99,999,999.99 EUR");
+    expect(fmtMinor(100000000, "JPY")).toBe("100,000,000 JPY");
+  });
+
   it("emits no decimals for zero-decimal and two for fractional", () => {
     expect(fmtMinor(500, "JPY")).toContain("500");
     expect(fmtMinor(500, "JPY")).not.toContain(".");

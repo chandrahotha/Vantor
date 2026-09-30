@@ -1,8 +1,10 @@
 """Integration API — adapters + webhook endpoints/deliveries.
 
+- GET /integrations: adapters this tenant has registered.
 - GET /integrations/types: adapter contract list (no provider hard-coded in core).
 - POST /integrations: register a named adapter config (type must be known;
   secrets go to the vault — only `secret_ref: env:NAME` accepted).
+- GET /webhooks/endpoints: registered receivers.
 - POST /webhooks/endpoints: register HTTPS receiver + event filter. The URL is
   put through `services.egress` before it is stored, not when it is first dialled.
 - GET /webhooks/deliveries: premium-grid delivery log with status.
@@ -70,6 +72,58 @@ class EndpointIn(BaseModel):
 @router.get("/integrations/types")
 def types(request: Request, actor: Actor = Depends(get_actor)) -> dict:
     return envelope({"adapters": sorted(ADAPTERS.keys()), "types": sorted(INTEGRATION_TYPES)}, None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/integrations")
+def list_integrations(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                      limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    """List the adapters this tenant has registered.
+
+    This route did not exist. The Integrations screen has always called
+    `GET /api/v1/integrations` on load, inside the `Promise.all` that also
+    fetches the adapter types and the delivery log — so the whole page failed
+    for every user, on every visit, and rendered its error state with three
+    empty tables behind it. Nothing caught it: the route is typed `any` on the
+    client, the backend tests only covered routes that exist, and no test
+    compared the two. `frontend/lib/contract.test.ts` now does.
+
+    `secret_ref` is returned because it is a vault *pointer* (`env:NAME`) and
+    never a secret — POST refuses anything else — and an operator needs to see
+    which reference an adapter was wired to.
+    """
+    stmt = (select(Integration)
+            .where(Integration.tenant_id == actor.tenant_id)
+            .order_by(desc(Integration.created_at), desc(Integration.id))
+            .limit(limit))
+    rows = list(db.execute(stmt).scalars())
+    data = [{"id": r.id, "name": r.name, "itype": r.itype, "status": r.status,
+             "secretRef": r.secret_ref,
+             "createdAt": r.created_at.isoformat() if r.created_at else None}
+            for r in rows]
+    return envelope(data, {"limit": limit, "nextCursor": "", "hasMore": False},
+                    getattr(request.state, "request_id", ""))
+
+
+@router.get("/webhooks/endpoints")
+def list_endpoints(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                   limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    """List registered receivers.
+
+    Also missing. `POST /webhooks/test` takes an `endpoint_id`, and there was no
+    route that could tell a caller what those ids are — so the one control on
+    the screen that exercises a receiver could not be given a valid argument
+    from the UI at all.
+    """
+    stmt = (select(WebhookEndpoint)
+            .where(WebhookEndpoint.tenant_id == actor.tenant_id)
+            .order_by(desc(WebhookEndpoint.created_at), desc(WebhookEndpoint.id))
+            .limit(limit))
+    rows = list(db.execute(stmt).scalars())
+    data = [{"id": r.id, "url": r.url, "events": list(r.events or []), "status": r.status,
+             "createdAt": r.created_at.isoformat() if r.created_at else None}
+            for r in rows]
+    return envelope(data, {"limit": limit, "nextCursor": "", "hasMore": False},
+                    getattr(request.state, "request_id", ""))
 
 
 @router.post("/integrations", status_code=201)

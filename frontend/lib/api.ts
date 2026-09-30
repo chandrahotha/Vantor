@@ -133,13 +133,26 @@ export async function api<T>(path: string, init?: ApiOptions, retried = false): 
 // Zero-decimal currencies must NOT be divided by 100 (JPY, KRW, VND, ...).
 const ZERO_DECIMAL = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "UGX", "TZS"]);
 
+/** Currencies whose conventional digit grouping is not the Western 3-3-3.
+ *
+ *  Every amount used to be formatted with `toLocaleString("en-IN")` whatever
+ *  its denomination, so a nine-hundred-thousand-dollar purchase order rendered
+ *  as `9,99,999.99 USD` — the Indian lakh/crore grouping applied to a currency
+ *  that does not use it. The grouping now follows the money, not the server's
+ *  home locale. */
+const INDIAN_GROUPING = new Set(["INR", "PKR", "LKR", "NPR", "BDT"]);
+
 export function fmtMinor(minor: number | null | undefined, currency?: string): string {
   if (minor === null || minor === undefined) return "—";
   const ccy = (currency || "").toUpperCase();
   const divisor = ccy && ZERO_DECIMAL.has(ccy) ? 1 : 100;
   const frac = divisor === 1 ? 0 : 2;
+  // No currency named is the tenant-agnostic case used by the should-cost model
+  // and the price cases, which are already scoped to one denomination upstream;
+  // it keeps the existing grouping so those readouts do not shift.
+  const locale = !ccy || INDIAN_GROUPING.has(ccy) ? "en-IN" : "en-US";
   try {
-    const num = (minor / divisor).toLocaleString("en-IN", { minimumFractionDigits: frac, maximumFractionDigits: frac });
+    const num = (minor / divisor).toLocaleString(locale, { minimumFractionDigits: frac, maximumFractionDigits: frac });
     return ccy ? `${num} ${ccy}` : num;
   } catch {
     return `${minor}${ccy ? ` ${ccy}` : ""}`;

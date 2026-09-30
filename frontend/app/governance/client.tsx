@@ -92,17 +92,23 @@ export default function GovernanceClient() {
       <div className="pagehead">
         <div>
           <h1>Governance</h1>
-          <p>Corporate spend governance & compliance: tamper-evident cryptographic audit chain, category taxonomies, and departmental fiscal budget ceilings.</p>
+          <p>The record of every change made in this tenant, plus the categories and budget ceilings that constrain spending.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      <>
-          <div className="cards">
+      <div className="cards">
             <div className="card">
               <div className="k">Audit chain</div>
-              <div className={`v mono ${verify?.valid ? "good" : "bad"}`}>{verify ? (verify.valid ? "VERIFIED" : "BROKEN") : "—"}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{verify?.message}</div>
+              {/* Unknown is not broken. While the verification call is in
+                  flight — or when the backend is unreachable — this rendered a
+                  red em dash, so a governance screen reported a tamper-evident
+                  audit chain as failing whenever it simply had not been asked
+                  yet. */}
+              <div className={`v mono${verify ? (verify.valid ? " good" : " bad") : ""}`}>
+                {verify ? (verify.valid ? "VERIFIED" : "BROKEN") : "Not checked"}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{verify?.message ?? "The chain could not be verified from here."}</div>
             </div>
             <div className="card"><div className="k">Categories</div><div className="v mono">{categories.length}</div></div>
             <div className="card"><div className="k">Catalog items</div><div className="v mono">{items.length}</div></div>
@@ -114,8 +120,6 @@ export default function GovernanceClient() {
           {verify && !verify.valid ? (
             <ErrorBox message={`Audit chain verification failed: ${verify.message}. Treat every derived number on this tenant as suspect until resolved.`} />
           ) : null}
-
-          <PaletteSwitcher />
 
           <h2>Categories</h2>
           <details className="panel">
@@ -140,7 +144,7 @@ export default function GovernanceClient() {
               { key: "name", header: "Name", render: (c) => c.name },
               { key: "parent", header: "Parent", render: (c) => (categories.find((p) => p.id === c.parentId)?.code ?? "—") },
             ]}
-            empty={<Empty title="No categories" hint="Create one above, or via POST /api/v1/catalog/categories." />} />
+            empty={<Empty title="No categories" hint="Categories are how spend is grouped for budgets and reporting. Add the first one under “New category” above." />} />
 
           <h2 style={{ marginTop: 20 }}>Catalog</h2>
           <details className="panel">
@@ -202,10 +206,15 @@ export default function GovernanceClient() {
           </div>
           <DataTable caption="Audit event trail" rows={events} rowKey={(e) => e.id} columns={evCols}
             empty={<Empty title="No audit events match" hint="Every write in this tenant lands here, hash-chained." />} />
-          <Pager stack={stack} hasMore={more}
+          <Pager stack={stack} hasMore={more} busy={busy !== ""}
             onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
             onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-      </>
+
+          {/* Appearance is a workspace preference, not a governance control, so
+              it goes after the governed material rather than above it. */}
+          <hr className="rule" />
+          <h2>Workspace appearance</h2>
+          <PaletteSwitcher />
     </Shell>
   );
 }

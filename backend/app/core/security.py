@@ -20,6 +20,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
+from . import localauth
 from .config import get_settings
 
 _bearer = HTTPBearer(auto_error=False)
@@ -93,8 +94,6 @@ async def fetch_jwks_async() -> dict:
     return await run_in_threadpool(_fetch_jwks)
 
 
-import os
-
 async def verify_token_async(token: str) -> Actor:
     """`verify_token`, off the event loop only where it can actually block.
 
@@ -108,12 +107,17 @@ async def verify_token_async(token: str) -> Actor:
     So: warm cache and test override are handled inline, and the cold path is
     handed to a worker thread.
     """
-    if os.getenv("DISABLE_AUTH") == "1":
-        return Actor(
-            sub="local-admin",
-            tenant_id="vantor-corp",
-            roles=("Admin", "Buyer", "Procurement Manager", "Approver")
-        )
+    # `DISABLE_AUTH=1` used to short-circuit here and return a full-Admin actor
+    # with no token at all, in every environment including production — under a
+    # module docstring that says "No dev bypass, no hardcoded tokens, no
+    # anon-auth flag" and a `verify_token` docstring explaining at length why
+    # exactly this escape hatch had been removed. It was reachable by setting
+    # one environment variable.
+    #
+    # It is gone. The pressure it existed to relieve — "the app is unusable
+    # without Keycloak" — is answered properly by `core/localauth.py`, which
+    # issues a real signed token with a real tenant and a real expiry instead of
+    # fabricating an actor out of nothing.
     if _jwks_override is not None or (
         _jwks_cache["keys"] and (time.time() - _jwks_cache["fetched_at"]) < _JWKS_TTL_S
     ):
@@ -122,6 +126,12 @@ async def verify_token_async(token: str) -> Actor:
 
 
 def _public_key_for(kid: str):  # type: ignore[no-untyped-def]
+    # Locally-issued sessions first. `LOCAL_KID` is a fixed literal and a
+    # Keycloak `kid` is a base64url digest, so the two can never collide, and
+    # resolving it here means a local token needs no network round trip and no
+    # identity provider to be reachable at all.
+    if kid == localauth.LOCAL_KID and localauth.enabled():
+        return localauth.public_keys()[localauth.LOCAL_KID]
     keys = _fetch_jwks()
     key = keys.get(kid)
     if key is None and _jwks_override is None:

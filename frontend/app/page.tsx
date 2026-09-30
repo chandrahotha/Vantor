@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import Shell from "../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, MetricCard, useBoot, type Column } from "../components/ui";
+import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, MetricCard, Money, useBoot, type Column } from "../components/ui";
 import { api, fmtMinor } from "../lib/api";
 import { getSession } from "../lib/auth";
 
@@ -91,10 +91,22 @@ export default function Dashboard() {
     // looked exactly like a working one. A total failure is now reported as a
     // failure: the panels keep their empty state and the notice below is shown.
     // With the reason attached, not just the panel name.
+    // One cause, stated once.
+    //
+    // This used to join every panel's reason with " · ". When the backend is
+    // simply not running, all five panels fail for the same reason, so the
+    // dashboard opened with "API unreachable — is the backend running?" printed
+    // five times in a red block taller than the data it replaced. The per-panel
+    // detail still matters when the failures actually differ (a 403 on one
+    // panel and a 503 on another is worth seeing), so it is kept for that case
+    // and collapsed for the common one.
+    const distinct = Array.from(new Set(reasons.map((r) => r.slice(r.indexOf(": ") + 2))));
     setPartial(
-      failed.length
-        ? `Notice — ${failed.length} of 5 live panels could not be loaded. ${reasons.join(" · ")}`
-        : "",
+      !failed.length
+        ? ""
+        : distinct.length === 1
+          ? `${failed.length === 5 ? "No live data" : `${failed.length} of 5 panels could not load`} — ${distinct[0]}`
+          : `${failed.length} of 5 panels could not load. ${reasons.join(" · ")}`,
     );
   }, []);
 
@@ -122,8 +134,8 @@ export default function Dashboard() {
     <Shell user={session ? { name: session.name, tenant: session.tenant } : undefined}>
       <div className="pagehead">
         <div>
-          <h1>Procurement Health & Spend Intelligence</h1>
-          <p>Live multi-currency commitments, contract renewal monitors, and active RFQ sourcing pipelines.</p>
+          <h1>Dashboard</h1>
+          <p>What your money is committed to right now, and what needs a decision today.</p>
         </div>
         <div className="pagehead-actions">
           <Link href="/rfqs" className="btn btn-ghost btn-md">View RFQs</Link>
@@ -140,7 +152,7 @@ export default function Dashboard() {
               key={c}
               label={`Committed (${c})`}
               value={fmtMinor(spend?.byCurrency.committed[c] ?? 0, c)}
-              hint="Sum of every purchase order raised in this currency, whatever its approval state."
+              hint="Every PO raised, approved or not."
             />
           ))
         ) : (
@@ -153,14 +165,14 @@ export default function Dashboard() {
               value={!spend ? "—"
                 : spend.poTotalMinor == null ? "per currency"
                 : fmtMinor(spend.poTotalMinor, ccys[0])}
-              hint="Sum of every purchase order raised in this currency, whatever its approval state."
+              hint="Every PO raised, approved or not."
             />
             <MetricCard
               label="Invoiced (approved)"
               value={!spend ? "—"
                 : spend.invoicedTotalMinor == null ? "per currency"
                 : fmtMinor(spend.invoicedTotalMinor, ccys[0])}
-              hint="Only invoices that passed three-way match. Unmatched invoices are not counted here."
+              hint="Only invoices that passed three-way match."
             />
           </>
         )}
@@ -168,13 +180,13 @@ export default function Dashboard() {
           label="Contracts expiring (90 days)"
           value={expiring.length ? `${expiring.length}${expiringMore ? "+" : ""}` : "0"}
           tone={expiring.length ? "warn" : "good"}
-          hint="Computed live against contract end dates — not a stored status. “+” means the count exceeds 100."
+          hint="Live against end dates. “+” means over 100."
         />
         <MetricCard
           label="Open RFQs"
           value={openRfqs.more ? `${openRfqs.items.length}+` : String(openRfqs.items.length)}
           tone={openRfqs.items.length ? "warn" : "good"}
-          hint="RFQs in sent or response state, awaiting quotes or evaluation."
+          hint="Awaiting quotes or evaluation."
         />
       </div>
       {mixed ? (
@@ -183,11 +195,6 @@ export default function Dashboard() {
           <span>{spend?.currencyCount} currencies in play — totals are tracked per currency and never summed across denominations.</span>
         </div>
       ) : null}
-      <div className="info-callout">
-        <span className="info-callout-icon">ℹ</span>
-        <span>Contract expiry (90 days) is computed live against contract end dates in the tenant&apos;s active timezone.</span>
-      </div>
-
       <h2>What needs attention</h2>
       <DataTable caption="Items needing attention" rows={attention} rowKey={(a) => a.key} columns={attentionCols}
         empty={<Empty title="Nothing pending" hint="Expiring contracts and open RFQs appear here automatically." />} />
@@ -197,7 +204,7 @@ export default function Dashboard() {
         columns={[
           { key: "code", header: "Code", render: (o) => <span className="mono">{o.code}</span> },
           { key: "status", header: "Status", render: (o) => <Badge tone={o.status === "approved" || o.status === "sent" ? "ok" : undefined}>{o.status}</Badge> },
-          { key: "total", header: "Total", numeric: true, render: (o) => fmtMinor(o.totalMinor, o.currency) },
+          { key: "total", header: "Total", numeric: true, render: (o) => <Money>{fmtMinor(o.totalMinor, o.currency)}</Money> },
         ]}
         empty={<Empty title="No purchase orders yet" hint="Create one from the Purchase orders page." />} />
     </Shell>

@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type PO = { id: string; code: string; status: string; totalMinor: number; currency: string; supplierId: string };
@@ -21,9 +21,26 @@ const SKIP_REASON: Record<string, string> = {
 
 /** Server-enforced lifecycle. The UI mirrors it so it never offers an action the
  *  API will reject; the server stays the authority. */
-const PO_ACTIONS: Record<string, { key: string; label: string; path?: string; method?: string }[]> = {
-  draft: [{ key: "approve", label: "Approve", path: "approve" }],
-  approved: [{ key: "send", label: "Send to supplier", path: "send" }],
+const PO_ACTIONS: Record<string, { key: string; label: string; path?: string; confirm?: string }[]> = {
+  draft: [{
+    key: "approve",
+    label: "Approve",
+    path: "approve",
+    // Approving is the point at which a purchase order commits money: it runs
+    // the tier and segregation-of-duties checks, consumes the category budget
+    // and is written to the audit chain against the approver. It was a single
+    // unguarded click in a dense list, next to "Open".
+    confirm: "Approving commits this purchase order against the category budget and records the decision in the audit chain under your name. It cannot be un-approved from this screen.",
+  }],
+  approved: [{
+    key: "send",
+    label: "Send to supplier",
+    path: "send",
+    confirm: "Sending issues this purchase order to the supplier. Treat it as an outbound commitment — the next step in the lifecycle is goods receipt.",
+  }],
+  // Receipt and invoicing need line quantities, so they are completed in the
+  // detail panel rather than from the row. The row still names them so the next
+  // step is legible from the list.
   sent: [{ key: "receipt", label: "Receive goods" }],
   received: [{ key: "invoice", label: "Record invoice" }],
   closed: [],
@@ -47,6 +64,17 @@ export function OrdersPage() {
 
   const [form, setForm] = useState({ code: "", supplierId: "", currency: "INR", description: "", quantity: "1", unitPrice: "" });
   const [invoice, setInvoice] = useState({ code: "", quantity: "", unitPrice: "" });
+  /** The lifecycle action awaiting confirmation; null means no dialog. */
+  const [pending, setPending] = useState<{ po: PO; key: string; label: string; path?: string; confirm?: string } | null>(null);
+  /** The detail panel is rendered below a paginated table, so on a laptop it
+   *  opened off-screen — "Open" looked like a button that did nothing. */
+  const detailRef = useRef<HTMLElement>(null);
+  const [scrollTo, setScrollTo] = useState("");
+  useEffect(() => {
+    if (!scrollTo || detail?.id !== scrollTo) return;
+    detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    detailRef.current?.focus();
+  }, [scrollTo, detail]);
 
   const load = useCallback(async (cur: string) => {
     const r = await api<PO[]>(`/api/v1/purchase-orders?limit=15&cursor=${encodeURIComponent(cur)}`);
@@ -88,11 +116,12 @@ export function OrdersPage() {
     setDetail(d.data);
   }
 
-  async function open(po: PO) {
+  async function open(po: PO, focus = true) {
     await act(`open-${po.id}`, async () => {
       const d = await api<PODetail>(`/api/v1/purchase-orders/${po.id}`);
       setDetail(d.data);
       setInvoice({ code: `INV-${po.code}`, quantity: String(d.data?.lines?.[0]?.quantity ?? 1), unitPrice: String((d.data?.lines?.[0]?.unitPriceMinor ?? 0) / 100) });
+      if (focus) setScrollTo(po.id);
     });
   }
 
@@ -101,7 +130,7 @@ export function OrdersPage() {
       await api(`/api/v1/purchase-orders/${po.id}/${path}`, { method: "POST", idemKey: newIdemKey() });
       setNote(`${po.code}: ${key} succeeded.`);
       await load(cursor);
-      await open(po);
+      await open(po, false);
     });
   }
 
@@ -168,19 +197,31 @@ export function OrdersPage() {
   const columns: Column<PO>[] = [
     { key: "code", header: "Code", render: (p) => <span className="mono">{p.code}</span> },
     { key: "status", header: "Status", render: (p) => <Badge tone={TONE[p.status]}>{p.status}</Badge> },
-    { key: "total", header: "Total", numeric: true, render: (p) => fmtMinor(p.totalMinor, p.currency) },
+    { key: "total", header: "Total", numeric: true, render: (p) => <Money>{fmtMinor(p.totalMinor, p.currency)}</Money> },
     {
-      key: "act", header: "Actions", render: (p) => (
-        <>
-          <button className="ghost" onClick={() => open(p)} disabled={busy !== ""}>Open</button>{" "}
+      key: "act", header: "Actions", align: "end", render: (p) => (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button className="ghost" onClick={() => open(p)} disabled={busy !== ""}>Open</button>
           {(PO_ACTIONS[p.status] || []).map((a) =>
             a.path ? (
-              <button key={a.key} className="ghost" onClick={() => poAction(p, a.key, a.path)} disabled={busy !== ""}>
+              <button
+                key={a.key}
+                className="ghost"
+                onClick={() => (a.confirm ? setPending({ po: p, ...a }) : poAction(p, a.key, a.path))}
+                disabled={busy !== ""}
+              >
                 {busy === `${a.key}-${p.id}` ? "…" : a.label}
               </button>
-            ) : null,
+            ) : (
+              // A step that is completed in the detail panel. Rendering nothing
+              // left the row silent about what happens next, on the one column
+              // headed "Actions".
+              <span key={a.key} className="next-step" title={`Open this order to ${a.label.toLowerCase()}`}>
+                Next: {a.label.toLowerCase()}
+              </span>
+            ),
           )}
-        </>
+        </div>
       ),
     },
   ];
@@ -192,7 +233,7 @@ export function OrdersPage() {
       <div className="pagehead">
         <div>
           <h1>Purchase orders</h1>
-          <p>Purchase order lifecycle: multi-tiered executive approvals, fiscal budget gates, receipt verification, and automated 3-way invoice matching.</p>
+          <p>Raise an order, get it approved, receive the goods, then match the invoice before it is paid.</p>
         </div>
       </div>
 
@@ -219,14 +260,17 @@ export function OrdersPage() {
       </details>
 
       <DataTable caption="Purchase order list" rows={rows} rowKey={(p) => p.id} columns={columns}
-        empty={<Empty title="No purchase orders yet" hint="Create one above, or via POST /api/v1/purchase-orders." />} />
+        empty={<Empty title="No purchase orders yet" hint="A purchase order commits money to a supplier. Raise the first one under “New purchase order” above." />} />
       <Pager stack={stack} hasMore={more} busy={busy !== ""}
         onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
         onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
 
       {detail ? (
-        <section className="panel" style={{ marginTop: 24 }}>
-          <h2 style={{ marginTop: 0 }}>{detail.code} <Badge tone={TONE[detail.status]}>{detail.status}</Badge></h2>
+        <section className="panel detail-panel" style={{ marginTop: 24 }} ref={detailRef} tabIndex={-1} aria-label={`Purchase order ${detail.code}`}>
+          <div className="detail-head">
+            <h2 style={{ margin: 0 }}>{detail.code} <Badge tone={TONE[detail.status]}>{detail.status}</Badge></h2>
+            <button className="ghost" onClick={() => { setDetail(null); setScrollTo(""); }}>Close</button>
+          </div>
           <p style={{ color: "var(--muted)" }}>Total {fmtMinor(detail.totalMinor, detail.currency)}</p>
 
           <DataTable caption={`Lines for ${detail.code}`} rows={detail.lines} rowKey={(l) => l.id}
@@ -234,8 +278,8 @@ export function OrdersPage() {
               { key: "no", header: "#", numeric: true, render: (l) => l.lineNo },
               { key: "desc", header: "Description", render: (l) => l.description },
               { key: "qty", header: "Qty", numeric: true, render: (l) => l.quantity },
-              { key: "unit", header: "Unit", numeric: true, render: (l) => fmtMinor(l.unitPriceMinor, detail.currency) },
-              { key: "total", header: "Line total", numeric: true, render: (l) => fmtMinor(l.lineTotalMinor, detail.currency) },
+              { key: "unit", header: "Unit", numeric: true, render: (l) => <Money>{fmtMinor(l.unitPriceMinor, detail.currency)}</Money> },
+              { key: "total", header: "Line total", numeric: true, render: (l) => <Money>{fmtMinor(l.lineTotalMinor, detail.currency)}</Money> },
             ]}
             empty={<Empty title="No lines" />} />
 
@@ -283,6 +327,33 @@ export function OrdersPage() {
             empty={<Empty title="No invoices" hint="Record one above once goods are received." />} />
         </section>
       ) : null}
+
+      <ConfirmDialog
+        open={!!pending}
+        title={`${pending?.label ?? "Confirm"} ${pending?.po.code ?? "this order"}?`}
+        confirmLabel={pending?.label ?? "Confirm"}
+        busy={!!pending && busy === `${pending.key}-${pending.po.id}`}
+        onCancel={() => setPending(null)}
+        onConfirm={async () => {
+          const p = pending;
+          if (!p) return;
+          setPending(null);
+          await poAction(p.po, p.key, p.path);
+        }}
+        body={
+          <>
+            {pending ? (
+              <>
+                <strong className="mono">{pending.po.code}</strong> ·{" "}
+                <strong className="mono">{fmtMinor(pending.po.totalMinor, pending.po.currency)}</strong>
+                <br />
+                <br />
+              </>
+            ) : null}
+            {pending?.confirm}
+          </>
+        }
+      />
     </Shell>
   );
 }

@@ -67,7 +67,9 @@ export default function SuppliersClient() {
     try {
       const code = (form.code || "").toUpperCase();
       await api("/api/v1/suppliers", { method: "POST", idemKey: newIdemKey(), body: JSON.stringify(form) });
-      setNote(`${code} created as a draft. Submit it for qualification from the API to activate it.`);
+      // Naming the endpoint told a buyer to open a terminal. The qualification
+      // flow is on the supplier's own page, which is one click away.
+      setNote(`${code} created as a draft. Open it to record certifications and submit it for qualification.`);
       setForm({ code: "", name: "", country: "", currency: "INR" });
       await load("", search, sort, order);
     } catch (e: unknown) {
@@ -107,7 +109,7 @@ export default function SuppliersClient() {
       <div className="pagehead">
         <div>
           <h1>Suppliers</h1>
-          <p>Global vendor master directory: supplier qualification ratings, ESG risk scorecards, multi-currency terms, and active audit history.</p>
+          <p>Every supplier you can buy from. Open one to score it, record certifications, or qualify it.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
@@ -133,7 +135,7 @@ export default function SuppliersClient() {
       <DataTable caption="Supplier list" rows={rows} rowKey={(r) => r.id} columns={columns}
         sort={sort} order={order} onSort={resort}
         empty={<Empty title="No suppliers found" hint="Create one above, or adjust the search." />} />
-      <Pager stack={stack} hasMore={more}
+      <Pager stack={stack} hasMore={more} busy={busy !== ""}
         onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv, search, sort, order); }}
         onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor, search, sort, order); }} />
     </Shell>

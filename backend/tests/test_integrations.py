@@ -630,3 +630,45 @@ def test_delivery_log_exposes_every_reachable_state(client, monkeypatch):
         assert c.get(f"/api/v1/webhooks/deliveries?status={status}", headers=h).status_code == 200, status
     bad = c.get("/api/v1/webhooks/deliveries?status=queued", headers=h)
     assert bad.status_code == 422, "`queued` was removed from the state machine and must not be accepted"
+
+
+def test_registered_integrations_and_endpoints_are_listable(client):
+    """Both list routes were missing entirely.
+
+    The Integrations screen called `GET /api/v1/integrations` on every load and
+    got a 405, which failed the whole page; and `POST /webhooks/test` needs an
+    `endpoint_id` that no route could supply. Covered here so neither can be
+    dropped again.
+    """
+    c, pem = client
+    h = _h(pem)
+
+    assert c.get("/api/v1/integrations", headers=h).json()["data"] == []
+    assert c.get("/api/v1/webhooks/endpoints", headers=h).json()["data"] == []
+
+    made = c.post("/api/v1/integrations", json={"name": "SAP S/4HANA", "itype": "erp",
+                  "secret_ref": "env:ERP_TOKEN"}, headers=h)
+    assert made.status_code == 201
+    listed = c.get("/api/v1/integrations", headers=h).json()["data"]
+    assert [r["name"] for r in listed] == ["SAP S/4HANA"]
+    assert listed[0]["itype"] == "erp"
+    # Registration is deliberately inert until an operator enables it.
+    assert listed[0]["status"] == "disabled"
+    # A vault pointer, never a secret — POST refuses anything else.
+    assert listed[0]["secretRef"] == "env:ERP_TOKEN"
+
+    ep = c.post("/api/v1/webhooks/endpoints", json={"url": "https://hooks.example.com/vantor",
+                "events": ["RFQ_AWARDED"]}, headers=h)
+    assert ep.status_code == 201
+    eps = c.get("/api/v1/webhooks/endpoints", headers=h).json()["data"]
+    assert len(eps) == 1
+    assert eps[0]["events"] == ["RFQ_AWARDED"]
+    # The id the test-ping route requires is now reachable from the API.
+    assert eps[0]["id"] == ep.json()["data"]["id"]
+
+
+def test_integration_list_is_tenant_scoped(client):
+    c, pem = client
+    c.post("/api/v1/integrations", json={"name": "Acme ERP", "itype": "erp"}, headers=_h(pem, tenant="acme"))
+    other = c.get("/api/v1/integrations", headers=_h(pem, tenant="globex")).json()["data"]
+    assert other == []

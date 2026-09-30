@@ -81,7 +81,7 @@ export default function Requisitions() {
       <div className="pagehead">
         <div>
           <h1>Requisitions</h1>
-          <p>Enterprise purchase requisition intake: cost-center routing, category validation, and executive budget authorization prior to PO issuance.</p>
+          <p>Ask for something before it is bought. Submitting a requisition starts the approval chain.</p>
         </div>
       </div>
 
@@ -103,7 +103,7 @@ export default function Requisitions() {
 
       <DataTable caption="Requisitions" rows={rows} rowKey={(r) => r.id} columns={columns}
         empty={<Empty title="No requisitions yet" hint="Create one above." />} />
-      <Pager stack={stack} hasMore={more}
+      <Pager stack={stack} hasMore={more} busy={busy !== ""}
         onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
         onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
     </Shell>

@@ -7,6 +7,7 @@ import { api, newIdemKey } from "../../lib/api";
 type IType = string;
 type Integration = { id: string; name: string; itype: IType; status: string; createdAt: string };
 type Delivery = { id: string; event: string; status: string; attempts: number };
+type Endpoint = { id: string; url: string; events: string[]; status: string };
 
 const TONE: Record<string, "ok" | "warn" | "bad" | "info" | undefined> = {
   active: "ok", disabled: "warn", failed: "bad",
@@ -17,6 +18,7 @@ export default function Integrations() {
   const [types, setTypes] = useState<string[]>([]);
   const [rows, setRows] = useState<Integration[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
@@ -24,13 +26,15 @@ export default function Integrations() {
   const [whForm, setWhForm] = useState({ url: "", events: "" });
 
   const load = useCallback(async () => {
-    const [t, i, d] = await Promise.all([
+    const [t, i, e, d] = await Promise.all([
       api<{ types: string[] }>("/api/v1/integrations/types"),
       api<Integration[]>("/api/v1/integrations"),
+      api<Endpoint[]>("/api/v1/webhooks/endpoints"),
       api<Delivery[]>("/api/v1/webhooks/deliveries?limit=25"),
     ]);
     setTypes(t.data?.types || []);
     setRows(i.data || []);
+    setEndpoints(e.data || []);
     setDeliveries(d.data || []);
   }, []);
 
@@ -44,7 +48,7 @@ export default function Integrations() {
 
   const register = () => act("reg", async () => {
     await api("/api/v1/integrations", { method: "POST", idemKey: newIdemKey(), body: JSON.stringify(form) });
-    setNote(`Integration ${form.name} registered (disabled — enable it in code).`);
+    setNote(`Integration ${form.name} registered. It starts disabled — an operator enables an adapter during deployment, so nothing begins exchanging data because a form was filled in.`);
     setForm({ name: "", itype: "erp", secret_ref: "" });
   });
 
@@ -57,9 +61,24 @@ export default function Integrations() {
     setWhForm({ url: "", events: "" });
   });
 
-  const ping = () => act("ping", async () => {
-    const r = await api<{ deliveries: number }>("/api/v1/webhooks/test", { method: "POST", idemKey: newIdemKey() });
-    setNote(`Ping delivered to ${r.data.deliveries} endpoint(s).`);
+  /** Send one signed ping to a specific receiver.
+   *
+   *  This used to POST `/webhooks/test` with no body and read `deliveries` off
+   *  the response. The route requires an `endpoint_id` and answers with
+   *  `{ delivery }`, so the call 422'd every time; had it succeeded it would
+   *  have rendered "Ping delivered to undefined endpoint(s)". The endpoint list
+   *  it needed to name a receiver did not exist as an API route either. */
+  const ping = (ep: Endpoint) => act(`ping-${ep.id}`, async () => {
+    const r = await api<{ delivery: { status: string; attempts: number; error?: string } }>(
+      "/api/v1/webhooks/test",
+      { method: "POST", idemKey: newIdemKey(), body: JSON.stringify({ endpoint_id: ep.id }) },
+    );
+    const d = r.data.delivery;
+    setNote(
+      d.status === "delivered"
+        ? `${ep.url} answered the signed ping. Live events will reach it.`
+        : `${ep.url} did not accept the ping (${d.status}${d.error ? `: ${d.error}` : ""}). It stays registered; fix the receiver and try again.`,
+    );
   });
 
   const regCols: Column<Integration>[] = [
@@ -81,13 +100,12 @@ export default function Integrations() {
       <div className="pagehead">
         <div>
           <h1>Integrations</h1>
-          <p>Enterprise ERP & ecosystem integrations: automated webhook event pipelines, secure SAP/Oracle accounting connectors, and encrypted secret management.</p>
+          <p>Connect other systems to VANTOR, and see what has been delivered to them.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
-      <>
-          <div className="cards">
+      <div className="cards">
             <div className="card"><div className="k">Adapters available</div><div className="v mono">{types.length}</div></div>
             <div className="card"><div className="k">Registered</div><div className="v mono">{rows.length}</div></div>
             <div className="card"><div className="k">Deliveries</div><div className="v mono">{deliveries.length}</div></div>
@@ -121,20 +139,30 @@ export default function Integrations() {
               </button>
             </div>
             <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 8 }}>
-              HTTP(S) only — <code>http://</code> endpoints are refused. A signed ping verifies the receiver.
+              HTTPS only — <code>http://</code> endpoints are refused, and the address is checked before it
+              is stored rather than on the first delivery. Once registered, send it a test ping below to
+              confirm the receiver accepts the signature.
             </p>
           </details>
 
-          <div className="toolbar" style={{ marginTop: 10 }}>
-            <button className="ghost" onClick={ping} disabled={busy !== "" || rows.length === 0 && deliveries.length === 0}>
-              {busy === "ping" ? "Pinging…" : "Test delivery"}
-            </button>
-          </div>
+          <DataTable caption="Registered webhook endpoints" rows={endpoints} rowKey={(e) => e.id}
+            columns={[
+              { key: "url", header: "URL", render: (e) => <span className="mono" style={{ fontSize: 12 }}>{e.url}</span> },
+              { key: "events", header: "Events", render: (e) => e.events.length ? e.events.join(", ") : "all events" },
+              { key: "status", header: "Status", render: (e) => <Badge tone={TONE[e.status]}>{e.status}</Badge> },
+              {
+                key: "act", header: "Verify", align: "end", render: (e) => (
+                  <button className="ghost" onClick={() => ping(e)} disabled={busy !== ""}>
+                    {busy === `ping-${e.id}` ? "Pinging…" : "Send test ping"}
+                  </button>
+                ),
+              },
+            ]}
+            empty={<Empty title="No endpoints yet" hint="A webhook endpoint is an HTTPS URL VANTOR posts signed events to. Add one above, then send it a test ping to check the receiver accepts the signature." />} />
 
           <h2 style={{ marginTop: 20 }}>Webhook deliveries</h2>
           <DataTable caption="Webhook deliveries" rows={deliveries} rowKey={(d) => d.id} columns={delCols}
             empty={<Empty title="No deliveries" hint="Only real domain events fan out to endpoints." />} />
-      </>
     </Shell>
   );
 }

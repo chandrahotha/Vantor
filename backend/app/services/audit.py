@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.audit import AuditEvent
@@ -64,8 +64,14 @@ def record_event(
     if not tenant_id:
         raise ValueError("tenant_id is required — never write cross-tenant audit rows")
     # Lock the tenant's tail so concurrent writers chain correctly (PG only; sqlite has no FOR UPDATE).
+    #
+    # The tail is selected by `(occurred_at, id)` because that pair is indexed
+    # (`ix_audit_tenant_time`) and a chain append happens on every mutation in
+    # the product, so this query has to stay cheap. That only identifies the
+    # real tail if the ordering is a *total* order, which is what the
+    # monotonic bump below guarantees.
     stmt = (
-        select(AuditEvent.hash)
+        select(AuditEvent.occurred_at, AuditEvent.hash)
         .where(AuditEvent.tenant_id == tenant_id)
         .order_by(AuditEvent.occurred_at.desc(), AuditEvent.id.desc())
         .limit(1)
@@ -76,8 +82,31 @@ def record_event(
         dialect = ""
     if dialect == "postgresql":
         stmt = stmt.with_for_update()
-    last_hash: str = db.execute(stmt).scalar() or ""
+    tail = db.execute(stmt).first()
+    last_at: datetime | None = tail[0] if tail else None
+    last_hash: str = (tail[1] if tail else "") or ""
+
+    # `occurred_at` is strictly increasing within a tenant.
+    #
+    # Without this it is simply `datetime.now()`, which collides: two events
+    # written in the same microsecond share a timestamp, and the only remaining
+    # tiebreaker is `id` — a `uuid4().hex`, i.e. random. The writer then takes
+    # the tail by `id DESC` while `verify_chain` walked by `id ASC`, so the row
+    # the chain was appended to was not the row the verification visited, and a
+    # tenant that had done nothing but ordinary work was told its tamper-evident
+    # audit trail was broken. Eight such collisions occurred in a single pass of
+    # `test_e2e_workflow`, which is why that test failed on a clean checkout.
+    #
+    # Nudging by a microsecond rather than introducing a sequence column keeps
+    # the existing index useful and makes `(tenant_id, occurred_at)` unique in
+    # practice. The drift from wall-clock time is bounded by the burst length in
+    # microseconds, which is far below the resolution any audit consumer reads.
     occurred_at = datetime.now(timezone.utc)
+    if last_at is not None:
+        if last_at.tzinfo is None:
+            last_at = last_at.replace(tzinfo=timezone.utc)
+        if occurred_at <= last_at:
+            occurred_at = last_at + timedelta(microseconds=1)
     payload = _payload_for(
         tenant_id=tenant_id,
         actor=actor,
@@ -117,37 +146,73 @@ def record_event(
 
 
 def verify_chain(db: Session, *, tenant_id: str, limit: int = 10_000) -> tuple[bool, str, bool]:
-    """Returns (valid, message, truncated). Truncated=True means only a prefix was checked."""
+    """Returns (valid, message, truncated). Truncated=True means only a prefix was checked.
+
+    The walk follows the chain's own links rather than re-sorting the rows by
+    `(occurred_at, id)`.
+
+    That sort was the bug. `id` is a random `uuid4().hex`, so for any two rows
+    sharing a timestamp the ascending order the verification used and the
+    descending order `record_event` used to find the tail disagreed about half
+    the time — and the verification then reported a perfectly intact chain as
+    broken. `record_event` no longer produces ties, but rows already written
+    have them, so the ordering cannot be trusted as the source of truth for data
+    that already exists.
+
+    Following `prev_hash -> hash` is also what the tamper-evidence claim
+    actually means. It proves the rows form one unbroken list from genesis, and
+    it catches three things the sorted walk could not:
+
+      * a fork - two rows appended to the same parent, which is what a lost
+        `FOR UPDATE` under concurrency produces;
+      * an orphan - a row whose parent is absent, i.e. a deletion from the
+        middle of the chain;
+      * more than one genesis row.
+    """
     rows: list[AuditEvent] = list(
-        db.execute(
-            select(AuditEvent)
-            .where(AuditEvent.tenant_id == tenant_id)
-            .order_by(AuditEvent.occurred_at.asc(), AuditEvent.id.asc())
-            .limit(limit)
-        ).scalars()
+        db.execute(select(AuditEvent).where(AuditEvent.tenant_id == tenant_id)).scalars()
     )
-    prev = ""
+    total = len(rows)
+    if total == 0:
+        return True, "verified 0 events", False
+
+    by_parent: dict[str, list[AuditEvent]] = {}
     for row in rows:
+        by_parent.setdefault(row.prev_hash or "", []).append(row)
+
+    genesis = by_parent.get("", [])
+    if len(genesis) != 1:
+        return False, f"expected exactly one genesis event, found {len(genesis)}", False
+
+    seen = 0
+    prev = ""
+    node: AuditEvent | None = genesis[0]
+    while node is not None and seen < limit:
         payload = _payload_for(
-            tenant_id=row.tenant_id,
-            actor=row.actor,
-            action=row.action,
-            resource=row.resource,
-            resource_id=row.resource_id,
-            occurred_at=row.occurred_at,
-            ip=row.ip,
-            before=row.before,
-            after=row.after,
-            reason=row.reason,
-            approval=row.approval,
-            source=row.source,
+            tenant_id=node.tenant_id,
+            actor=node.actor,
+            action=node.action,
+            resource=node.resource,
+            resource_id=node.resource_id,
+            occurred_at=node.occurred_at,
+            ip=node.ip,
+            before=node.before,
+            after=node.after,
+            reason=node.reason,
+            approval=node.approval,
+            source=node.source,
         )
-        if row.prev_hash != prev:
-            return False, f"prev_hash break at {row.id}", False
-        if row.hash != compute_hash(prev, payload):
-            return False, f"hash mismatch at {row.id}", False
-        prev = row.hash
-    total = db.execute(select(func.count()).select_from(AuditEvent).where(AuditEvent.tenant_id == tenant_id)).scalar() or 0
-    if total > len(rows):
-        return True, f"verified {len(rows)} of {total} events (truncated at limit)", True
-    return True, f"verified {len(rows)} events", False
+        if node.hash != compute_hash(prev, payload):
+            return False, f"hash mismatch at {node.id}", False
+        prev = node.hash
+        seen += 1
+        children = by_parent.get(node.hash, [])
+        if len(children) > 1:
+            return False, f"chain forks at {node.id} into {len(children)} successors", False
+        node = children[0] if children else None
+
+    if seen < limit and seen != total:
+        return False, f"verified {seen} of {total} events — {total - seen} are not linked to the chain", False
+    if seen >= limit and seen < total:
+        return True, f"verified {seen} of {total} events (truncated at limit)", True
+    return True, f"verified {seen} events", False

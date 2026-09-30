@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, FilterBar, LiveRegion, Pager, Segmented, useBoot, useToast, type Column } from "../../components/ui";
+import { AuthScreen, Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, FilterBar, LiveRegion, Money, Pager, Segmented, useBoot, useToast, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Rfq = { id: string; code: string; title: string; status: string; currency: string; lineCount?: number };
@@ -26,6 +26,18 @@ const NEXT_STATUS: Record<string, string[]> = {
   evaluated: ["awarded"],
   awarded: [],
   closed: [],
+};
+
+/** The verb for each transition, and what the destination state means.
+ *
+ *  The row buttons were labelled with the raw target status — "sent",
+ *  "response", "evaluated" — which reads as a description of the row rather
+ *  than an instruction, and gives no hint that pressing it changes anything. */
+const TRANSITION: Record<string, { label: string; hint: string }> = {
+  sent: { label: "Issue to suppliers", hint: "opens the RFQ for quotes" },
+  response: { label: "Open for responses", hint: "quotes can now be recorded" },
+  evaluated: { label: "Mark evaluated", hint: "unlocks the Award action" },
+  awarded: { label: "Close as awarded", hint: "locks the RFQ" },
 };
 
 const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | undefined> = {
@@ -57,6 +69,15 @@ export default function Rfqs() {
   // which would present a partial list as if it were the whole tenant.
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  /** The comparison panel renders under a paginated list, so on a laptop it
+   *  opened below the fold and "Open" looked inert. */
+  const detailRef = useRef<HTMLElement>(null);
+  const [scrollTo, setScrollTo] = useState("");
+  useEffect(() => {
+    if (!scrollTo || sel?.rfq.id !== scrollTo) return;
+    detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    detailRef.current?.focus();
+  }, [scrollTo, sel]);
 
   // --- create form -----------------------------------------------------------
   const [form, setForm] = useState({ code: "", title: "", currency: "INR", description: "", quantity: "1", uom: "each" });
@@ -101,7 +122,7 @@ export default function Rfqs() {
     });
   }
 
-  async function open(r: Rfq) {
+  async function open(r: Rfq, focus = true) {
     await act(`open-${r.id}`, async () => {
       const [c, d] = await Promise.all([
         api<Comp[]>(`/api/v1/rfqs/${r.id}/comparison`),
@@ -112,6 +133,7 @@ export default function Rfqs() {
         // Drop any previous proposal: a plan computed for another RFQ must never
         // be shown against this one.
         setPlan(null);
+        if (focus) setScrollTo(r.id);
     });
   }
 
@@ -120,7 +142,7 @@ export default function Rfqs() {
       await api(`/api/v1/rfqs/${r.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
       setNote(`${r.code} → ${status}`);
       await load(cursor, q, statusFilter);
-      if (sel?.rfq.id === r.id) await open({ ...r, status });
+      if (sel?.rfq.id === r.id) await open({ ...r, status }, false);
     });
   }
 
@@ -138,7 +160,7 @@ export default function Rfqs() {
       });
       setNote(`Quote recorded for ${sel.rfq.code}.`);
       setQuote((q) => ({ ...q, unitPrice: "" }));
-      await open(sel.rfq);
+      await open(sel.rfq, false);
     });
   }
 
@@ -177,7 +199,7 @@ export default function Rfqs() {
       setNote(`${sel.rfq.code} awarded. Savings booked to the ledger.`);
       toast("ok", `${sel.rfq.code} awarded — savings booked to the ledger.`);
       await load(cursor, q, statusFilter);
-      await open(sel.rfq);
+      await open(sel.rfq, false);
     });
   }
 
@@ -190,7 +212,17 @@ export default function Rfqs() {
         <>
           <Button variant="ghost" size="sm" onClick={() => open(r)} disabled={busy !== ""}>Open</Button>{" "}
           {NEXT_STATUS[r.status]?.map((s) => (
-            <Button key={s} variant="secondary" size="sm" onClick={() => move(r, s)} disabled={busy !== ""}>{s}</Button>
+            <Button
+              key={s}
+              variant="secondary"
+              size="sm"
+              title={TRANSITION[s]?.hint}
+              loading={busy === `status-${r.id}`}
+              onClick={() => move(r, s)}
+              disabled={busy !== ""}
+            >
+              {TRANSITION[s]?.label ?? s}
+            </Button>
           ))}
         </>
       ),
@@ -204,7 +236,7 @@ export default function Rfqs() {
       <div className="pagehead">
         <div>
           <h1>RFQs</h1>
-          <p>Strategic sourcing pipeline: multi-line RFQ drafting, competitive quote intake, bid matrix analysis, and split-award optimization.</p>
+          <p>Ask several suppliers to quote the same lines, compare what comes back, and award the work.</p>
         </div>
       </div>
 
@@ -277,7 +309,7 @@ export default function Rfqs() {
         columns={columns}
         empty={<Empty
           title={q || statusFilter ? "No RFQs match these filters" : "No RFQs yet"}
-          hint={q || statusFilter ? "Adjust or clear the filters above." : "Create one above, or via POST /api/v1/rfqs."}
+          hint={q || statusFilter ? "Adjust or clear the filters above." : "An RFQ collects comparable quotes from several suppliers for the same lines. Start one under “New RFQ” above."}
         />}
       />
       <Pager
@@ -289,8 +321,11 @@ export default function Rfqs() {
       />
 
       {sel ? (
-        <section className="panel" style={{ marginTop: 24 }}>
-          <h2 style={{ marginTop: 0 }}>{sel.rfq.code} — {sel.rfq.title}</h2>
+        <section className="panel detail-panel" style={{ marginTop: 24 }} ref={detailRef} tabIndex={-1} aria-label={`RFQ ${sel.rfq.code}`}>
+          <div className="detail-head">
+            <h2 style={{ margin: 0 }}>{sel.rfq.code} — {sel.rfq.title} <Badge tone={STATUS_TONE[sel.rfq.status]}>{sel.rfq.status}</Badge></h2>
+            <Button variant="ghost" size="sm" onClick={() => { setSel(null); setScrollTo(""); }}>Close</Button>
+          </div>
 
           <h3>Lines</h3>
           <DataTable
@@ -306,7 +341,7 @@ export default function Rfqs() {
             empty={<Empty title="No lines" />}
           />
 
-          {sel.rfq.status === "awardable" || sel.rfq.status === "evaluated" ? (
+          {sel.rfq.status === "evaluated" ? (
             <div className="toolbar" style={{ marginTop: 12 }}>
               <button className="ghost" onClick={optimize} disabled={busy !== ""}>
                 {busy === "optimize" ? "Computing…" : "Suggest allocation"}
@@ -334,7 +369,7 @@ export default function Rfqs() {
                   { key: "sup", header: "Supplier", render: (a) => a.supplier_id },
                   { key: "share", header: "Share", numeric: true, render: (a) => `${(a.share_bp / 100).toFixed(2)}%` },
                   { key: "bp", header: "bp", numeric: true, render: (a) => a.share_bp },
-                  { key: "cost", header: "Cost", numeric: true, render: (a) => fmtMinor(a.cost_minor, sel.currency) },
+                  { key: "cost", header: "Cost", numeric: true, render: (a) => <Money>{fmtMinor(a.cost_minor, sel.currency)}</Money> },
                   { key: "why", header: "Why", render: (a) => a.reason },
                 ]}
                 empty={<Empty title="No allocation" />}
@@ -356,7 +391,7 @@ export default function Rfqs() {
               { key: "sup", header: "Supplier", render: (q) => q.supplierName },
               { key: "status", header: "Status", render: (q) => <Badge tone={q.status === "awarded" ? "ok" : undefined}>{q.status}</Badge> },
               { key: "lines", header: "Lines", numeric: true, render: (q) => q.lineCount },
-              { key: "total", header: "Total", numeric: true, render: (q) => fmtMinor(q.totalMinor, q.currency || sel.currency) },
+              { key: "total", header: "Total", numeric: true, render: (q) => <Money>{fmtMinor(q.totalMinor, q.currency || sel.currency)}</Money> },
               {
                 key: "act", header: "Award", render: (q) =>
                   sel.rfq.status === "evaluated" && q.status !== "awarded" && q.status !== "rejected" ? (
@@ -366,7 +401,7 @@ export default function Rfqs() {
                   ) : <span style={{ color: "var(--muted)" }}>—</span>,
               },
             ]}
-            empty={<Empty title="No quotes yet" hint="Record a quote below, or via POST /api/v1/rfqs/{id}/quotes." />}
+            empty={<Empty title="No quotes yet" hint="Quotes returned by suppliers are recorded here so they can be compared side by side. Add the first one in the form below." />}
           />
 
           {sel.rfq.status !== "awarded" ? (

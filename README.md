@@ -4,12 +4,12 @@
 # VANTOR — Intelligent Procurement Operating System
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 330 backend + 146 frontend](https://img.shields.io/badge/tests-330%20backend%20%2B%20146%20frontend-brightgreen.svg)](backend/tests/)
-[![API: 90 operations](https://img.shields.io/badge/API-90%20operations-blue.svg)](api/openapi.json)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Tests: 362 backend + 152 frontend](https://img.shields.io/badge/tests-362%20backend%20%2B%20152%20frontend-brightgreen.svg)](backend/tests/)
+[![API: 95 operations](https://img.shields.io/badge/API-95%20operations-blue.svg)](api/openapi.json)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
 [![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-black.svg)](frontend/)
-[![Auth: Keycloak OIDC](https://img.shields.io/badge/auth-Keycloak%20OIDC-orange.svg)](docs/04-security/architecture.md)
+[![Auth: local or OIDC](https://img.shields.io/badge/auth-local%20or%20OIDC-orange.svg)](docs/04-security/architecture.md)
 [![DB: Postgres RLS](https://img.shields.io/badge/db-Postgres%20RLS-336791.svg)](docs/02-architecture/database.md)
 [![CI: weekly](https://img.shields.io/badge/CI-weekly-yellow.svg)](.github/workflows/ci.yml)
 [![Docs: brain-linked](https://img.shields.io/badge/docs-brain--linked-6c47ff.svg)](docs/BRAIN.md)
@@ -42,7 +42,21 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status: `TESTED` backend (355 pytest collected, 90 API operations, all 10 products verified) + Next.js 16 app (150 vitest green across 11 suites, 19 compiled routes) + worker scheduler (31 tests) — not yet `PRODUCTION READY` (see gate checklist in `docs/00-plan/ROADMAP.md` Phase 10).**
+**Status.** Backend: 362 pytest passing, 7 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 95 API operations. Web: 152 vitest passing across 13 suites, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 31 tests.
+
+Not `PRODUCTION READY`, and two qualifications matter more than the counts:
+
+- Until recently `tests/test_e2e_workflow.py` — the one test that walks a whole
+  procurement day and is what "all 10 products verified" rested on — **failed on
+  a clean checkout**. The audit chain reported itself broken after nothing but
+  legitimate activity, because the chain was written in one order and verified
+  in another (see `backend/app/services/audit.py`). It passes now, and
+  `test_audit_chain.py` pins the regression, but the badge above was green
+  while that was true, so treat historical `TESTED` markers as "has tests",
+  not "was passing".
+- The PostgreSQL tier is skipped by default. Row-level security, the composite
+  foreign keys and the pgvector index are only exercised when you point
+  `PG_TEST_DATABASE_URL` at a real Postgres. The default run does not cover them.
 
 ## Why VANTOR
 
@@ -56,44 +70,78 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-- [x] Backend API (FastAPI, 90 operations, 355 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
-- [x] AuthN/Z: Keycloak OIDC (Authorization Code + PKCE, `check-sso` boot, splash + sign-in card, one init per instance) + RLS tenant isolation + RBAC + hash-chained audit + idempotency + rate limiting + security headers + honest `/ready`. There is no demo or persona sign-in: a session exists only if the IdP returned a signed token carrying a tenant, and the API refuses a forged one in every environment.
+- [x] Backend API (FastAPI, 95 operations, 362 pytest passing): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
+- [x] AuthN/Z: two modes, same verification path. **`AUTH_MODE=local` (default)** makes the API its own issuer — it holds an RSA keypair and mints RS256 tokens, so the product runs with no identity service at all. It is **passwordless**: `POST /api/v1/auth/session` issues a session to whoever asks, which means *anyone who can reach the deployment is the operator*. That is the deliberate trade for a one-container deploy; do not expose such a deployment to an untrusted network. **`AUTH_MODE=oidc`** requires Keycloak as before. In both modes the token is signed, carries a tenant, expires, and is verified identically — a forged or foreign-signed token is a 401, which `tests/test_local_auth.py` asserts. Plus RLS tenant isolation (Postgres only), RBAC, hash-chained audit, idempotency, rate limiting, security headers and an honest `/ready`. The `DISABLE_AUTH=1` escape hatch — which returned a full-Admin actor with no token, in every environment, under a docstring saying no such branch existed — has been removed.
 - [x] Web app (Next.js 16 / React 19, 15 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
 - [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
 - [ ] Real-world providers live-checks: OCR engine not shipped, native pgvector index migration pending (cosine re-rank in-Python is the current honest path), full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
 Phase 0 audit `VERIFIED`. All 10 products `TESTED` on core paths. Phase 10 Production hardening is `IN DEVELOPMENT` (monitoring wired; restore drills and OTEL pending). Phase 9 Android is `PLANNED`/0 code. `docs/00-plan/PRODUCTION_READINESS.md` has the exact remaining work evidence table.
 
-## Quickstart & Local Execution
+## Quickstart
 
-VANTOR runs seamlessly in local environments with dedicated services for the FastAPI backend, Next.js frontend, and enterprise background worker.
+### Run it in one container (SQLite, no identity service)
 
-### 1. Launch the Frontend Web Application
+```bash
+docker build -t vantor .
+docker run -p 8080:8080 -v vantor-data:/data vantor
+```
+
+Open **http://localhost:8080** and press **Log in to VANTOR**. There is no
+password: this mode issues a session to whoever asks, so *anyone who can reach
+the URL is the operator*. It is meant for local use and single-operator
+deployments, not for an untrusted network.
+
+The volume holds the database, the uploads and the session signing key. Without
+it every restart is a fresh install and every open session is invalidated.
+
+What this mode does not give you, stated up front rather than discovered later:
+SQLite has no row-level security, so tenant isolation rests on the query layer
+alone — single tenant only; and with no Redis there is no worker and no
+scheduler, so nothing that depends on background execution runs.
+
+### Run the pieces separately (development)
 
 ```powershell
+# API — SQLite file, schema created on first boot
+cd backend
+python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt
+$env:DATABASE_URL="sqlite:///./data/vantor.db"
+.\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+```
+
+```powershell
+# Web
 cd frontend
 npm ci
 $env:NEXT_PUBLIC_API_URL="http://localhost:8000"
 npm run dev
 ```
 
-1. Open **`http://localhost:3000`** in your browser.
-2. Click **Continue with Vantor ID** to sign in through Keycloak (realm `vantor`, client `vantor-web`).
-3. The realm ships one user for local work: `admin` / `admin`. It holds the `Admin`
-   role in tenant `vantor-corp` and is the only identity the app accepts.
+Open **http://localhost:3000** and press **Log in to VANTOR**.
 
-There is no in-app persona switcher, and there is no local identity that bypasses
-the identity provider. A session exists if and only if Keycloak returned a signed
-token carrying a tenant, so the only way to be an admin locally is to sign in as
-one. This is deliberate: the previous build offered a modal that minted a session
-from a name and a role chosen in a dropdown, and the backend accepted any
-`Bearer vantor-*` string as a full Admin outside production. Both are gone, and
-`backend/tests/test_auth.py` and `frontend/components/authboot.test.tsx` fail if
-either comes back.
+### Run the full stack (Postgres, Redis, worker, Keycloak)
 
-If sign-in fails, the cause is on the sign-in screen, not hidden behind it: an
-unreachable identity provider, a token with no tenant claim, and a redirect loop
-are three different messages.
+```bash
+docker compose up
+```
+
+This is the multi-tenant configuration: Postgres enforces tenant isolation in
+the database with row-level security, the RQ worker and beat scheduler run, and
+`AUTH_MODE=oidc` puts Keycloak back in front of the app (realm `vantor`, client
+`vantor-web`; the realm ships `admin` / `admin` for local work). Use this when
+more than one tenant, background jobs, or a real identity provider matter.
+
+### About sign-in
+
+The client cannot manufacture a session in either mode. A token is issued by the
+server, signed, carries a tenant and expires; one that is forged, signed by
+another key, or missing a tenant is refused with a 401. What `AUTH_MODE=local`
+relaxes is *who may ask for a session* — nothing else. The `DISABLE_AUTH=1`
+escape hatch, which returned a full-Admin actor with no token at all in every
+environment, has been removed, and `backend/tests/test_local_auth.py` fails if
+it returns.
+
 
 ### 2. Launch the Backend API Service
 
@@ -221,9 +269,10 @@ build, `pip-audit --strict`, `npm audit --audit-level=high`.
 
 ## License
 
-**AGPL-3.0-or-later** © 2026 Digi Tracks — see `LICENSE`. Free to use, self-host,
-and modify; network-service distribution of modified versions must publish source
-(§13). Commercial exceptions: digi.tracks@outlook.com.
+**Apache-2.0** © 2026 Digi Tracks — see `LICENSE`. Free to use, self-host, modify,
+and redistribute, including in closed-source or commercial products — no
+copyleft obligation on your modifications, and no fee. Keep the copyright and
+license notice; that's the only condition.
 
 ## Enquiries
 

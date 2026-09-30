@@ -90,7 +90,7 @@ export default function Notifications() {
       <div className="pagehead">
         <div>
           <h1>Alerts</h1>
-          <p>Real-time enterprise procurement alerts: contract renewal notices, sourcing awards, pending approvals, and spend anomalies.</p>
+          <p>Awards, approvals, expiries and price anomalies, newest first. The feed refreshes every 30 seconds.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>

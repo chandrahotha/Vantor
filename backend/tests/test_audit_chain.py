@@ -47,3 +47,85 @@ def test_tenants_have_independent_chains():
     ok_b, _, _ = verify_chain(db, tenant_id="tb")
     assert ok_a and ok_b
     db.close()
+
+
+def test_rows_sharing_a_timestamp_still_verify():
+    """The regression that made `test_e2e_workflow` fail on a clean checkout.
+
+    `record_event` took the chain tail with `ORDER BY occurred_at DESC, id DESC`
+    while `verify_chain` walked `occurred_at ASC, id ASC`. `id` is a random
+    `uuid4().hex`, so for any two rows sharing a timestamp the two orderings
+    disagreed about half the time, and a chain nobody had touched reported
+    itself broken. A single pass of the real procurement workflow produced eight
+    such collisions.
+
+    `record_event` no longer emits ties, but rows written before this fix still
+    have them, so the rows are built here by hand — correctly chained, sharing
+    one timestamp — which is exactly what is sitting in a deployed database.
+    A verification that sorts instead of following the links fails this.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.audit import AuditEvent
+    from app.services.audit import _payload_for, compute_hash
+
+    same = datetime(2026, 9, 30, 12, 0, 0, tzinfo=timezone.utc)
+    db = _db()
+    prev = ""
+    for i in range(12):
+        payload = _payload_for(tenant_id="t1", actor="u1", action=f"EVENT_{i}", resource="r",
+                               resource_id=str(i), occurred_at=same, ip="", before={}, after={},
+                               reason="", approval="", source="api")
+        digest = compute_hash(prev, payload)
+        db.add(AuditEvent(tenant_id="t1", created_by="u1", updated_by="u1", actor="u1",
+                          action=f"EVENT_{i}", resource="r", resource_id=str(i), occurred_at=same,
+                          ip="", before={}, after={}, reason="", approval="", source="api",
+                          prev_hash=prev, hash=digest))
+        prev = digest
+    db.flush()
+
+    ok, msg, _trunc = verify_chain(db, tenant_id="t1")
+    assert ok, msg
+    assert "12 events" in msg
+    db.close()
+
+
+def test_timestamps_are_strictly_increasing_within_a_tenant():
+    """What makes the tail lookup a total order, and so the chain verifiable."""
+    db = _db()
+    stamps = [record_event(db, tenant_id="t1", actor="u", action="E", resource="r").occurred_at
+              for _ in range(30)]
+    assert stamps == sorted(stamps)
+    assert len(set(stamps)) == 30, "two events shared a timestamp — the tail lookup is ambiguous again"
+    db.close()
+
+
+def test_a_fork_is_detected():
+    """Two rows appended to the same parent — what a lost row lock produces."""
+    db = _db()
+    first = record_event(db, tenant_id="t1", actor="u", action="A", resource="r")
+    second = record_event(db, tenant_id="t1", actor="u", action="B", resource="r")
+    third = record_event(db, tenant_id="t1", actor="u", action="C", resource="r")
+    # Re-point C at A, so A has two successors.
+    third.prev_hash = first.hash
+    db.flush()
+    ok, msg, _trunc = verify_chain(db, tenant_id="t1")
+    assert not ok
+    assert "fork" in msg
+    assert second.hash != third.hash
+    db.close()
+
+
+def test_a_row_removed_from_the_middle_is_detected():
+    """The sorted walk could not see this: deleting a middle row left a shorter
+    but internally consistent-looking sequence."""
+    db = _db()
+    record_event(db, tenant_id="t1", actor="u", action="A", resource="r")
+    middle = record_event(db, tenant_id="t1", actor="u", action="B", resource="r")
+    record_event(db, tenant_id="t1", actor="u", action="C", resource="r")
+    db.delete(middle)
+    db.flush()
+    ok, msg, _trunc = verify_chain(db, tenant_id="t1")
+    assert not ok
+    assert "not linked" in msg
+    db.close()

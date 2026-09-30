@@ -36,12 +36,20 @@
  *  app looks broken with no indication why. Derived from the same env the app
  *  already uses, so a deployment that moves its API moves its CSP with it.
  */
-const API_ORIGIN = new URL(
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-).origin;
-const KEYCLOAK_ORIGIN = new URL(
-  process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
-).origin;
+/** Where the browser sends API calls.
+ *
+ *  Empty is meaningful and is what the single-container image uses: the web app
+ *  then calls `/api/...` on its own origin and Next proxies it to the API in
+ *  the same container (see `rewrites` below). That keeps the image free of any
+ *  build-time knowledge of the host it will be deployed to — baking
+ *  `http://localhost:8000` into the bundle is what makes an image that works
+ *  only on the machine that built it.
+ */
+const RAW_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const SAME_ORIGIN_API = RAW_API.trim() === "";
+const API_ORIGIN = SAME_ORIGIN_API ? "" : new URL(RAW_API).origin;
+/** The in-container API address, used only by the server-side proxy. */
+const INTERNAL_API = process.env.INTERNAL_API_URL || "";
 const APP_ORIGIN = new URL(
   process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
 ).origin;
@@ -59,8 +67,12 @@ const csp = [
   "font-src 'self' data:",
   // The API and the identity provider are the only other origins this app talks
   // to. `connect-src` covers fetch/XHR; `form-action` covers a stray form post.
-  `connect-src 'self' ${API_ORIGIN} ${KEYCLOAK_ORIGIN}`,
-  `frame-src 'self' ${KEYCLOAK_ORIGIN}`,
+  // The API is the only other origin this app talks to. The identity
+  // provider used to be listed here too; sign-in is now served by the API
+  // itself, so naming a Keycloak host would widen the policy for nothing.
+  `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}`,
+  // Nothing is framed any more: the silent-check-sso iframe went with Keycloak.
+  "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -89,9 +101,15 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-    NEXT_PUBLIC_KEYCLOAK_URL: process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
-    NEXT_PUBLIC_KEYCLOAK_REALM: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || "vantor",
-    NEXT_PUBLIC_KEYCLOAK_CLIENT: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT || "vantor-web",
+  },
+  /** Same-origin API proxy for the single-container image.
+   *
+   *  Only active when `INTERNAL_API_URL` is set, so the Compose stack — where
+   *  the browser talks to the API directly on its own host — is untouched.
+   */
+  async rewrites() {
+    if (!INTERNAL_API) return [];
+    return [{ source: "/api/:path*", destination: `${INTERNAL_API}/api/:path*` }];
   },
   async headers() {
     return [

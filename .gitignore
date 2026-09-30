@@ -47,3 +47,9 @@ backend/_*.db
 # Next.js auto-generated agent prompt rules
 frontend/AGENTS.md
 frontend/CLAUDE.md
+
+# Local single-container / dev data (SQLite db, uploads, session signing key)
+backend/data/
+
+# Ad-hoc manual verification script, not a maintained test file
+frontend/verify.mjs

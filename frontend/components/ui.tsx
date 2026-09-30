@@ -18,25 +18,33 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import {
-  clearBounces,
-  getSession,
-  initOnce,
-  isAuthBypassed,
-  isLooping,
-  keepFresh,
-  keycloak,
-  login,
-  noteBounce,
-  setSession,
-  subscribeSession,
-  wireSession,
-} from "../lib/auth";
+import { getSession, keepFresh, restoreSession, setSession, signIn, subscribeSession } from "../lib/auth";
 import { setRefreshFn, setTokenGetter, setUnauthorizedHandler } from "../lib/api";
 import Shell from "./Shell";
 
 export function Badge({ tone, children }: { tone?: "ok" | "warn" | "bad" | "info"; children: React.ReactNode }) {
   return <span className={`badge${tone ? ` ${tone}` : ""}`}>{children}</span>;
+}
+
+/** A money figure in a data column.
+ *
+ *  `fmtMinor` returns "1,250.00 INR" as one string, so a right-aligned column
+ *  aligned on the last character of the ISO code and the decimal points landed
+ *  wherever the integer part left them. Splitting the code into a fixed-width
+ *  cell puts every amount on the same right edge and every code on the same
+ *  left edge, which is what makes a column of money scannable.
+ *
+ *  Takes the already-formatted string so there is exactly one money formatter
+ *  in the app and this stays a presentation concern.
+ */
+export function Money({ children }: { children: string }) {
+  const m = /^(.*) ([A-Z]{3})$/.exec(children);
+  if (!m) return <>{children}</>;
+  return (
+    <>
+      {m[1]} <span className="ccy">{m[2]}</span>
+    </>
+  );
 }
 
 export function Empty({ title, hint }: { title: string; hint?: string }) {
@@ -100,9 +108,22 @@ export type Column<T> = {
   header: string;
   /** Money columns must be rendered via `fmtMinor` with a currency, never raw. */
   numeric?: boolean;
+  /** Right-align a non-numeric column — an action cluster, typically.
+   *
+   *  This exists because several pages were laying their action buttons out
+   *  with an inline `justifyContent: "flex-end"` while the `<th>` above them
+   *  stayed left-aligned, so the column header and its contents sat at opposite
+   *  ends of the same column. Alignment is a property of the column, so it is
+   *  declared once and applied to the header and the cells together. */
+  align?: "end";
   sortable?: boolean;
   render: (row: T) => React.ReactNode;
 };
+
+function cellClass<T>(c: Column<T>): string | undefined {
+  if (c.numeric) return "num";
+  return c.align === "end" ? "col-end" : undefined;
+}
 
 /** Accessible data grid: caption, column scope, and `aria-sort` on the active
  *  sort column so the sort state is announced rather than implied by a glyph. */
@@ -118,7 +139,10 @@ export function DataTable<T>({ caption, rows, rowKey, columns, sort, order, onSo
 }) {
   if (rows.length === 0) return <>{empty}</>;
   return (
-    <div className="gridwrap">
+    // The wrapper scrolls horizontally on a narrow viewport. A scrollable region
+    // that only a mouse can reach fails WCAG 2.1.1, so it is focusable and
+    // named — a keyboard user tabs to it and scrolls it with the arrow keys.
+    <div className="gridwrap" role="region" aria-label={caption} tabIndex={0}>
       <table className="grid">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -127,7 +151,7 @@ export function DataTable<T>({ caption, rows, rowKey, columns, sort, order, onSo
               const active = sort === c.key;
               const ariaSort = active ? (order === "asc" ? "ascending" : "descending") : c.sortable ? "none" : undefined;
               return (
-                <th key={c.key} scope="col" aria-sort={ariaSort} className={c.numeric ? "num" : undefined}>
+                <th key={c.key} scope="col" aria-sort={ariaSort} className={cellClass(c)}>
                   {c.sortable && onSort ? (
                     <button onClick={() => onSort(c.key)}>
                       {c.header} {active ? (order === "asc" ? "↑" : "↓") : ""}
@@ -144,7 +168,7 @@ export function DataTable<T>({ caption, rows, rowKey, columns, sort, order, onSo
           {rows.map((r) => (
             <tr key={rowKey(r)}>
               {columns.map((c) => (
-                <td key={c.key} className={c.numeric ? "num" : undefined}>{c.render(r)}</td>
+                <td key={c.key} className={cellClass(c)}>{c.render(r)}</td>
               ))}
             </tr>
           ))}
@@ -183,14 +207,10 @@ export function useBoot(load: () => Promise<void>) {
 
   useEffect(() => {
     let disposed = false;
-    const kc = keycloak();
 
-    /** A 401 that survives a real refresh attempt means the session is dead,
-     *  not that one request failed. Drop it — leaving a session in place would
-     *  leave the UI claiming to be signed in while every call 401s.
-     *
-     *  Idempotent, because `setSession(null)` notifies this hook's own
-     *  subscriber synchronously and that subscriber ends the session too. */
+    /** A 401 means the token the app holds is not one the API will accept.
+     *  Drop it — leaving a session in place would leave the UI claiming to be
+     *  signed in while every panel errors. */
     const endSession = () => {
       if (unauthorized.current) return;
       unauthorized.current = true;
@@ -204,88 +224,25 @@ export function useBoot(load: () => Promise<void>) {
     if (typeof window !== "undefined") {
       window.addEventListener("vantor:unauthorized", onUnauth);
     }
-    // Re-read the session on every request rather than capturing a token once:
-    // a refresh replaces it, and a captured value would go stale and 401.
+    // Read the session per request rather than capturing a token once: a
+    // renewal replaces it, and a captured value would go stale and 401.
     setTokenGetter(() => getSession()?.token);
-    // `api()` retries once through this after a 401. Without it the retry is a
-    // no-op and a merely-expired token is indistinguishable from a dead one.
-    setRefreshFn(() => kc.updateToken(60).then(() => true).catch(() => false));
+    // There is no refresh grant to exchange — a local session is renewed by
+    // asking for a new one — so a 401 is final and the retry is a no-op.
+    setRefreshFn(async () => false);
 
-    if (!isAuthBypassed() && isLooping()) {
-      // Deferred by a microtask: this reads sessionStorage, and setting state
-      // synchronously in the effect body would cascade a render before the
-      // first paint.
-      queueMicrotask(() => {
-        if (disposed) return;
-        setError("Sign-in is looping — the identity provider or client is misconfigured.");
-        setState("error");
-      });
-      return () => setUnauthorizedHandler(null);
-    }
-
-    const stopFresh = keepFresh(kc, endSession);
-
-    const showSignIn = () => {
-      noteBounce(false);
-      if (!disposed && !unauthorized.current) setState("signin");
-    };
+    const stopFresh = keepFresh(endSession);
 
     (async () => {
-      if (isAuthBypassed()) {
-        if (!getSession()) {
-          setSession({
-            token: "dev-bypass-token",
-            name: "Administrator",
-            tenant: "vantor-corp",
-            roles: ["Admin", "Buyer", "Procurement Manager", "Approver"]
-          });
-        }
-        noteBounce(true);
-        clearBounces();
-        try {
-          await loadRef.current();
-        } catch (e: unknown) {
-          if (!disposed) setError(e instanceof Error ? e.message : "Load failed");
-        }
-        if (!disposed && !unauthorized.current) {
-          setState("ok");
-          document.documentElement.dataset.booted = "true";
-        }
-        return;
-      }
-
-      try {
-        await initOnce(kc, {
-          onLoad: "check-sso",
-          pkceMethod: "S256",
-          checkLoginIframe: false,
-          silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
-        });
-      } catch (e: unknown) {
-        if (!disposed) {
-          setError(e instanceof Error ? e.message : "Identity provider unreachable");
-          setState("error");
-        }
-        return;
-      }
-      if (disposed || unauthorized.current) return;
-
-      if (!kc.authenticated) {
-        showSignIn();
-        return;
-      }
-
-      const session = wireSession(kc);
+      // A session already in hand (this tab, or a previous one) is adopted
+      // without asking the server for another. This is what stops a reload, a
+      // Fast Refresh, or switching to another window and back from dropping
+      // the user onto the sign-in screen.
+      const session = restoreSession();
       if (!session) {
-        // Authenticated, but the token names no tenant. The backend answers 403
-        // for this token, so a guessed tenant would only defer the failure.
-        setError("This identity has no tenant claim, so no data can be scoped to it.");
-        setState("error");
+        if (!disposed) setState("signin");
         return;
       }
-
-      noteBounce(true);
-      clearBounces();
       try {
         await loadRef.current();
       } catch (e: unknown) {
@@ -319,6 +276,7 @@ export function useBoot(load: () => Promise<void>) {
   const reload = useCallback(async () => {
     setError("");
     setState("loading");
+    unauthorized.current = false;
     try {
       await loadRef.current();
       setState("ok");
@@ -359,7 +317,7 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
       <main className="authscreen">
         <div className="authscreen-card" role="status" aria-live="polite">
           <div className="authscreen-mark-wrap">
-            <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
+            <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} unoptimized className="authscreen-mark-img" priority />
             <div className="authscreen-pulse" />
           </div>
           <div className="authscreen-badge">VANTOR ENTERPRISE SUITE</div>
@@ -376,7 +334,7 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
       <main className="authscreen">
         <div className="authscreen-card" role="alert">
           <div className="authscreen-mark-wrap">
-            <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
+            <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} unoptimized className="authscreen-mark-img" priority />
           </div>
           <div className="authscreen-badge">ENTERPRISE PROCUREMENT OS</div>
           <h1 className="authscreen-title">Sign-in problem</h1>
@@ -384,50 +342,88 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
             {error || "The identity provider could not be reached."}
           </p>
           <div className="authscreen-actions">
-            {/* Retry re-runs the boot in place. It must not navigate to the IdP:
-                a transient network failure is not a request to authenticate. */}
+            {/* Retry re-runs the boot in place. There is no second "sign in"
+                button beside it any more: sign-in is one action, and offering
+                it twice — once as a retry and once as a redirect — was how the
+                old screen ended up sending people to an identity provider that
+                was not running. */}
             {onRetry ? (
               <Button variant="primary" onClick={onRetry}>
                 Try again
               </Button>
             ) : null}
-            <Button variant="secondary" onClick={() => login()}>
-              Sign in with Vantor ID
-            </Button>
           </div>
         </div>
       </main>
     );
   }
 
+  return <SignInCard onSignedIn={onRetry} />;
+}
+
+/** The sign-in screen: one button, no credentials.
+ *
+ *  Sign-in is a single request to this product's own API, so the screen asks
+ *  for nothing and explains nothing the user cannot act on. What it must do is
+ *  report failure honestly — the previous version redirected to an identity
+ *  provider and, when that host was down, the user left the app entirely and
+ *  landed on the browser's "can't reach this page". A failed sign-in now stays
+ *  here and says which address could not be reached.
+ */
+function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState("");
+
+  async function enter() {
+    setBusy(true);
+    setFailed("");
+    try {
+      await signIn();
+      onSignedIn?.();
+    } catch (e: unknown) {
+      setFailed(e instanceof Error ? e.message : "Sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="authscreen">
       <div className="authscreen-card" role="status">
         <div className="authscreen-mark-wrap">
-          <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} className="authscreen-mark-img" priority />
+          <Image src="/icons/icon-192.png" alt="VANTOR" width={68} height={68} unoptimized className="authscreen-mark-img" priority />
         </div>
-        <div className="authscreen-badge">ENTERPRISE PROCUREMENT OS</div>
-        <h1 className="authscreen-title">Sign in to VANTOR</h1>
+        <div className="authscreen-badge">PROCUREMENT OS</div>
+        <h1 className="authscreen-title">VANTOR</h1>
         <p className="authscreen-sub">
-          Autonomous spend governance, supplier intelligence, and contract workflows.
+          Suppliers, sourcing, contracts, orders and spend — in one place.
         </p>
+
+        {failed ? (
+          <div className="authscreen-error-box" role="alert">
+            <span className="authscreen-alert-icon" aria-hidden="true">!</span>
+            <span className="authscreen-alert-content">
+              <span className="authscreen-alert-msg">{failed}</span>
+            </span>
+          </div>
+        ) : null}
+
         <div className="authscreen-actions">
           <button
             type="button"
             className="authscreen-cta"
-            onClick={() => login()}
+            onClick={enter}
+            disabled={busy}
+            aria-busy={busy || undefined}
           >
-            <span className="authscreen-cta-icon" aria-hidden="true">🔑</span>
+            <span className="authscreen-cta-icon" aria-hidden="true">→</span>
             <div className="authscreen-cta-text">
-              <span className="authscreen-cta-headline">Continue with Vantor ID</span>
-              <small className="authscreen-cta-sub">Enterprise Workspace Session</small>
+              <span className="authscreen-cta-headline">
+                {busy ? "Opening your workspace…" : "Log in to VANTOR"}
+              </span>
+              <small className="authscreen-cta-sub">No password needed on this deployment</small>
             </div>
           </button>
-        </div>
-        <div className="authscreen-pills">
-          <span className="authscreen-pill">Postgres Row-Level Security</span>
-          <span className="authscreen-pill">Enterprise RBAC</span>
-          <span className="authscreen-pill">Real-time Spend Graph</span>
         </div>
       </div>
     </main>
@@ -547,15 +543,57 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
   );
 }
 
-function useEscape(open: boolean, onClose: () => void) {
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+/** Everything a modal owes a keyboard user, in one place.
+ *
+ *  `Drawer` and `ConfirmDialog` both declared `aria-modal="true"` while doing
+ *  none of what that attribute promises: focus stayed on the button behind the
+ *  scrim, Tab walked straight out of the dialog into the page underneath, the
+ *  page behind kept scrolling, and dismissing the dialog left focus on nothing.
+ *  A screen reader was told the rest of the page was inert; it was not.
+ *
+ *  Returns the ref to put on the dialog container.
+ */
+function useModal(open: boolean, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    returnFocus.current = (document.activeElement as HTMLElement) ?? null;
+
+    // Move focus in. Prefer the first real control; fall back to the container,
+    // which is why it carries tabIndex={-1}.
+    const node = ref.current;
+    const first = node?.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? node)?.focus();
+
+    // The page behind a modal must not scroll out from under it.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab" || !node) return;
+      const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE))
+        .filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (items.length === 0) { e.preventDefault(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      returnFocus.current?.focus?.();
+    };
   }, [open, onClose]);
+
+  return ref;
 }
 
 export function Drawer({ open, title, onClose, children }: {
@@ -564,7 +602,7 @@ export function Drawer({ open, title, onClose, children }: {
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEscape(open, onClose);
+  const ref = useModal(open, onClose);
   if (!open) return null;
   return (
     <div className="drawer-scrim" onClick={onClose}>
@@ -574,6 +612,8 @@ export function Drawer({ open, title, onClose, children }: {
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        ref={ref as unknown as React.Ref<HTMLElement>}
+        tabIndex={-1}
       >
         <header className="drawer-head">
           <h2 className="drawer-title">{title}</h2>
@@ -589,16 +629,22 @@ export function Drawer({ open, title, onClose, children }: {
  *  not undoable from this screen. An `alertdialog`, because it interrupts, and
  *  the body names the consequence in words rather than leaving the user to
  *  infer it from the button's colour. */
-export function ConfirmDialog({ open, title, body, confirmLabel, busy, onConfirm, onCancel }: {
+export function ConfirmDialog({ open, title, body, confirmLabel, busy, tone = "primary", onConfirm, onCancel }: {
   open: boolean;
   title: string;
   body: ReactNode;
   confirmLabel: string;
   busy?: boolean;
+  /** `danger` for a final state — terminate, reject, expire. The dialog always
+   *  painted its confirm button in the primary fill, so "Terminate" and
+   *  "Approve" were the same colour on the same control. Colour is never the
+   *  only signal here: the label is still a verb and the body still names the
+   *  consequence in words. */
+  tone?: "primary" | "danger";
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  useEscape(open, onCancel);
+  const ref = useModal(open, onCancel);
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -608,6 +654,8 @@ export function ConfirmDialog({ open, title, body, confirmLabel, busy, onConfirm
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        ref={ref}
+        tabIndex={-1}
       >
         <div className="modal-header">
           <h2 className="modal-title">{title}</h2>
@@ -619,7 +667,7 @@ export function ConfirmDialog({ open, title, body, confirmLabel, busy, onConfirm
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" loading={busy} onClick={onConfirm}>
+          <Button variant={tone === "danger" ? "danger" : "primary"} loading={busy} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>
@@ -677,6 +725,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
  * `trend` renders as a *signed* value with an arrow glyph, never as a colour
  * change alone; `hint` is a real tooltip, so the number explains itself to
  * anyone who asks rather than only to whoever wrote the dashboard. */
+let metricSeq = 0;
+
 export function MetricCard({ label, value, tone, hint, trend }: {
   label: string;
   value: string;
@@ -684,18 +734,28 @@ export function MetricCard({ label, value, tone, hint, trend }: {
   hint?: string;
   trend?: { value: string; dir: "up" | "down" };
 }) {
+  // Stable per instance, for `aria-describedby`.
+  const [hintId] = useState(() => `metric-hint-${++metricSeq}`);
   return (
-    <div className="metric" data-tone={tone}>
-      <div className="metric-label">
-        {label}
-        {hint ? <span className="metric-hint" role="tooltip" aria-label={`${label}: definition`}>{hint}</span> : null}
-      </div>
+    <div className="metric" data-tone={tone} aria-describedby={hint ? hintId : undefined}>
+      <div className="metric-label">{label}</div>
       <div className={`metric-value mono${tone ? ` ${tone}` : ""}`}>{value}</div>
       {trend ? (
         <div className="metric-trend" data-dir={trend.dir}>
           <span aria-hidden="true">{trend.dir === "down" ? "▼" : "▲"}</span> {trend.value}
         </div>
       ) : null}
+      {/* The definition stays visible text rather than becoming a hover
+          tooltip: a number whose meaning is only available to a mouse is a
+          number half the users cannot check. What changed is where it sits. It
+          used to be a flex sibling of the label inside `.metric-label`, a row
+          that is 11px, uppercase and letter-spaced for a two-word caption — so
+          a full sentence of definition wrapped through the middle of every tile
+          and pushed the figure around. It is its own line now, in sentence
+          case, under the value it describes, and wired to the tile with
+          `aria-describedby` instead of the `role="tooltip"` it carried before,
+          which claims to be a popup and was never one. */}
+      {hint ? <p className="metric-hint" id={hintId}>{hint}</p> : null}
     </div>
   );
 }

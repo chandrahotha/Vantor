@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
-import { Badge, Button, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, useToast, type Column } from "../../components/ui";
+import { Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, useToast, type Column } from "../../components/ui";
 import { ApiError, api, newIdemKey } from "../../lib/api";
 
 /** One row of `GET /approvals`. */
@@ -31,6 +31,11 @@ export default function Approvals() {
   const [rejecting, setRejecting] = useState("");
   const [reason, setReason] = useState("");
   const toast = useToast();
+  /** The approval awaiting confirmation. Approving releases the underlying
+   *  document — a requisition, a purchase order — and is recorded against the
+   *  approver, so it is stated before it happens. Rejection already had a gate:
+   *  it needs a written reason. */
+  const [confirming, setConfirming] = useState<Approval | null>(null);
 
   const load = useCallback(async () => {
     setErr("");
@@ -106,7 +111,7 @@ export default function Approvals() {
             size="sm"
             loading={busyId === a.id}
             disabled={busyId === a.id}
-            onClick={() => decide(a.id, true)}
+            onClick={() => setConfirming(a)}
           >
             Approve
           </Button>
@@ -140,15 +145,8 @@ export default function Approvals() {
   ];
 
   return (
-    <section aria-labelledby="approvals-heading" style={{ marginTop: 24 }}>
-      <div className="pagehead" style={{ marginBottom: 8 }}>
-        <div>
-          <h2 id="approvals-heading" style={{ fontSize: 16 }}>Pending Governance & Fiscal Approvals</h2>
-          <p style={{ margin: 0 }}>
-            Executive authorization queue: pending requisitions, purchase orders, and expenditure threshold sign-offs governed by enterprise delegation of authority.
-          </p>
-        </div>
-      </div>
+    <section aria-labelledby="approvals-heading">
+      <h2 id="approvals-heading" className="sr-only">Pending approvals</h2>
 
       <LiveRegion>
         {err ? <ErrorBox message={err} /> : null}
@@ -173,6 +171,31 @@ export default function Approvals() {
           }
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirming}
+        title="Approve this request?"
+        confirmLabel="Approve"
+        busy={!!confirming && busyId === confirming.id}
+        onCancel={() => setConfirming(null)}
+        onConfirm={async () => {
+          const a = confirming;
+          if (!a) return;
+          setConfirming(null);
+          await decide(a.id, true);
+        }}
+        body={
+          <>
+            Approving releases <strong className="mono">{confirming?.resource} {confirming?.resourceId.slice(0, 8)}</strong>{" "}
+            at tier <strong>{confirming?.tier}</strong>, requested by{" "}
+            <strong className="mono">{confirming?.requestedBy}</strong>.
+            <br />
+            <br />
+            The decision is written to the audit chain under your name and cannot be withdrawn
+            from this screen.
+          </>
+        }
+      />
     </section>
   );
 }

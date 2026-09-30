@@ -1,53 +1,12 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, StatCard, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, StatCard, useBoot, type Column } from "../../components/ui";
 import { API_URL, api, fmtMinor, newIdemKey } from "../../lib/api";
-import { keycloak } from "../../lib/auth";
+import { getSession } from "../../lib/auth";
 
-type Contract = { id: string; code: string; title: string; status: string; endDate: string; valueMinor: number; currency: string };
 type Doc = { id: string; filename: string; sizeBytes: number; status: string };
 type Hit = { documentId: string; chunkNo: number; excerpt: string };
-
-export function ContractsPage() {
-  const [rows, setRows] = useState<Contract[]>([]);
-  const [cursor, setCursor] = useState("");
-  const [nextCursor, setNextCursor] = useState("");
-  const [stack, setStack] = useState<string[]>([]);
-  const [more, setMore] = useState(false);
-
-  const load = useCallback(async (cur: string) => {
-    const r = await api<Contract[]>(`/api/v1/contracts?limit=15&cursor=${encodeURIComponent(cur)}`);
-    setRows(r.data || []);
-    setMore(!!r.pagination?.hasMore);
-    setNextCursor(r.pagination?.nextCursor || "");
-    setCursor(cur);
-  }, []);
-
-  const { state, error, reload } = useBoot(() => load(""));
-
-  const columns: Column<Contract>[] = [
-    { key: "code", header: "Code", render: (c) => <span className="mono">{c.code}</span> },
-    { key: "title", header: "Title", render: (c) => c.title },
-    { key: "status", header: "Status", render: (c) => <Badge tone={c.status === "active" ? "ok" : c.status === "expiring" ? "warn" : undefined}>{c.status}</Badge> },
-    { key: "end", header: "Ends", render: (c) => c.endDate || "—" },
-    { key: "value", header: "Value", numeric: true, render: (c) => fmtMinor(c.valueMinor, c.currency) },
-  ];
-
-  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
-
-  return (
-    <Shell>
-      <div className="pagehead"><div><h1>Contracts</h1><p>Enterprise contract lifecycle management: master services agreements, automated 90-day renewal tracking, and obligation milestones.</p></div></div>
-      {error ? <ErrorBox message={error} /> : null}
-      <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
-        empty={<Empty title="No contracts yet" hint="Create one via POST /api/v1/contracts." />} />
-      <Pager stack={stack} hasMore={more}
-        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
-        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
-    </Shell>
-  );
-}
 
 /** Money is never summed across currencies. When a tenant transacts in more than
  *  one, the dashboard renders one card per currency instead of a meaningless
@@ -79,6 +38,21 @@ export function SpendPage() {
   // the first click — the form could not succeed without being edited first.
   const [calc, setCalc] = useState({ material: "100.00", labor: "25.00", overhead: "12", logistics: "5.00", margin: "15", quoted: "" });
   const [calcOut, setCalcOut] = useState<string>("");
+  /** Resolving a price case closes it for good — it leaves the open queue and
+   *  the decision is audited — so both outcomes are stated before they happen
+   *  rather than fired from a one-click button in a dense row. */
+  const [pendingCase, setPendingCase] = useState<{ row: Case; status: "handed_off" | "dismissed" } | null>(null);
+
+  const CASE_ACTION = {
+    handed_off: {
+      label: "Hand off to negotiation",
+      body: "Hands this anomaly to the negotiation track and removes it from the open queue. The variance stays on record against the item.",
+    },
+    dismissed: {
+      label: "Dismiss",
+      body: "Dismissing records that the quoted price is acceptable despite the variance. The case leaves the open queue and will not be raised again for this line.",
+    },
+  } as const;
 
   const load = useCallback(async () => {
     setS((await api<Summary>("/api/v1/spend/summary")).data);
@@ -144,7 +118,7 @@ export function SpendPage() {
 
   return (
     <Shell>
-      <div className="pagehead"><div><h1>Spend intelligence</h1><p>Autonomous spend analytics: category distribution, vendor concentration, tail-spend leakage detection, and parametric should-cost baselines.</p></div></div>
+      <div className="pagehead"><div><h1>Spend intelligence</h1><p>Where the money actually went, which suppliers you depend on, and where you are paying above baseline.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
       {!s ? <Empty title="No spend posted" hint="Approved POs and invoices aggregate here." />
@@ -186,19 +160,21 @@ export function SpendPage() {
           <DataTable caption="Open price anomaly cases" rows={cases} rowKey={(p) => p.id}
             columns={[
               { key: "item", header: "Item", render: (p) => p.item },
-              { key: "base", header: "Baseline", numeric: true, render: (p) => fmtMinor(p.baselineMinor) },
-              { key: "quoted", header: "Quoted", numeric: true, render: (p) => fmtMinor(p.quotedMinor) },
+              { key: "base", header: "Baseline", numeric: true, render: (p) => <Money>{fmtMinor(p.baselineMinor)}</Money> },
+              { key: "quoted", header: "Quoted", numeric: true, render: (p) => <Money>{fmtMinor(p.quotedMinor)}</Money> },
               { key: "var", header: "Variance", numeric: true, render: (p) => `${p.varianceBp < 0 ? "−" : "+"}${(Math.abs(p.varianceBp) / 100).toFixed(1)}%` },
               {
-                key: "act", header: "Resolve", render: (p) => (
-                  <>
-                    <button className="ghost" onClick={() => resolve(p.id, "handed_off")} disabled={busy !== ""}>Hand off</button>{" "}
-                    <button className="ghost" onClick={() => resolve(p.id, "dismissed")} disabled={busy !== ""}>Dismiss</button>
-                  </>
+                key: "act", header: "Resolve", align: "end", render: (p) => (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button className="ghost" onClick={() => setPendingCase({ row: p, status: "handed_off" })} disabled={busy !== ""}>
+                      {busy === `case-${p.id}` ? "…" : "Hand off"}
+                    </button>
+                    <button className="ghost" onClick={() => setPendingCase({ row: p, status: "dismissed" })} disabled={busy !== ""}>Dismiss</button>
+                  </div>
                 ),
               },
             ]}
-            empty={<Empty title="No open price cases" hint="Open one with POST /api/v1/spend/price-evaluate/{po_id}." />} />
+            empty={<Empty title="No open price cases" hint="A case opens when a purchase order line is priced more than 10% away from its median baseline. Run “Price check” on an order to test its lines." />} />
 
           <h2 style={{ marginTop: 20 }}>Should-cost calculator</h2>
           <p style={{ color: "var(--muted)", fontSize: 12 }}>
@@ -221,11 +197,42 @@ export function SpendPage() {
               { key: "sup", header: "Supplier", render: (r) => <span className="mono">{r.supplierId.slice(0, 8)}</span> },
               { key: "cat", header: "Category", render: (r) => r.categoryId || "—" },
               { key: "pos", header: "POs", numeric: true, render: (r) => r.poCount },
-              { key: "total", header: "Total", numeric: true, render: (r) => fmtMinor(r.totalMinor, r.currency) },
+              { key: "total", header: "Total", numeric: true, render: (r) => <Money>{fmtMinor(r.totalMinor, r.currency)}</Money> },
             ]}
             empty={<Empty title="Cube is empty" hint="Committed POs populate the cube." />} />
         </>
       )}
+
+      <ConfirmDialog
+        open={!!pendingCase}
+        title={`${pendingCase ? CASE_ACTION[pendingCase.status].label : "Resolve"} this price case?`}
+        confirmLabel={pendingCase ? CASE_ACTION[pendingCase.status].label : "Confirm"}
+        tone={pendingCase?.status === "dismissed" ? "danger" : "primary"}
+        busy={!!pendingCase && busy === `case-${pendingCase.row.id}`}
+        onCancel={() => setPendingCase(null)}
+        onConfirm={async () => {
+          const p = pendingCase;
+          if (!p) return;
+          setPendingCase(null);
+          await resolve(p.row.id, p.status);
+        }}
+        body={
+          <>
+            {pendingCase ? (
+              <>
+                <strong>{pendingCase.row.item}</strong> — baseline{" "}
+                <span className="mono">{fmtMinor(pendingCase.row.baselineMinor)}</span>, quoted{" "}
+                <span className="mono">{fmtMinor(pendingCase.row.quotedMinor)}</span>{" "}
+                ({pendingCase.row.varianceBp < 0 ? "−" : "+"}
+                {(Math.abs(pendingCase.row.varianceBp) / 100).toFixed(1)}%).
+                <br />
+                <br />
+                {CASE_ACTION[pendingCase.status].body}
+              </>
+            ) : null}
+          </>
+        }
+      />
     </Shell>
   );
 }
@@ -237,12 +244,30 @@ export function DocumentsPage() {
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
+  /** The term the currently displayed results belong to, or "" if no search has
+   *  run. The results block used to be gated on `hits.length > 0`, so a search
+   *  that matched nothing rendered nothing at all: the button appeared to do
+   *  nothing, and the user could not tell a zero-result search from a failed
+   *  one. */
+  const [searched, setSearched] = useState("");
 
-  const load = useCallback(async () => {
-    setRows((await api<Doc[]>("/api/v1/documents?limit=25")).data || []);
+  // The list was a flat `limit=25` with no pager, so a tenant with more than 25
+  // documents was shown a slice with nothing saying so — the 26th document
+  // simply did not exist as far as this screen was concerned.
+  const [cursor, setCursor] = useState("");
+  const [nextCursor, setNextCursor] = useState("");
+  const [stack, setStack] = useState<string[]>([]);
+  const [more, setMore] = useState(false);
+
+  const load = useCallback(async (cur = "") => {
+    const r = await api<Doc[]>(`/api/v1/documents?limit=25&cursor=${encodeURIComponent(cur)}`);
+    setRows(r.data || []);
+    setMore(!!r.pagination?.hasMore);
+    setNextCursor(r.pagination?.nextCursor || "");
+    setCursor(cur);
   }, []);
 
-  const { state, error, reload } = useBoot(load);
+  const { state, error, reload } = useBoot(() => load(""));
   const shownErr = err || error;
 
   async function upload(f: File) {
@@ -255,7 +280,7 @@ export function DocumentsPage() {
       // previously produced `undefined/api/v1/documents` when the var was unset.
       const res = await fetch(`${API_URL}/api/v1/documents`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${keycloak().token ?? ""}`, "Idempotency-Key": newIdemKey() },
+        headers: { Authorization: `Bearer ${getSession()?.token ?? ""}`, "Idempotency-Key": newIdemKey() },
         body: fd,
       });
       if (!res.ok) {
@@ -268,7 +293,7 @@ export function DocumentsPage() {
         return;
       }
       setNote(`${f.name} stored and hash-verified.`);
-      await load();
+      await load("");
     } catch {
       setErr("Upload failed — is the backend reachable?");
     } finally {
@@ -283,7 +308,7 @@ export function DocumentsPage() {
       setNote(r.data.quarantined
         ? `${filename} (${r.data.kind}) requires scanned document indexing. Stored in compliance archive.`
         : `${filename}: ${r.data.chunks} chunk(s) extracted and indexed.`);
-      await load();
+      await load(cursor);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Extraction failed");
     } finally {
@@ -292,12 +317,17 @@ export function DocumentsPage() {
   }
 
   async function search() {
+    const term = q.trim();
+    if (term.length < 2) return;
     setBusy("search"); setErr("");
     try {
-      const r = await api<Hit[]>(`/api/v1/documents/search?q=${encodeURIComponent(q)}`);
+      const r = await api<Hit[]>(`/api/v1/documents/search?q=${encodeURIComponent(term)}`);
       setHits(r.data || []);
+      setSearched(term);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Search failed");
+      setHits([]);
+      setSearched("");
     } finally {
       setBusy("");
     }
@@ -320,7 +350,7 @@ export function DocumentsPage() {
 
   return (
     <Shell>
-      <div className="pagehead"><div><h1>Documents</h1><p>Cryptographic document repository: SHA-256 integrity verification, automated contract metadata extraction, and compliance archiving.</p></div></div>
+      <div className="pagehead"><div><h1>Documents</h1><p>Upload a document, extract its text, then search across everything you have stored.</p></div></div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}{note ? <div className="banner" role="status">{note}</div> : null}</LiveRegion>
 
       <div className="toolbar" role="search">
@@ -331,17 +361,35 @@ export function DocumentsPage() {
 
       <DataTable caption="Document list" rows={rows} rowKey={(d) => d.id} columns={columns}
         empty={<Empty title="No documents yet" hint="Upload a PDF, DOCX, XLSX or CSV to begin." />} />
+      <Pager stack={stack} hasMore={more} busy={busy !== ""}
+        onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
+        onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
 
-      {hits.length > 0 ? (
+      {searched ? (
         <>
-          <h2 style={{ marginTop: 20 }}>Search results for “{q}”</h2>
-          <DataTable caption={`Search results for ${q}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
+          <div className="pagehead" style={{ marginTop: 24, marginBottom: 10 }}>
+            <div>
+              <h2 style={{ margin: 0 }}>
+                Search results for “{searched}”{" "}
+                <Badge tone={hits.length ? "info" : undefined}>{hits.length} match{hits.length === 1 ? "" : "es"}</Badge>
+              </h2>
+            </div>
+            <div className="pagehead-actions">
+              <button className="ghost" onClick={() => { setSearched(""); setHits([]); }}>Clear results</button>
+            </div>
+          </div>
+          <DataTable caption={`Search results for ${searched}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
             columns={[
               { key: "doc", header: "Document", render: (h) => <span className="mono">{h.documentId.slice(0, 8)}</span> },
               { key: "chunk", header: "Chunk", numeric: true, render: (h) => h.chunkNo },
               { key: "ex", header: "Excerpt", render: (h) => h.excerpt },
             ]}
-            empty={<Empty title="No matches" />} />
+            empty={
+              <Empty
+                title={`Nothing matches “${searched}”`}
+                hint="Search runs over extracted text only. A document has to be extracted before its contents are searchable — use “Extract text” on the row above."
+              />
+            } />
         </>
       ) : null}
     </Shell>

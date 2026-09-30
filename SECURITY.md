@@ -21,7 +21,12 @@
 
 ## Guaranteed controls (Definition of Done)
 
-- OIDC (Keycloak) + MFA, short-lived JWT + rotating refresh tokens
+- Two auth modes, one verification path: `AUTH_MODE=local` (default) makes the
+  API its own issuer — RS256 tokens, no identity service, but **passwordless**
+  (anyone who can reach the deployment is the operator; single-container/SQLite
+  use only). `AUTH_MODE=oidc` requires Keycloak + MFA with short-lived JWT and
+  rotating refresh tokens. Both modes verify the same way: a forged or
+  foreign-signed token is a 401 either way.
 - RBAC + resource-level authz + `tenant_id` RLS on every query
 - Machine identities least-privilege by construction (see below)
 - Tenant-aware cache/search/storage/logs/AI context — cross-tenant tests mandatory

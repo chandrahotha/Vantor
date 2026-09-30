@@ -18,11 +18,11 @@ export const metadata: Metadata = {
  *
  * This module stays a Server Component because `metadata` is resolved on the
  * server; the route body, including the auth gate, lives in `ApprovalsRoute`.
- * The queue component itself is the existing one, unchanged, so the two
- * renderings cannot drift. The one the copilot page still mounts is left in
- * place — removing it would delete UI that some people navigate to directly,
- * and the point here was that the surface was missing, not that it was
- * duplicated. */
+ *
+ * The copilot page no longer mounts the queue as well. Two mounts meant two
+ * independent auth boots, two polls of the same endpoint, and two live copies
+ * of a screen that governs money — one of them filed under the AI assistant.
+ * The copilot now links here instead. */
 export default function ApprovalsPage() {
   return <ApprovalsRoute />;
 }

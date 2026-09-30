@@ -6,7 +6,7 @@
  *  AI-shaped now goes through here so it cannot drift from `api()` again.
  */
 import { API_URL, ApiError, friendly } from "./api";
-import { keycloak } from "./auth";
+import { getSession } from "./auth";
 
 /** One row from `GET /ai/providers`. Keys are never returned by the API. */
 export type ProviderInfo = {
@@ -103,7 +103,7 @@ export async function aiStream(req: StreamRequest, handlers: StreamHandlers): Pr
   // The SSE route sits behind the same OIDC guard as every other endpoint. An
   // unauthenticated stream would 401 with no frames at all, and `Bearer ` (an
   // empty credential) is worse than omitting the header.
-  const token = keycloak().token;
+  const token = getSession()?.token;
   if (token) headers.Authorization = `Bearer ${token}`;
   if (req.providerKey) headers["X-Vantor-Provider-Key"] = req.providerKey;
 

@@ -2,11 +2,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import CommandPalette from "./CommandPalette";
+import { ConfirmDialog } from "./ui";
 import { toggleTheme } from "./ThemeInit";
 import { api } from "../lib/api";
-import { getSession, login, logout, subscribeSession, type Session } from "../lib/auth";
+import { getSession, logout, signIn, subscribeSession, type Session } from "../lib/auth";
 
 const NAV: { section?: string; items: [icon: string, label: string, href: string][] }[] = [
   {
@@ -47,6 +48,25 @@ const PAGE_NAMES: Record<string, string> = Object.fromEntries(
   NAV.flatMap((g) => g.items).map(([, label, href]) => [href, label]).concat([["/notifications", "Alerts"]]),
 );
 
+/** The crumb trail for a path.
+ *
+ *  This used to be a single `PAGE_NAMES[path] ?? "VANTOR"` lookup, which only
+ *  ever matched an exact nav href. On `/suppliers/<id>` — the one route in the
+ *  app that is reached *from* another screen — nothing matched, so the header
+ *  read "VANTOR / VANTOR": the user was told neither where they were nor what
+ *  they had drilled into. A detail route now names its parent, and the parent
+ *  is a link, so there is always a way back up that does not rely on the
+ *  browser's Back button. */
+function crumbsFor(path: string): { label: string; href?: string }[] {
+  const exact = PAGE_NAMES[path];
+  if (exact) return [{ label: exact }];
+  const parent = Object.keys(PAGE_NAMES)
+    .filter((href) => href !== "/" && path.startsWith(href + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+  if (parent) return [{ label: PAGE_NAMES[parent], href: parent }, { label: "Details" }];
+  return [{ label: "VANTOR" }];
+}
+
 function Bell() {
   const [unread, setUnread] = useState(0);
   useEffect(() => {
@@ -61,7 +81,10 @@ function Bell() {
     const id = setInterval(poll, 30000);
     return () => { stop = true; clearInterval(id); };
   }, []);
-  if (unread === 0) return <span className="badge">0</span>;
+  // A permanent "0" chip on the nav item is noise: it draws the eye to the one
+  // state that needs no attention, and on the cobalt sidebar it rendered as a
+  // washed-out smear. Nothing to report, nothing shown.
+  if (unread === 0) return null;
   return <span className="badge bad" aria-label={`${unread} unread alerts`}>{unread}</span>;
 }
 
@@ -97,19 +120,57 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
   const [session, setSessionState] = useState<Session | null>(() => getSession());
   useEffect(() => subscribeSession(setSessionState), []);
   const shown = user ?? (session ? { name: session.name, tenant: session.tenant } : undefined);
-  const pageName = PAGE_NAMES[base] ?? "VANTOR";
+  const crumbs = crumbsFor(base);
+
+  // Off-canvas navigation for the drawer layout (<= 960px). Above that the
+  // stylesheet ignores `data-open` entirely and the sidebar is always visible,
+  // so this state is inert on a desktop and needs no media-query listener.
+  const [navOpen, setNavOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // Escape closes it and returns focus to the control that opened it — a panel
+  // that traps a keyboard user is worse than no panel.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setNavOpen(false); toggleRef.current?.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
+  /** Signing out discards unsaved form state on every open panel and returns to
+   *  the identity provider, so it is confirmed rather than one stray click. */
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   return (
     <div className="shell">
       <a href="#main" className="skip-link">Skip to content</a>
 
-      <nav className="side" aria-label="Primary">
+      {navOpen ? (
+        <button
+          type="button"
+          className="nav-scrim"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+        />
+      ) : null}
+
+      <nav id="primary-nav" className="side" aria-label="Primary" data-open={navOpen ? "true" : "false"}>
         <div className="brand brand-logo-full">
+          {/* `unoptimized`: this is a fixed-size brand mark, already shipped at
+              exactly 2x its painted size, so the optimizer has nothing to gain
+              — and routing it through `/_next/image` made the one element on
+              every single screen depend on an image-transform request that can
+              fail or time out. When it did, the sidebar rendered as an empty
+              white plate with no logo in it. A static file from `public/`
+              cannot fail that way. */}
           <Image
             src="/vantor-logo.png"
             alt="VANTOR"
             width={220}
             height={65}
+            unoptimized
             style={{ width: "100%", height: "auto", maxHeight: "48px", objectFit: "contain" }}
             priority
           />
@@ -124,6 +185,10 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
                 href={href}
                 className={base === href || (href !== "/" && base.startsWith(href + "/")) ? "active" : undefined}
                 aria-current={base === href ? "page" : undefined}
+                // Navigating is the whole purpose of the drawer, so following a
+                // link closes it; otherwise the destination renders behind a
+                // panel the user then has to dismiss by hand.
+                onClick={() => setNavOpen(false)}
               >
                 <span className="nav-icon" aria-hidden="true">{icon}</span>
                 <span className="nav-label">{label}</span>
@@ -133,7 +198,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
         ))}
 
         <div className="section-label">Account</div>
-        <Link href="/notifications" className={base === "/notifications" ? "active" : undefined} aria-current={base === "/notifications" ? "page" : undefined}>
+        <Link href="/notifications" className={base === "/notifications" ? "active" : undefined} aria-current={base === "/notifications" ? "page" : undefined} onClick={() => setNavOpen(false)}>
           <span className="nav-icon" aria-hidden="true">◆</span>
           <span className="nav-label">Alerts</span>
           <Bell />
@@ -154,7 +219,7 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               <button
                 type="button"
                 className="userchip-logout"
-                onClick={() => logout()}
+                onClick={() => setConfirmSignOut(true)}
                 title="Sign out of current workspace"
               >
                 Sign out
@@ -166,15 +231,15 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               <button
                 type="button"
                 className="userchip-signin-btn"
-                onClick={() => login()}
+                onClick={() => { void signIn(); }}
               >
-                <span aria-hidden="true">🔑</span> Sign In
+                <span aria-hidden="true">🔑</span> Sign in
               </button>
             </div>
           )}
           <div className="foot-links">
             <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">
-              Source · AGPL-3.0
+              Source · Apache-2.0
             </a>
           </div>
         </div>
@@ -182,27 +247,46 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
 
       <main className="main" id="main" tabIndex={-1}>
         <div className="topbar">
-          <div className="crumbs">
-            VANTOR <span aria-hidden="true">/</span> <b>{pageName}</b>
-          </div>
+          <button
+            ref={toggleRef}
+            type="button"
+            className="nav-toggle"
+            aria-label={navOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={navOpen}
+            aria-controls="primary-nav"
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            <span aria-hidden="true">{navOpen ? "✕" : "☰"}</span>
+          </button>
+          <nav className="crumbs" aria-label="Breadcrumb">
+            <Link href="/">VANTOR</Link>
+            {crumbs.map((c) => (
+              <span key={c.label}>
+                <span aria-hidden="true"> / </span>
+                {c.href ? <Link href={c.href}>{c.label}</Link> : <b aria-current="page">{c.label}</b>}
+              </span>
+            ))}
+          </nav>
           <span className="topbar-live-pill"><span className="status-dot" aria-hidden="true" /> Live</span>
           <div className="spacer" />
           {!shown ? (
             <button
               type="button"
               className="topbar-signin-btn"
-              onClick={() => login()}
+              onClick={() => { void signIn(); }}
             >
-              <span aria-hidden="true">🔑</span> Sign In
+              <span aria-hidden="true">🔑</span> Sign in
             </button>
           ) : null}
           <button
             className="search-trigger"
-            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+            onClick={() => window.dispatchEvent(new CustomEvent("vantor:open-palette"))}
             aria-label="Open command palette"
             aria-keyshortcuts="Control+K"
           >
-            <span aria-hidden="true">⌕</span> Search or command <kbd>Ctrl</kbd><kbd>K</kbd>
+            <span aria-hidden="true">⌕</span>
+            <span className="search-trigger-label">Search or command</span>
+            <kbd>Ctrl</kbd><kbd>K</kbd>
           </button>
           <ThemeToggle />
         </div>
@@ -210,6 +294,20 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
       </main>
 
       <CommandPalette />
+
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="Sign out of VANTOR?"
+        confirmLabel="Sign out"
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => { setConfirmSignOut(false); logout(); }}
+        body={
+          <>
+            You will be returned to the identity provider. Anything typed into a form
+            on this screen and not yet saved is discarded.
+          </>
+        }
+      />
     </div>
   );
 }

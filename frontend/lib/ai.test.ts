@@ -11,7 +11,7 @@ import { ApiError } from "./api";
  * being treated as a finished answer.
  */
 
-vi.mock("./auth", () => ({ keycloak: () => ({ token: "test-token" }) }));
+vi.mock("./auth", () => ({ getSession: () => ({ token: "test-token" }) }));
 
 function streamOf(chunks: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();

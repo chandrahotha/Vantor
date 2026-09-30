@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, DataTable, Empty, ErrorBox, LiveRegion, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, DataTable, Empty, ErrorBox, LiveRegion, Money, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Round = {
@@ -21,7 +21,11 @@ type SimResult = {
 };
 
 export default function NegoSim() {
-  const [form, setForm] = useState({ listPrice: "100000.00", walkAway: "75000.00", offers: "70000\n80000\n88000", maxRounds: "5", concessionBp: "1500" });
+  // The round table used to format every figure as INR regardless of what the
+  // user was modelling, on a screen whose inputs are otherwise unlabelled
+  // numbers. The currency is an input now, so the output states the
+  // denomination it was given rather than assuming one.
+  const [form, setForm] = useState({ listPrice: "100000.00", walkAway: "75000.00", offers: "70000\n80000\n88000", maxRounds: "5", concessionBp: "1500", currency: "INR" });
   const [out, setOut] = useState<SimResult | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -76,8 +80,8 @@ export default function NegoSim() {
 
   const roundCols: Column<Round>[] = [
     { key: "r", header: "Round", numeric: true, render: (x) => x.round },
-    { key: "offer", header: "Your offer", numeric: true, render: (x) => fmtMinor(x.buyer ?? x.offer_minor ?? 0, "INR") },
-    { key: "counter", header: "Supplier counter", numeric: true, render: (x) => fmtMinor(x.supplier ?? x.counter_minor ?? 0, "INR") },
+    { key: "offer", header: "Your offer", numeric: true, render: (x) => <Money>{fmtMinor(x.buyer ?? x.offer_minor ?? 0, form.currency)}</Money> },
+    { key: "counter", header: "Supplier counter", numeric: true, render: (x) => <Money>{fmtMinor(x.supplier ?? x.counter_minor ?? 0, form.currency)}</Money> },
     { key: "event", header: "Status", render: (x) => x.event ? <span className="badge">{x.event.replace("_", " ")}</span> : null },
   ];
 
@@ -88,14 +92,14 @@ export default function NegoSim() {
       <div className="pagehead">
         <div>
           <h1>Negotiation simulator</h1>
-          <p>Strategic supplier negotiation workbench: counter-offer modeling, concession ladders, supplier margin analysis, and target price optimization.</p>
+          <p>Rehearse a price negotiation before you have it. Nothing here touches real procurement data.</p>
         </div>
       </div>
       <LiveRegion>{shownErr ? <ErrorBox message={shownErr} /> : null}</LiveRegion>
 
-      <>
-        <div className="panel">
+      <div className="panel">
             <div className="toolbar">
+              <label>Currency<input aria-label="Currency" size={5} value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} /></label>
               <label>Supplier list price<input aria-label="List price" inputMode="decimal" value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })} /></label>
               <label>Supplier walk-away floor<input aria-label="Walk-away price" inputMode="decimal" value={form.walkAway} onChange={(e) => setForm({ ...form, walkAway: e.target.value })} /></label>
               <label>Max rounds<input aria-label="Max rounds" inputMode="numeric" size={4} value={form.maxRounds} onChange={(e) => setForm({ ...form, maxRounds: e.target.value })} /></label>
@@ -115,6 +119,9 @@ export default function NegoSim() {
               <div className="cards">
                 <div className="card"><div className="k">Result</div><div className="v mono">{out.result}</div></div>
                 <div className="card"><div className="k">Score</div><div className="v mono">{out.score}</div></div>
+                {out.settled_minor != null ? (
+                  <div className="card"><div className="k">Settled at</div><div className="v mono">{fmtMinor(out.settled_minor, form.currency)}</div></div>
+                ) : null}
               </div>
               {out.reason ? <div className="banner" role="status">{out.reason}</div> : null}
               <h3>Rounds</h3>
@@ -123,7 +130,6 @@ export default function NegoSim() {
           ) : (
             <Empty title="No simulation yet" hint="Describe a price situation and run it." />
           )}
-      </>
     </Shell>
   );
 }

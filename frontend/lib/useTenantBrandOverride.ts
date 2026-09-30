@@ -39,7 +39,7 @@
  */
 
 import { useEffect, useSyncExternalStore } from "react";
-import { keycloak } from "./auth";
+import { getSession } from "./auth";
 
 /** The tokens a tenant is allowed to influence. Nothing else is writable.
  *  Kept as data rather than implied so the trust boundary is auditable: if a
@@ -222,7 +222,7 @@ export function useTenantBrandOverride(): BrandColors {
   useEffect(() => {
     if (typeof document === "undefined") return;
 
-    const brandColors = readBrandColors(keycloakClaims());
+    const brandColors = readBrandColors(sessionClaims());
     publish(brandColors);
 
     const slots = Object.keys(brandColors) as BrandSlot[];
@@ -258,10 +258,21 @@ export function useTenantBrandOverride(): BrandColors {
   return useSyncExternalStore(subscribeBrand, () => snapshot, () => EMPTY);
 }
 
-/** The parsed ID token, or null when there is no session. Never throws. */
-function keycloakClaims(): unknown {
+/** The claims carried by the current session token, or null. Never throws.
+ *
+ *  Decoded here rather than read off an adapter object: a local session is a
+ *  bare JWT held by `lib/auth`, with no client library wrapping it. Signature
+ *  verification is the API's job — this only reads presentational hints
+ *  (brand colours) out of a token the API already accepted, so a malformed
+ *  payload degrades to "no override" rather than being trusted. */
+function sessionClaims(): unknown {
   try {
-    return keycloak().tokenParsed ?? null;
+    const token = getSession()?.token;
+    if (!token) return null;
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json);
   } catch {
     return null;
   }

@@ -105,6 +105,38 @@ class Settings(BaseSettings):
     oidc_issuer: str = Field(default="http://localhost:8080/realms/vantor", alias="OIDC_ISSUER")
     jwt_audience: str = Field(default="vantor-web", alias="JWT_AUDIENCE")
 
+    # ---- Local (passwordless) sign-in ------------------------------------
+    # `local` makes the API its own identity provider: it holds an RSA keypair,
+    # mints its own RS256 tokens, and verifies them on the same code path a
+    # Keycloak token takes. Nothing downstream changes — tenancy, roles, the
+    # audit actor and RLS all read the same claims.
+    #
+    # This exists because requiring Keycloak meant requiring a second Java
+    # service before the product would open at all: with it down, clicking
+    # "Sign in" navigated to `localhost:8080` and the browser showed a
+    # connection error, which is not a sign-in screen.
+    #
+    # It is deliberately passwordless. `POST /auth/session` issues a session to
+    # whoever asks, so *anyone who can reach the API is the local operator*.
+    # That is the documented trade for a single-container deployment with no
+    # identity service; it is not a bug and it is not an accident. Set
+    # `AUTH_MODE=oidc` to require a real IdP again — the verification path is
+    # unchanged and both modes can be enabled at once.
+    auth_mode: str = Field(default="local", alias="AUTH_MODE")
+    local_tenant: str = Field(default="vantor-corp", alias="LOCAL_TENANT")
+    local_user_name: str = Field(default="Administrator", alias="LOCAL_USER_NAME")
+    local_user_email: str = Field(default="operator@vantor.local", alias="LOCAL_USER_EMAIL")
+    local_roles: str = Field(
+        default="Super Admin,Organization Admin,Procurement Admin,Procurement Manager,Buyer,Approver,Compliance Reviewer",
+        alias="LOCAL_ROLES",
+    )
+    local_session_hours: int = Field(default=12, alias="LOCAL_SESSION_HOURS", ge=1, le=720)
+    # Where the signing key is persisted. It is generated on first use. If the
+    # file is lost every existing session is invalidated, which is the correct
+    # behaviour — a token signed by a key the server no longer has is not a
+    # session the server can vouch for.
+    local_key_path: str = Field(default="data/session-signing-key.pem", alias="LOCAL_KEY_PATH")
+
     # AI gateway — free-first; all optional, `disabled` is the deterministic mode.
     # `ai_provider` picks the default; every provider is also selectable per
     # request, and every provider accepts a per-request BYOK key. A provider is

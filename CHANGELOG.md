@@ -5,6 +5,48 @@
 
 All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
 
+## [Unreleased] — 2026-09-30
+
+### Added
+
+- **Passwordless local auth (`AUTH_MODE=local`, default).** The API becomes its own
+  issuer — a persisted RSA keypair, RS256 sessions, same verification path as OIDC.
+  `POST /api/v1/auth/session` needs no credentials, trading *who may ask for a
+  session* for the ability to run with no identity service at all. Keycloak
+  (`AUTH_MODE=oidc`) is unchanged and still available. `backend/tests/test_local_auth.py`
+  pins both the token's real signature checks and the removal of the old
+  `DISABLE_AUTH=1` bypass, which used to hand out a full-Admin actor with no token.
+- **Single-container deployment.** Root `Dockerfile` + `deploy/single-container/start.sh`
+  build the web app and API into one image with SQLite, for a free-tier, no-managed-database
+  deploy. Documented trade-offs: no row-level tenant isolation, no background worker,
+  passwordless sign-in.
+- **Frontend ↔ API contract test** (`frontend/lib/contract.test.ts`). Statically checks
+  every `api(...)` call site against `api/openapi.json`. Caught two missing routes
+  (`GET /integrations`, `GET /webhooks/endpoints`) that the Integrations page had been
+  calling and failing on since it shipped.
+- License changed **AGPL-3.0-or-later → Apache-2.0**. No copyleft obligation on
+  modifications; free to use in closed-source or commercial products.
+
+### Removed
+
+- `frontend/public/silent-check-sso.html` and the `keycloak-js` dependency — no longer
+  needed now that sign-in does not require an iframe round-trip to an identity provider.
+
+### Fixed
+
+- **Audit chain false positives.** `record_event` selected the newest row by
+  `occurred_at DESC, id DESC` while `verify_chain` walked `ASC` — and `id` is a random
+  UUID, so two events in the same microsecond made the two orderings disagree and the
+  chain report itself broken after nothing but legitimate activity. `occurred_at` is now
+  strictly monotonic per tenant, and verification follows `prev_hash → hash` links
+  instead of trusting a sort order; this also newly detects forks and removed rows.
+- **Sign-in stopped signing people out on tab switch.** The prior renewal loop treated
+  any failed refresh attempt as expiry and force-logged-out the session; it now only
+  signs out once the token's own `exp` has actually passed.
+- **Brand logo not rendering.** `vantor-logo.png` was a 592KB asset routed through the
+  Next.js image optimizer at nowhere near its rendered size; resized to match and served
+  `unoptimized` as a static asset.
+
 ## [Unreleased] — 2026-09-27
 
 ### Added

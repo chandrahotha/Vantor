@@ -14,7 +14,6 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "keycloak-js": "26.2.4",
     "next": "16.3.6",
     "nextjs-toploader": "^3.9.17",
     "react": "19.3.0",

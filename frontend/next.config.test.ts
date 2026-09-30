@@ -67,13 +67,34 @@ describe("next.config security headers", () => {
     // deployment that is not on localhost: the browser blocks the API call and
     // the app looks broken with no indication why.
     const csp = cspOf(
+      await headersFor({ NEXT_PUBLIC_API_URL: "https://api.example.test" }),
+    );
+    expect(csp).toContain("https://api.example.test");
+    expect(csp).not.toContain("localhost:8000");
+  });
+
+  it("names no identity provider, because the app no longer talks to one", async () => {
+    // Sign-in is served by the API itself. This used to add a Keycloak origin
+    // to `connect-src` and put it in `frame-src` for the silent-check-sso
+    // iframe; keeping either would widen the policy for a host nothing
+    // contacts any more.
+    const csp = cspOf(
       await headersFor({
         NEXT_PUBLIC_API_URL: "https://api.example.test",
         NEXT_PUBLIC_KEYCLOAK_URL: "https://id.example.test",
       }),
     );
-    expect(csp).toContain("https://api.example.test");
-    expect(csp).toContain("https://id.example.test");
+    expect(csp).not.toContain("id.example.test");
+    expect(csp).toContain("frame-src 'none'");
+  });
+
+  it("emits a same-origin connect policy when the API shares the app's origin", async () => {
+    // The single-container image builds with an empty NEXT_PUBLIC_API_URL so
+    // the browser calls `/api` on its own origin. An empty value must not
+    // produce a dangling `connect-src 'self' ` with a trailing origin-less
+    // space, and must never throw on `new URL("")`.
+    const csp = cspOf(await headersFor({ NEXT_PUBLIC_API_URL: "" }));
+    expect(csp).toContain("connect-src 'self';");
     expect(csp).not.toContain("localhost:8000");
   });
 

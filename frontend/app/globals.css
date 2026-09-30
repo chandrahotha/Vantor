@@ -67,7 +67,7 @@
      `next/font` provides, so they cannot go back to being dead weight. */
   --font-ui: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-16: 16px; --fs-20: 20px; --fs-24: 24px; --fs-32: 32px;
+  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-16: 16px; --fs-18: 18px; --fs-20: 20px; --fs-24: 24px; --fs-32: 32px;
 
   /* Radius + elevation */
   --radius-s: 6px;
@@ -80,12 +80,14 @@
   --elev-3: 0 4px 24px rgba(10, 25, 49, 0.12), 0 1px 4px rgba(10, 25, 49, 0.08);
 
   /* Motion */
+  --on-status: #ffffff;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-fast: 120ms;
   --t-med: 200ms;
 }
 
 [data-theme="dark"] {
+  --on-status: #0b101d;
   --bg: #0b101d;
   --surface: #101726;
   --surface-2: #17203230;
@@ -117,6 +119,13 @@ body {
 }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* A link inside running text is distinguished by more than its colour. Standalone
+   links (nav items, breadcrumbs, table cells, button-styled links) opt out
+   below, where the surrounding layout already marks them as controls. */
+p a, li a, .info-callout a, .banner a, .empty a, .error a, td a:not(.btn) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 h1, h2, h3, h4 { letter-spacing: -0.015em; color: var(--ink); }
 h1 { font-size: var(--fs-24); }
 h2 { font-size: var(--fs-16); font-weight: 650; }
@@ -217,7 +226,17 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 }
 .side a.active .nav-icon { opacity: 1; }
 .side a.active::before { opacity: 1; }
-.side a .badge { margin-left: auto; }
+/* The unread count on the cobalt sidebar. The shared `.badge.bad` is a 12%
+   tint over the page surface — over cobalt it washed out to a faint smear, so
+   the one number in the navigation that means "something needs you" was the
+   hardest thing there to see. Solid fill, stated against the brand surface. */
+.side a .badge {
+  margin-left: auto;
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #ffffff;
+  font-weight: 700;
+}
 .side .foot {
   margin-top: auto;
   padding: 12px 18px 0;
@@ -277,7 +296,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   line-height: 1.25;
 }
 .userchip-tenant {
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.85);
   font-size: 10.5px;
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -309,10 +328,16 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   justify-content: space-between;
   padding: 0 2px;
 }
-.side .foot .foot-links a { color: rgba(255, 255, 255, 0.6); font-size: 11px; text-decoration: none; }
+/* Solid white, not a translucent one. `.foot` already carries an `opacity` of
+   its own in the palette layer, so a 0.85 alpha here compounded to ~0.75
+   effective and left this the lowest-contrast text in the product at 2.4:1. */
+.side .foot .foot-links a { color: #ffffff; font-size: 11px; text-decoration: none; }
 .side .foot .foot-links a:hover { color: #fff; }
 
-.main { padding: 28px 32px 96px; max-width: 1280px; min-width: 0; }
+/* The content column is capped at 1280px so table rows stay scannable. It was
+   also pinned to the left of that cap, so on a wide monitor the app sat against
+   the sidebar with a third of the screen empty beside it. */
+.main { padding: 28px 32px 96px; max-width: 1280px; min-width: 0; width: 100%; margin-inline: auto; }
 
 /* ---------- topbar ------------------------------------------------------ */
 .topbar {
@@ -324,8 +349,13 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 30;
 }
-.topbar .crumbs { font-size: var(--fs-12); color: var(--muted); font-weight: 500; }
+.topbar .crumbs { font-size: var(--fs-12); color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.topbar .crumbs > span { display: inline-flex; align-items: center; gap: 6px; }
 .topbar .crumbs b { color: var(--ink); font-weight: 650; }
+/* Breadcrumb ancestors are links, but they are chrome rather than body copy —
+   they take the muted colour and only announce themselves as links on hover. */
+.topbar .crumbs a { color: var(--muted); text-decoration: none; border-radius: 4px; }
+.topbar .crumbs a:hover { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
 .topbar-demo-pill {
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.3);
@@ -344,13 +374,14 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   gap: 6px;
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.25);
-  color: #10b981;
+  color: #047857;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
   margin-left: 4px;
 }
+[data-theme="dark"] .topbar-live-pill { color: #6ee7b7; }
 .status-dot {
   width: 6px;
   height: 6px;
@@ -361,7 +392,11 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .topbar .spacer { flex: 1; }
 .topbar .search-trigger {
   display: flex; align-items: center; gap: 8px;
-  color: var(--muted); background: var(--surface-2); border: 1px solid var(--line);
+  /* `--ink-2` resolves to the palette's `--text-secondary`, which is tuned for
+     4.5:1 against the page background and lands at 4.42:1 against this
+     control's own sunken fill. The trigger is a control, not secondary prose,
+     so it takes the primary ink. */
+  color: var(--ink); background: var(--surface-2); border: 1px solid var(--line);
   border-radius: var(--radius-m); padding: 6px 10px; font-size: var(--fs-12);
   cursor: pointer; transition: all var(--t-fast) var(--ease); white-space: nowrap;
 }
@@ -425,7 +460,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line));
   border-radius: var(--radius-m);
   font-size: var(--fs-12);
-  color: var(--ink-2);
+  color: var(--ink);
   margin-bottom: 14px;
   line-height: 1.45;
 }
@@ -477,61 +512,109 @@ button {
   padding: 8px 14px;
   border-radius: var(--radius-m);
   border: 1px solid transparent;
-  background: var(--primary); color: #fff; cursor: pointer;
+  /* Fully tokenised: `color` and `box-shadow` used to be a hard-coded white and
+     a hard-coded cobalt glow, which is what forced the palette layer to restate
+     the whole rule at a higher specificity — and that restatement is what
+     flattened every button variant in the app into a primary fill. Both read
+     from tokens now, so the palette layer re-points them for free and has no
+     reason to override `button` at all. */
+  background: var(--primary); color: var(--primary-fg, #fff); cursor: pointer;
   transition: all var(--t-fast) var(--ease);
-  box-shadow: 0 1px 2px rgba(0, 56, 255, 0.28);
+  box-shadow: var(--elev-1);
 }
 button:hover:not(:disabled) { background: var(--primary-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+/* A ghost button still has to look like a button.
+   With a transparent border and muted text it was indistinguishable from a
+   label until the pointer was already on it — and the copilot's suggestion
+   chips, the row-level "Open" controls and the alert-feed filters are all
+   ghosts, so a large share of the product's controls did not read as
+   clickable at rest. A resting border is the smallest thing that fixes that
+   without turning them into primary actions. */
 button.ghost {
-  background: transparent; color: var(--text-secondary);
-  border: 1px solid transparent;
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
   box-shadow: none;
   font-weight: 500;
 }
-button.ghost:hover:not(:disabled) { 
-  background: var(--surface-2); 
-  color: var(--ink); 
-  border-color: var(--line); 
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+  border-color: var(--line-strong);
 }
+/* Same reasoning for the component-kit ghost. */
+.btn-ghost { border-color: var(--line); background: var(--surface); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--line-strong); }
+/* Pagination.
+   This block used to paint Prev red and Next green through `var(--bad)`,
+   `var(--ok)` and `var(--radius)` — three custom properties this stylesheet
+   never declares. An undefined custom property is invalid at computed-value
+   time, so `background` fell back to `transparent` while `color` stayed `#fff`:
+   white text on the page background, i.e. invisible pager controls. The colours
+   were also wrong on their own terms — moving between pages is not a
+   success/danger pair, and a red "Prev" reads as a destructive action. */
 .pager {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16px;
   margin-top: 24px;
+  flex-wrap: wrap;
 }
 .pager button {
   padding: 8px 16px;
-  border-radius: var(--radius);
-  color: #fff;
-  border: none;
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--elev-1);
   font-weight: 600;
+  min-height: 36px;
 }
-.pager button:first-of-type {
-  background: var(--bad);
-}
-.pager button:first-of-type:hover:not(:disabled) {
-  background: #cc2233; /* Darker red */
-}
-.pager button:last-of-type {
-  background: var(--ok);
-}
-.pager button:last-of-type:hover:not(:disabled) {
-  background: #008855; /* Darker green */
+.pager button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 button.link { all: unset; cursor: pointer; color: var(--primary); font-size: var(--fs-13); font-weight: 600; }
 
+/* Toggle buttons.
+   `aria-pressed` was being set on the alert-feed filters and the reject
+   composer with no style attached to it, so the selected filter looked exactly
+   like the unselected one: the state was announced to a screen reader and
+   invisible to everyone else. Colour is not the only signal — the pressed chip
+   also gains a border and weight. */
+button[aria-pressed="true"],
+button.ghost[aria-pressed="true"] {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  border-color: var(--primary);
+  font-weight: 700;
+}
+[data-theme="dark"] button[aria-pressed="true"],
+[data-theme="dark"] button.ghost[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  color: var(--ink);
+}
+.btn-danger[aria-pressed="true"] { background: var(--status-rejected); color: #fff; border-color: transparent; }
+
 /* ---------- data grid ------------------------------------------------------ */
 .gridwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-l); background: var(--surface); box-shadow: var(--elev-1); }
+.gridwrap:focus { outline: none; }
+.gridwrap:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 table.grid { width: 100%; border-collapse: collapse; background: transparent; }
 table.grid th, table.grid td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: var(--fs-13); }
 table.grid td button { padding: 4px 10px; font-size: 12px; }
 table.grid th {
   background: var(--surface-2);
   font-size: var(--fs-11); text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--muted); font-weight: 650;
+  /* `--muted` is tuned for 4.5:1 against the page background, and a header row
+     sits on the sunken fill instead — which put 11px uppercase column labels
+     under the AA threshold on every table in the product. A column header is
+     also the thing you scan first, so it takes the primary ink. */
+  color: var(--ink); font-weight: 650;
   border-bottom: 1px solid var(--line-strong);
   padding-top: 8px; padding-bottom: 8px;
   position: sticky; top: 0; z-index: 1;
@@ -541,19 +624,28 @@ table.grid th button:hover { color: var(--ink); }
 table.grid tbody tr { transition: background var(--t-fast) var(--ease); }
 table.grid tbody tr:hover td { background: var(--surface-2); }
 table.grid tbody tr:last-child td { border-bottom: none; }
+/* The ISO code in a money cell gets a fixed box, so the amounts share one
+   right edge and the codes share one left edge instead of the whole string
+   being flushed right as a unit. */
+.ccy { display: inline-block; width: 3.2ch; text-align: left; color: var(--muted); font-weight: 500; }
 table.grid td.num { text-align: right; }
 table.grid th.num { text-align: right; }
+/* Right-aligned non-numeric column (an action cluster). The header and the
+   cells take the alignment together, so they cannot drift apart. */
+table.grid td.col-end, table.grid th.col-end { text-align: right; }
+table.grid td.col-end > div { justify-content: flex-end; }
+table.grid th.col-end button { justify-content: flex-end; }
 
 /* ---------- states -------------------------------------------------------- */
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: 999px;
   font-size: var(--fs-11); font-weight: 600; letter-spacing: 0.01em;
-  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--ink); border: 1px solid var(--line);
   white-space: nowrap;
 }
 .badge.ok { background: rgba(16, 185, 129, 0.12); color: #047857; border-color: rgba(16, 185, 129, 0.25); }
-.badge.warn { background: rgba(245, 158, 11, 0.12); color: #b45309; border-color: rgba(245, 158, 11, 0.28); }
+.badge.warn { background: rgba(245, 158, 11, 0.12); color: #92400e; border-color: rgba(245, 158, 11, 0.28); }
 .badge.bad { background: rgba(239, 68, 68, 0.12); color: #b91c1c; border-color: rgba(239, 68, 68, 0.28); }
 .badge.info { background: rgba(0, 56, 255, 0.1); color: var(--primary-strong); border-color: rgba(0, 56, 255, 0.25); }
 [data-theme="dark"] .badge.ok { color: #6ee7b7; }
@@ -825,15 +917,155 @@ table.grid th.num { text-align: right; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 
-/* ---------- responsive ------------------------------------------------------ */
-@media (max-width: 920px) {
+/* Standalone frame for the route error boundary, which renders without the
+   sidebar. */
+.errorpage { min-height: 100vh; background: var(--bg); }
+.errorpage-main { margin: 0 auto; max-width: 720px; padding-top: 64px; }
+.errorpage-main .toolbar { align-items: center; }
+
+/* Master/detail: the row-level "Open" control fills this panel below the table.
+   It needs a visible heading row with a way out, and a focus ring, because it
+   is scrolled to and focused programmatically when it opens. */
+.detail-panel:focus { outline: none; }
+.detail-panel:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.detail-head h2 { font-size: var(--fs-16); }
+/* The lifecycle step a row is waiting on, where the step itself is completed in
+   the detail panel rather than from the row. */
+.next-step {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  font-style: italic;
+  white-space: nowrap;
+  align-self: center;
+}
+
+/* ---------- responsive ------------------------------------------------------ *
+ * The previous rule turned the sidebar into `flex-direction: row; flex-wrap:
+ * wrap` below 920px. With fourteen destinations, four section labels and a user
+ * card, that produced roughly half a phone screen of navigation above every
+ * page, the section labels were hidden so the remaining links lost their
+ * grouping, and the topbar gave up `position: sticky` — so on the surface where
+ * a sticky header matters most there wasn't one.
+ *
+ * The sidebar is now an off-canvas drawer opened from a toolbar button in the
+ * topbar, which is what every other item in this layout already assumes: one
+ * primary column, full width, with navigation one tap away and out of the way
+ * the rest of the time.
+ * ------------------------------------------------------------------------- */
+
+/* Shown only once the drawer layout is active; `Shell` always renders it. */
+.nav-toggle { display: none; }
+.nav-scrim { display: none; }
+
+@media (max-width: 960px) {
   .shell { grid-template-columns: 1fr; }
-  .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .side .brand { margin-bottom: 0; border-bottom: none; padding: 12px 16px; }
-  .side .section-label { display: none; }
-  .side .foot { border-top: none; margin-left: auto; padding: 12px 16px; }
-  .topbar { position: static; margin: -12px -20px 16px; padding: 12px 20px; }
-  .main { padding: 16px 20px 80px; }
+
+  .nav-toggle {
+    display: grid;
+    place-items: center;
+    width: 36px; height: 36px;
+    flex: 0 0 auto;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    color: var(--ink);
+    font-size: 16px;
+    padding: 0;
+    box-shadow: none;
+  }
+  .nav-toggle:hover:not(:disabled) { background: var(--surface-3); }
+
+  .side {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: min(282px, 84vw);
+    height: 100dvh;
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform var(--t-med) var(--ease);
+    border-right: 1px solid var(--side-line);
+  }
+  .side[data-open="true"] { transform: none; box-shadow: var(--elev-3); }
+  .side .brand.brand-logo-full { padding: 12px 16px; margin-bottom: 12px; }
+
+  .nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(10, 25, 49, 0.5);
+    backdrop-filter: blur(2px);
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+    animation: fadein var(--t-fast) var(--ease);
+  }
+
+  .main { padding: 16px 16px 72px; max-width: 100%; }
+  .topbar {
+    margin: -16px -16px 16px;
+    padding: 10px 16px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  /* The keyboard hint is dead weight on a device with no Ctrl key, and the
+     label is what pushes the row past the viewport on a narrow phone. */
+  .topbar .search-trigger { padding: 7px 10px; }
+  .topbar .search-trigger .search-trigger-label,
+  .topbar .search-trigger kbd { display: none; }
+  .topbar-live-pill { display: none; }
+  .topbar .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .pagehead h1 { font-size: var(--fs-20); }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .card, .metric { padding: 14px 16px; }
+  .card .v, .metric-value { font-size: 20px; }
+
+  /* A wide grid inside a narrow viewport has to be reachable: the wrapper
+     already scrolls, but the table needs a floor width or the browser crushes
+     every column into unreadable two-character stacks. */
+  .gridwrap { -webkit-overflow-scrolling: touch; }
+  table.grid { min-width: 620px; }
+
+  .modal-overlay { padding: 12px; align-items: flex-end; }
+  .modal-container { max-width: 100%; }
+  .modal-body { max-height: 60vh; }
+  .modal-footer { flex-direction: column-reverse; }
+  .modal-footer .btn { width: 100%; }
+
+  .palette-overlay { padding-top: 6vh; padding-left: 12px; padding-right: 12px; }
+  .toast-region { right: 12px; left: 12px; bottom: 12px; max-width: none; }
+
+  .authscreen-card { padding: 28px 20px; }
+}
+
+@media (max-width: 560px) {
+  .cards { grid-template-columns: 1fr; }
+  .toolbar, .filterbar { gap: 8px; }
+  .toolbar label, .filterbar label { flex: 1 1 100%; }
+  .toolbar label input, .toolbar label select,
+  .filterbar label input, .filterbar label select { width: 100%; }
+  .toolbar > button, .toolbar > .btn { flex: 1 1 100%; justify-content: center; }
+  .pagehead { align-items: stretch; }
+  .pagehead-actions { width: 100%; }
+  .pagehead-actions > * { flex: 1; justify-content: center; }
+}
+
+/* A finger is not a mouse pointer: below the WCAG 2.5.5 target floor a control
+   is hittable in theory and missed in practice, and this app puts Approve next
+   to Reject. Only applied where the primary input really is touch. */
+@media (pointer: coarse) {
+  button, .btn, .iconbtn, .segmented-item, .side a, .palette-item { min-height: 40px; }
+  .btn-sm { padding: 8px 12px; }
+  table.grid td button, table.grid td .btn { min-height: 36px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -886,7 +1118,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 
   --status-draft: #64748b;
   --status-in-review: #2563eb;
-  --status-pending: #b45309;
+  --status-pending: #92400e;
   --status-approved: #047857;
   --status-rejected: #b91c1c;
   --status-sealed: #6d28d9;
@@ -1319,9 +1551,18 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
    `[data-palette]` and change no layout, only colour. */
 [data-palette] :focus-visible { outline-color: var(--focus-ring); }
 [data-palette] ::selection { background: color-mix(in srgb, var(--primary) 24%, transparent); }
-[data-palette] button { background: var(--primary); color: var(--primary-fg); box-shadow: var(--shadow-sm); }
-[data-palette] button:hover:not(:disabled) { background: var(--primary-hover); }
-[data-palette] button.ghost { color: var(--text-secondary); }
+/* There is deliberately no `[data-palette] button { … }` rule here any more.
+   It read `background: var(--primary); color: var(--primary-fg); box-shadow:
+   var(--shadow-sm)` — the same three declarations the base `button` rule now
+   makes from tokens — but at (0,1,1) specificity under an attribute selector.
+   That beat every single-class variant in the design system: `.ghost`,
+   `.btn-ghost`, `.btn-secondary`, `.segmented-item`, `.iconbtn`, `.pager
+   button` and `.nav-toggle` were all repainted with the cobalt CTA fill. Every
+   secondary control in the product rendered as a primary one, the segmented
+   filter showed six identical solid chips with no visible selection, and the
+   ghost chips drew muted text on a saturated fill. `--primary` and
+   `--primary-hover` are bridged onto `--primary` / `--primary-strong` already,
+   so the base rule themes itself and the variants keep their own treatment. */
 [data-palette] input:focus, [data-palette] select:focus, [data-palette] textarea:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring) 20%, transparent);
 }
@@ -1347,9 +1588,16 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
       box-shadow: 0 6px 20px -2px var(--primary);
     }
     [data-palette] .authscreen-cta:hover { background: linear-gradient(135deg, var(--primary-hover), var(--primary-strong)); }
-[data-palette] .authscreen { background: radial-gradient(1000px 500px at 50% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--navy); }
+/* The sign-in card is white text on a translucent dark panel, so its backdrop
+   has to be dark in every palette and both themes. The bridge maps --navy onto
+   --bg-sunken, which is a light grey in the light palettes — so light mode put
+   a dark card and its dark glow on a pale grey field, and the one screen every
+   user sees first was the one screen that did not look designed. Pinned to the
+   brand navy rather than a token, because this surface is the brand statement
+   and does not vary with the workspace palette. */
+[data-palette] .authscreen { background: radial-gradient(1000px 500px at 50% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), #0b1220; }
 [data-palette] hr.rule { border-top-color: var(--divider); }
-[data-palette] .side .section-label, [data-palette] .side .foot { color: var(--side-ink); opacity: 0.75; }
+[data-palette] .side .section-label, [data-palette] .side .foot { color: var(--side-ink); opacity: 0.88; }
 /* Buttons on the sidebar. `[data-palette] button` above is (0,1,1) and beats
    these classes' own (0,1,0), so a sidebar button inherited the cobalt CTA fill —
    invisible on a cobalt sidebar, which is the exact failure the old navy sidebar
@@ -1470,7 +1718,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 .userchip-signin-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   background: linear-gradient(135deg, var(--primary, #0038ff), var(--primary-strong, #002ec9));
-  color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px;
+  color: var(--primary-fg, #fff); font-size: 12px; font-weight: 600; padding: 6px 12px;
   border-radius: var(--radius-s); border: none; cursor: pointer;
   transition: opacity var(--t-fast) var(--ease);
 }
@@ -1478,7 +1726,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 .topbar-signin-btn {
   display: inline-flex; align-items: center; gap: 6px;
   background: linear-gradient(135deg, var(--primary, #0038ff), var(--primary-strong, #002ec9));
-  color: #fff; font-size: 12px; font-weight: 600; padding: 5px 14px;
+  color: var(--primary-fg, #fff); font-size: 12px; font-weight: 600; padding: 5px 14px;
   border-radius: var(--radius-s); border: none; cursor: pointer;
   transition: opacity var(--t-fast) var(--ease);
 }
@@ -1513,13 +1761,17 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
     color var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
 }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+/* `.btn` is applied to <a> as well as <button> (the dashboard's header actions
+   are links). Without this the base `a:hover` underline fired on a control that
+   is visually a button. */
+a.btn, a.btn:hover { text-decoration: none; }
 .btn-sm { padding: 4px 10px; font-size: var(--fs-11); }
 .btn-md { padding: 8px 14px; font-size: var(--fs-12); }
 .btn-lg { padding: 11px 20px; font-size: var(--fs-13); }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
-  color: #fff;
+  color: var(--primary-fg, #fff);
   border-color: var(--accent, transparent);
   box-shadow: 0 6px 18px -8px var(--primary);
 }
@@ -1537,12 +1789,12 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 .btn-ghost:hover:not(:disabled) { color: var(--ink); background: var(--primary-soft, rgba(0, 56, 255, 0.08)); }
 .btn-danger {
   background: var(--status-rejected);
-  color: #fff;
+  color: var(--on-status);
   border-color: transparent;
 }
 .btn-success {
   background: var(--status-approved);
-  color: #fff;
+  color: var(--on-status);
   border-color: transparent;
 }
 .btn:focus-visible,
@@ -1583,13 +1835,17 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   border: none;
   border-radius: calc(var(--radius-s) - 2px);
   background: transparent;
-  color: var(--muted);
+  /* `--muted` is calibrated against the page background; the segmented track is
+     `--primary-soft`, which took these 11px labels to 4.28:1. The selection is
+     still unmistakable — the chosen segment carries a filled background — so
+     raising the resting contrast costs nothing. */
+  color: var(--ink);
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .segmented-item.is-selected {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-fg, #fff);
 }
 
 .filterbar {
@@ -1604,6 +1860,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   background: var(--card, rgba(148, 163, 184, 0.06));
 }
 .filterbar .spacer { flex: 1 1 auto; }
+.filterbar .segmented { flex-wrap: wrap; max-width: 100%; }
 
 .drawer-scrim {
   position: fixed;
@@ -1651,52 +1908,89 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
   gap: 8px;
   max-width: min(420px, calc(100vw - 36px));
 }
+/* The toast surface is a fixed dark chip in both themes.
+   It used to read `background: var(--ink)` with `color: #fff`. `--ink` is the
+   *foreground* token, so in dark mode the chip painted #e8edf7 — near-white
+   text on a near-white field, i.e. a toast nobody could read, on the one
+   surface reserved for telling the user a write succeeded or failed. */
 .toast {
   padding: 10px 14px;
   border-radius: var(--radius-s);
   font-size: var(--fs-12);
   font-weight: 600;
-  color: #fff;
-  background: var(--ink, #0b1220);
+  color: #f8fafc;
+  background: #172033;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-left: 3px solid var(--primary);
   box-shadow: 0 12px 30px -14px rgba(2, 6, 23, 0.7);
 }
+[data-theme="dark"] .toast { background: #1d2a42; }
 .toast-bad { border-left-color: var(--status-rejected); }
 .toast-ok { border-left-color: var(--status-approved); }
 .toast-warn { border-left-color: var(--status-pending); }
 
+/* `MetricCard` and `StatCard`/`.card` are the same object in two places: a
+   labelled figure in the stat row at the top of a screen. They were styled
+   independently — different surface, radius, padding, border and value size —
+   so the dashboard's tiles and Governance's tiles looked like two different
+   products. `.metric` now inherits the `.card` treatment; only the internals
+   differ, because a metric additionally carries a hint and a trend. */
 .metric {
-  padding: 14px 16px;
-  border-radius: var(--radius-m);
-  background: var(--card, rgba(148, 163, 184, 0.06));
-  border: 1px solid var(--line, rgba(148, 163, 184, 0.3));
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--elev-1);
+  transition: box-shadow var(--t-med) var(--ease), transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
+.metric::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary), var(--cyan));
+  opacity: 0.6;
+  transition: opacity var(--t-med) var(--ease);
+}
+.metric:hover {
+  box-shadow: var(--elev-2);
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+}
+.metric:hover::before { opacity: 1; }
 .metric-label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--fs-11);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.metric-hint {
-  cursor: help;
-  color: var(--muted);
-  border-bottom: 1px dotted currentColor;
-  font-size: var(--fs-11);
-  text-transform: none;
-  letter-spacing: 0;
-}
-.metric-hint:hover::after {
-  content: attr(aria-label);
-  display: none;
-}
-.metric-value { margin-top: 6px; font-size: 22px; font-weight: 700; }
+.metric-value { margin-top: 8px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+.metric-value.good { color: var(--emerald); }
+.metric-value.bad { color: var(--danger); }
+.metric-value.warn { color: var(--warn); }
 .metric-trend { margin-top: 4px; font-size: var(--fs-11); font-weight: 600; color: var(--muted); }
 .metric-trend[data-dir="down"] { color: var(--status-approved); }
 .metric-trend[data-dir="up"] { color: var(--status-rejected); }
+/* The metric's definition line. It sits under the value rather than beside the
+   label: `.metric-label` is an 11px uppercase letter-spaced caption row, and a
+   full sentence of definition set in it wrapped through the middle of every
+   tile. Visible text, not a hover tooltip — a figure whose meaning only a mouse
+   can reach is a figure half the users cannot check. */
+.metric-hint {
+  margin: 8px 0 0;
+  font-size: var(--fs-11);
+  line-height: 1.45;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
 
 .progress {
   width: 100%;

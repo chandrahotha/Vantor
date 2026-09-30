@@ -99,6 +99,80 @@
         }
       }
     },
+    "/api/v1/auth/session": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create Session",
+        "description": "Start a local session.\n\nDeliberately unauthenticated \u2014 that is what \"passwordless\" means here. The\nroute is refused outright when `AUTH_MODE` does not include `local`, so a\ndeployment that has moved to a real identity provider cannot be walked past\nby calling this endpoint; it answers 404, not 401, because in that\nconfiguration the route genuinely does not exist as a way in.",
+        "operationId": "create_session_api_v1_auth_session_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Create Session Api V1 Auth Session Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Whoami",
+        "description": "Who the presented token says you are, and what it lets you do.",
+        "operationId": "whoami_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Whoami Api V1 Auth Me Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/config": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Auth Config",
+        "description": "What sign-in methods this deployment offers.\n\nThe web app reads this before it renders the sign-in screen, so the button\nit shows matches what the server will actually accept. Hardcoding that in\nthe client is how the old build ended up offering a Keycloak redirect in a\ndeployment with no Keycloak.",
+        "operationId": "auth_config_api_v1_auth_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Auth Config Api V1 Auth Config Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "tags": [
@@ -154,21 +228,76 @@
       }
     },
     "/api/v1/integrations": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "List Integrations",
+        "description": "List the adapters this tenant has registered.\n\nThis route did not exist. The Integrations screen has always called\n`GET /api/v1/integrations` on load, inside the `Promise.all` that also\nfetches the adapter types and the delivery log \u2014 so the whole page failed\nfor every user, on every visit, and rendered its error state with three\nempty tables behind it. Nothing caught it: the route is typed `any` on the\nclient, the backend tests only covered routes that exist, and no test\ncompared the two. `frontend/lib/contract.test.ts` now does.\n\n`secret_ref` is returned because it is a vault *pointer* (`env:NAME`) and\nnever a secret \u2014 POST refuses anything else \u2014 and an operator needs to see\nwhich reference an adapter was wired to.",
+        "operationId": "list_integrations_api_v1_integrations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Integrations Api V1 Integrations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "integrations"
         ],
         "summary": "Register",
         "operationId": "register_api_v1_integrations_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/IntegrationIn"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -192,15 +321,60 @@
               }
             }
           }
-        },
+        }
+      }
+    },
+    "/api/v1/webhooks/endpoints": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "List Endpoints",
+        "description": "List registered receivers.\n\nAlso missing. `POST /webhooks/test` takes an `endpoint_id`, and there was no\nroute that could tell a caller what those ids are \u2014 so the one control on\nthe screen that exercises a receiver could not be given a valid argument\nfrom the UI at all.",
+        "operationId": "list_endpoints_api_v1_webhooks_endpoints_get",
         "security": [
           {
             "HTTPBearer": []
           }
-        ]
-      }
-    },
-    "/api/v1/webhooks/endpoints": {
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Endpoints Api V1 Webhooks Endpoints Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "integrations"
@@ -208,15 +382,20 @@
         "summary": "Add Endpoint",
         "description": "Register a webhook receiver.\n\nVNT-007. The URL is validated *here*, at the point a tenant supplies it,\nrather than being stored and discovered to be a cloud-metadata address on the\nfirst delivery. `resolve=False` for the syntactic checks and a real\nresolution for the address policy: a URL that will not resolve is refused\nnow, while the operator can still fix DNS, instead of producing a permanent\n`dead` row per event.",
         "operationId": "add_endpoint_api_v1_webhooks_endpoints_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/EndpointIn"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -240,12 +419,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/v1/webhooks/deliveries": {

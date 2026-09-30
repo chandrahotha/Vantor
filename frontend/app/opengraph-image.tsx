@@ -59,7 +59,7 @@ export default async function OpengraphImage() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <div style={{ fontSize: 24, color: "#FFFFFF", border: "2px solid #1B6CFF", borderRadius: 999, padding: "11px 26px" }}>
-            AGPL-3.0-or-later
+            Apache-2.0
           </div>
           <div style={{ fontSize: 24, color: "#64748B" }}>FastAPI + Next.js + Postgres</div>
           <div style={{ marginLeft: "auto", fontSize: 24, color: "#64748B" }}>Digi Tracks</div>

@@ -300,9 +300,18 @@ describe("MetricCard", () => {
     expect(screen.getByText("12,000 INR")).toBeInTheDocument();
   });
 
-  it("explains itself when a hint is given, as text and as a tooltip", () => {
-    render(<MetricCard label="Committed" value="1.0M" hint="Approved POs only" />);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Approved POs only");
+  it("explains itself when a hint is given, as visible text tied to the metric", () => {
+    // The definition must not be hover-only — that is the point of this
+    // assertion, and it still holds. It is no longer given `role="tooltip"`:
+    // that role describes a popup, and this has always been permanently
+    // rendered text. The binding is `aria-describedby`, which is what actually
+    // associates a description with the thing it describes.
+    const { container } = render(<MetricCard label="Committed" value="1.0M" hint="Approved POs only" />);
+    const hint = screen.getByText("Approved POs only");
+    expect(hint).toBeVisible();
+    const metric = container.querySelector(".metric");
+    expect(metric).toHaveAttribute("aria-describedby", hint.id);
+    expect(hint.id).toBeTruthy();
   });
 });
 

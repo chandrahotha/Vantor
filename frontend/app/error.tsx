@@ -5,8 +5,15 @@ import Link from "next/link";
  *  error shows the browser's default blank page with no way back into the app. */
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="shell">
-      <main className="main" id="main">
+    // Not `.shell`: that is a two-column grid whose first track is the fixed
+    // 248px sidebar. With `<main>` as the only child the whole error page was
+    // laid out inside that 248px column — a wall of wrapped text down the left
+    // edge of an otherwise empty screen, on the one screen a user reaches when
+    // something has already gone wrong. This boundary renders outside the app
+    // chrome (the shell's client islands are what may have thrown), so it gets
+    // a plain centred column of its own.
+    <div className="errorpage">
+      <main className="main errorpage-main" id="main">
         <div className="pagehead">
           <div>
             <h1>Something broke</h1>

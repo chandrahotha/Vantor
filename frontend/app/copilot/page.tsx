@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
+import Link from "next/link";
 import { AuthScreen, Badge, Empty, ErrorBox, LiveRegion, useBoot } from "../../components/ui";
 import { api } from "../../lib/api";
 import { aiStream, type ProviderList, type StreamEvidence, type EvidenceRef } from "../../lib/ai";
-import Approvals from "./approvals";
 
 type Turn = {
   id: string;
@@ -158,9 +158,9 @@ export default function Copilot() {
     <Shell>
       <div className="pagehead">
         <div>
-          <h1>Procurement Intelligence Copilot</h1>
+          <h1>Copilot</h1>
           <p>
-            Enterprise procurement advisor: market price intelligence, supplier risk analysis, and contract obligation tracking backed by verified system evidence.
+            Ask a question about your own procurement data. Every answer cites the records it was drawn from.
           </p>
         </div>
       </div>
@@ -310,7 +310,20 @@ export default function Copilot() {
             <button type="submit" disabled={busy || !q.trim()}>{busy ? "Thinking…" : "Send"}</button>
           </form>
 
-          <Approvals />
+          {/* The full approval workbench used to be mounted here, below the chat
+              log. Since it became a route of its own it was rendered in two
+              places at once: two independent `useBoot` gates, two polls of the
+              same queue, and two copies of a screen that governs money, one of
+              them filed under the AI assistant. The queue lives at /approvals;
+              this is the pointer to it. */}
+          <div className="info-callout" style={{ marginTop: 20 }}>
+            <span className="info-callout-icon" aria-hidden="true">✓</span>
+            <span>
+              The copilot can only advise. Anything it files for a decision waits in the{" "}
+              <Link href="/approvals">approval queue</Link>, where a person approves or rejects it
+              with a written reason.
+            </span>
+          </div>
         </>
     </Shell>
   );

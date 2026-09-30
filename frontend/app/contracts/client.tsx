@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, Pager, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Contract = { id: string; code: string; title: string; status: string; endDate: string; valueMinor: number; currency: string };
@@ -14,6 +14,30 @@ const NEXT: Record<string, string[]> = {
   active: ["expiring", "expired", "terminated"],
   expiring: ["renewed", "expired", "terminated"],
   renewed: [], expired: [], terminated: [],
+};
+
+/** What each transition does, in the user's words.
+ *
+ *  The buttons used to be labelled with the raw target status — a row offered
+ *  "review", "terminated", "expired": adjectives, lower-case, with no verb and
+ *  no object. Nothing on the row said whether "terminated" described the state
+ *  the contract was in or the state the button would put it in, and two of the
+ *  three are not reversible from this screen. */
+const TRANSITION: Record<string, { label: string; confirm?: string; danger?: boolean }> = {
+  review: { label: "Send for review" },
+  active: { label: "Activate" },
+  expiring: { label: "Flag as expiring" },
+  renewed: { label: "Mark renewed" },
+  expired: {
+    danger: true,
+    label: "Mark expired",
+    confirm: "Marking this contract expired closes it for new purchase orders. There is no transition back to active from this screen.",
+  },
+  terminated: {
+    danger: true,
+    label: "Terminate",
+    confirm: "Terminating ends this contract immediately and is a final state — it cannot be reopened, renewed or reactivated from this screen. The change is written to the audit chain against your name.",
+  },
 };
 
 const TONE: Record<string, "ok" | "warn" | "bad" | "info" | undefined> = {
@@ -33,6 +57,18 @@ export default function ContractsPage() {
   const [busy, setBusy] = useState("");
   const [form, setForm] = useState({ code: "", title: "", supplierId: "", value: "", currency: "INR", start: "", end: "" });
   const [obligationForm, setObligationForm] = useState({ title: "", due: "", owner: "" });
+  /** The transition awaiting confirmation. Null means no dialog is open. */
+  const [pending, setPending] = useState<{ contract: Contract; status: string } | null>(null);
+  /** The detail panel renders below a paginated table, so on anything shorter
+   *  than a tall desktop it opened off-screen: pressing "Open" looked like it
+   *  had done nothing at all. */
+  const detailRef = useRef<HTMLElement>(null);
+  const [scrollTo, setScrollTo] = useState("");
+  useEffect(() => {
+    if (!scrollTo || sel?.id !== scrollTo) return;
+    detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    detailRef.current?.focus();
+  }, [scrollTo, sel]);
 
   const load = useCallback(async (cur: string) => {
     const [c, s] = await Promise.all([
@@ -68,16 +104,17 @@ export default function ContractsPage() {
     await load("");
   });
 
-  const open = (c: Contract) => act(`open-${c.id}`, async () => {
+  const open = (c: Contract, focus = true) => act(`open-${c.id}`, async () => {
     const d = await api<Contract & { obligations?: Obligation[] }>(`/api/v1/contracts/${c.id}`);
     setSel(d.data);
+    if (focus) setScrollTo(c.id);
   });
 
   const move = (c: Contract, status: string) => act(`status-${c.id}`, async () => {
     await api(`/api/v1/contracts/${c.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
     setNote(`${c.code} → ${status}`);
     await load(cursor);
-    if (sel?.id === c.id) await open({ ...c, status });
+    if (sel?.id === c.id) await open({ ...c, status }, false);
   });
 
   const sign = (c: Contract) => act(`sign-${c.id}`, async () => {
@@ -94,7 +131,7 @@ export default function ContractsPage() {
     });
     setNote(`Obligation "${obligationForm.title}" recorded.`);
     setObligationForm({ title: "", due: "", owner: "" });
-    if (sel) await open(sel);
+    if (sel) await open(sel, false);
   });
 
   const columns: Column<Contract>[] = [
@@ -102,16 +139,28 @@ export default function ContractsPage() {
     { key: "title", header: "Title", render: (c) => c.title },
     { key: "status", header: "Status", render: (c) => <Badge tone={TONE[c.status]}>{c.status}</Badge> },
     { key: "end", header: "Ends", render: (c) => c.endDate || "—" },
-    { key: "value", header: "Value", numeric: true, render: (c) => fmtMinor(c.valueMinor, c.currency) },
+    { key: "value", header: "Value", numeric: true, render: (c) => <Money>{fmtMinor(c.valueMinor, c.currency)}</Money> },
     {
-      key: "act", header: "", render: (c) => (
+      key: "act", header: "Actions", align: "end", render: (c) => (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button className="ghost" onClick={() => open(c)} disabled={busy !== ""}>Open</button>
-          {(NEXT[c.status] || []).map((s) => (
-            <button key={s} className="ghost" onClick={() => move(c, s)} disabled={busy !== ""}>{s}</button>
-          ))}
+          {(NEXT[c.status] || []).map((s) => {
+            const t = TRANSITION[s] ?? { label: s };
+            return (
+              <button
+                key={s}
+                className="ghost"
+                onClick={() => (t.confirm ? setPending({ contract: c, status: s }) : move(c, s))}
+                disabled={busy !== ""}
+              >
+                {busy === `status-${c.id}` ? "…" : t.label}
+              </button>
+            );
+          })}
           {(c.status === "review" || c.status === "active" || c.status === "expiring") ? (
-            <button onClick={() => sign(c)} disabled={busy !== ""}>Sign</button>
+            <button onClick={() => sign(c)} disabled={busy !== ""}>
+              {busy === `sign-${c.id}` ? "Signing…" : "Sign"}
+            </button>
           ) : null}
         </div>
       ),
@@ -125,7 +174,7 @@ export default function ContractsPage() {
       <div className="pagehead">
         <div>
           <h1>Contracts</h1>
-          <p>Enterprise contract repository: master agreements, obligation schedules, automated 90-day renewal tracking, and digital execution.</p>
+          <p>Agreements in force, what each one obliges you to, and which are close to expiring.</p>
         </div>
       </div>
 
@@ -154,13 +203,16 @@ export default function ContractsPage() {
 
       <DataTable caption="Contract list" rows={rows} rowKey={(c) => c.id} columns={columns}
         empty={<Empty title="No contracts yet" hint="Create one above." />} />
-      <Pager stack={stack} hasMore={more}
+      <Pager stack={stack} hasMore={more} busy={busy !== ""}
         onPrev={async () => { const st = [...stack]; const pv = st.pop() || ""; setStack(st); await load(pv); }}
         onNext={async () => { setStack((s) => [...s, cursor]); await load(nextCursor); }} />
 
       {sel ? (
-        <section className="panel" style={{ marginTop: 24 }}>
-          <h2 style={{ marginTop: 0 }}>{sel.code} <Badge tone={TONE[sel.status]}>{sel.status}</Badge></h2>
+        <section className="panel detail-panel" style={{ marginTop: 24 }} ref={detailRef} tabIndex={-1} aria-label={`Contract ${sel.code}`}>
+          <div className="detail-head">
+            <h2 style={{ margin: 0 }}>{sel.code} <Badge tone={TONE[sel.status]}>{sel.status}</Badge></h2>
+            <button className="ghost" onClick={() => { setSel(null); setScrollTo(""); }}>Close</button>
+          </div>
           <p style={{ color: "var(--muted)", fontSize: 12 }}>
             Value {fmtMinor(sel.valueMinor, sel.currency)} · ends {sel.endDate || "—"}
           </p>
@@ -184,6 +236,22 @@ export default function ContractsPage() {
           </div>
         </section>
       ) : null}
+
+      <ConfirmDialog
+        open={!!pending}
+        title={`${TRANSITION[pending?.status ?? ""]?.label ?? "Change"} ${pending?.contract.code ?? "this contract"}?`}
+        confirmLabel={TRANSITION[pending?.status ?? ""]?.label ?? "Confirm"}
+        busy={busy.startsWith("status-")}
+        tone={TRANSITION[pending?.status ?? ""]?.danger ? "danger" : "primary"}
+        onCancel={() => setPending(null)}
+        onConfirm={async () => {
+          const p = pending;
+          if (!p) return;
+          setPending(null);
+          await move(p.contract, p.status);
+        }}
+        body={<>{TRANSITION[pending?.status ?? ""]?.confirm}</>}
+      />
     </Shell>
   );
 }

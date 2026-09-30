@@ -31,6 +31,9 @@ export default function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryId = useRef(0);
+  /** Whatever had focus when the palette opened, so closing it puts the caret
+   *  back rather than dumping a keyboard user at the top of the document. */
+  const returnFocus = useRef<HTMLElement | null>(null);
 
   const nav = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -40,21 +43,40 @@ export default function CommandPalette() {
   const activeIdx = hits.length === 0 ? 0 : Math.min(active, hits.length - 1);
 
   function show() {
+    returnFocus.current = (document.activeElement as HTMLElement) ?? null;
     setQ(""); setSupHits([]); setActive(0); setOpen(true);
     setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function hide() {
+    setOpen(false);
+    // Deferred past the unmount so the browser does not immediately move focus
+    // to <body> after we have restored it.
+    setTimeout(() => returnFocus.current?.focus?.(), 0);
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        if (open) setOpen(false); else show();
+        if (open) hide(); else show();
       } else if (e.key === "Escape") {
-        setOpen(false);
+        hide();
       }
     }
+    // The topbar's search control opens the palette through this event.
+    // It used to synthesise a `KeyboardEvent` with `ctrlKey: true` and dispatch
+    // it at `window` to trip the handler above — which worked, but meant the
+    // button's behaviour depended on a keyboard shortcut still being wired the
+    // same way, and it fired a fake key press at every other keydown listener
+    // on the page. A named event says what it means.
+    function onOpenRequest() { if (!open) show(); }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("vantor:open-palette", onOpenRequest);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("vantor:open-palette", onOpenRequest);
+    };
     // `open` is read but not tracked on purpose: re-subscribing on every toggle is
     // pure overhead, and `show()` is a no-op when the palette is already open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,7 +102,7 @@ export default function CommandPalette() {
   }, [q, open]);
 
   function go(h: Hit) {
-    setOpen(false);
+    hide();
     if (h.href) router.push(h.href);
     else if (h.kind === "Supplier") router.push(`/suppliers?highlight=${encodeURIComponent(h.id)}`);
   }
@@ -92,7 +114,7 @@ export default function CommandPalette() {
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
-      onClick={() => setOpen(false)}
+      onClick={hide}
     >
       <div className="palette-panel" onClick={(e) => e.stopPropagation()}>
         <input

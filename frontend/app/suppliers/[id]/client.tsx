@@ -1,7 +1,8 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useState } from "react";
 import Shell from "../../../components/Shell";
-import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, StatCard, useBoot, type Column } from "../../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, StatCard, useBoot, type Column } from "../../../components/ui";
 import { api, newIdemKey } from "../../../lib/api";
 type Supplier = { id: string; code: string; name: string; status: string; country: string; currency: string; riskTier?: string };
 type Contact = { id: string; fullName: string; email: string; phone: string; role: string };
@@ -24,6 +25,10 @@ export default function SupplierDetail({ id }: { id: string }) {
   const [certForm, setCertForm] = useState({ name: "", issuer: "", valid_until: "", document_id: "" });
   const [scoreForm, setScoreForm] = useState<Record<(typeof SCORE_DIMS)[number], string>>({ financial: "3", quality: "3", delivery: "3", service: "3", compliance: "3" });
   const [decisionReason, setDecisionReason] = useState("");
+  /** Rejecting a qualification blocks the supplier from being sourced; it is
+   *  confirmed, and the dialog is where the reason is asked for, because the
+   *  reason is what the audit record will carry. */
+  const [confirmReject, setConfirmReject] = useState(false);
 
   const load = useCallback(async () => {
     const [s, ct, sc, cf, q] = await Promise.all([
@@ -40,7 +45,7 @@ export default function SupplierDetail({ id }: { id: string }) {
     setQual(q.data);
   }, [id]);
 
-  const { state, error } = useBoot(load);
+  const { state, error, reload } = useBoot(load);
   const shownErr = err || error;
 
   async function act(key: string, fn: () => Promise<void>) {
@@ -82,6 +87,11 @@ export default function SupplierDetail({ id }: { id: string }) {
     setDecisionReason("");
   });
 
+  const scoresValid = SCORE_DIMS.every((d) => {
+    const n = Number(scoreForm[d]);
+    return Number.isInteger(n) && n >= 1 && n <= 5;
+  });
+
   const contactCols: Column<Contact>[] = [
     { key: "name", header: "Name", render: (c) => c.fullName },
     { key: "email", header: "Email", render: (c) => c.email || "—" },
@@ -104,14 +114,20 @@ export default function SupplierDetail({ id }: { id: string }) {
     },
   ];
 
-  if (state !== "ok") return <AuthScreen state={state} error={error} />;
+  if (state !== "ok") return <AuthScreen state={state} error={error} onRetry={reload} />;
 
   return (
     <Shell>
       <div className="pagehead">
         <div>
+          {/* This is the only route in the app reached *from* another screen,
+              and it had no way back to it — the browser's Back button was the
+              whole of the affordance. */}
+          <p style={{ margin: "0 0 6px" }}>
+            <Link href="/suppliers">← All suppliers</Link>
+          </p>
           <h1>{supplier ? `${supplier.code} — ${supplier.name}` : "Supplier"}</h1>
-          <p>360° view: contacts, certifications, scorecard and qualification state. All changes are audited.</p>
+          <p>Everything on file for this supplier. Every change here is written to the audit trail.</p>
         </div>
       </div>
 
@@ -142,9 +158,13 @@ export default function SupplierDetail({ id }: { id: string }) {
               ) : null}
               {qual?.status === "under_review" ? (
                 <>
-                  <input aria-label="Decision reason" value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} placeholder="Decision reason (optional)" />
-                  <button className="ghost" onClick={() => decide("qualified")} disabled={busy !== ""}>Qualify</button>
-                  <button className="ghost" onClick={() => decide("rejected")} disabled={busy !== ""}>Reject</button>
+                  <label>Decision reason
+                    <input aria-label="Decision reason" value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} placeholder="Recorded in the audit trail (optional)" style={{ minWidth: 260 }} />
+                  </label>
+                  <button onClick={() => decide("qualified")} disabled={busy !== ""}>
+                    {busy === "decide-qualified" ? "Qualifying…" : "Qualify supplier"}
+                  </button>
+                  <button className="ghost" onClick={() => setConfirmReject(true)} disabled={busy !== ""}>Reject supplier</button>
                 </>
               ) : null}
             </div>
@@ -157,12 +177,32 @@ export default function SupplierDetail({ id }: { id: string }) {
             </ul>
           ) : <p style={{ color: "var(--muted)" }}>No scorecard yet. Score the five dimensions below (1–5 each).</p>}
           <div className="toolbar">
+            {/* The server scores each dimension 1–5. These were free-text boxes,
+                so "seven" or "-2" reached the API and came back as a 422 with
+                no indication of which box was wrong. */}
             {SCORE_DIMS.map((d) => (
-              <label key={d}>{d}
-                <input aria-label={`${d} score`} inputMode="numeric" size={3} value={scoreForm[d]} onChange={(e) => setScoreForm({ ...scoreForm, [d]: e.target.value })} />
+              <label key={d} style={{ textTransform: "capitalize" }}>{d}
+                <input
+                  aria-label={`${d} score, 1 to 5`}
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  inputMode="numeric"
+                  style={{ width: 72 }}
+                  value={scoreForm[d]}
+                  onChange={(e) => setScoreForm({ ...scoreForm, [d]: e.target.value })}
+                />
               </label>
             ))}
-            <button onClick={submitScorecard} disabled={busy !== ""}>{busy === "score" ? "Scoring…" : "Save scorecard"}</button>
+            <button onClick={submitScorecard} disabled={busy !== "" || !scoresValid}>
+              {busy === "score" ? "Scoring…" : "Save scorecard"}
+            </button>
+            {!scoresValid ? (
+              <span style={{ color: "var(--warn)", fontSize: 12, alignSelf: "center" }} role="status">
+                Each dimension must be a whole number from 1 to 5.
+              </span>
+            ) : null}
           </div>
 
           <h2>Certifications</h2>
@@ -193,6 +233,27 @@ export default function SupplierDetail({ id }: { id: string }) {
             empty={<Empty title="No contacts yet" />} />
         </>
       ) : <Empty title="Supplier not found" hint="It may be outside your tenant." />}
+
+      <ConfirmDialog
+        open={confirmReject}
+        title={`Reject ${supplier?.code ?? "this supplier"}?`}
+        confirmLabel="Reject supplier"
+        tone="danger"
+        busy={busy === "decide-rejected"}
+        onCancel={() => setConfirmReject(false)}
+        onConfirm={async () => { setConfirmReject(false); await decide("rejected"); }}
+        body={
+          <>
+            <strong>{supplier?.name}</strong> will be marked <strong>rejected</strong> and cannot be
+            sourced, quoted or contracted until the qualification is resubmitted and decided again.
+            <br />
+            <br />
+            {decisionReason.trim()
+              ? <>Reason recorded in the audit chain: “{decisionReason.trim()}”.</>
+              : <>No reason has been entered. Cancel and add one if this decision needs to be explainable later.</>}
+          </>
+        }
+      />
     </Shell>
   );
 }

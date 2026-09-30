@@ -42,9 +42,9 @@ export const metadata: Metadata = {
     "should-cost model", "maverick spend", "savings tracking", "procurement approval workflow",
     "supplier onboarding", "supplier qualification", "negotiation simulator",
     "procurement AI copilot", "human in the loop AI", "Keycloak OIDC", "Row Level Security",
-    "FastAPI", "Next.js", "Postgres", "AGPL-3.0", "self-hosted", "open source ERP", "Digi Tracks",
+    "FastAPI", "Next.js", "Postgres", "Apache-2.0", "self-hosted", "open source ERP", "Digi Tracks",
   ],
-  // Honest indexing posture: every route is behind Keycloak OIDC, so a crawler
+  // Honest indexing posture: every route requires a signed-in session, so a crawler
   // can only ever see the identity-provider redirect. The discoverable surfaces
   // for this product are the docs site and the GitHub repository.
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },

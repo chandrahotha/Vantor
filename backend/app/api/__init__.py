@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from ..routers.ai import router as ai_router
+from ..routers.auth import router as auth_router
 from ..routers.audit import router as audit_router
 from ..routers.catalog import router as catalog_router
 from ..routers.contracts import router as contracts_router
@@ -17,6 +18,8 @@ from ..routers.suppliers import router as suppliers_router
 
 v1 = APIRouter(prefix="/api/v1")
 v1.include_router(health_router)
+# Sign-in first: it is the only router with an unauthenticated route on it.
+v1.include_router(auth_router)
 v1.include_router(identity_router)
 v1.include_router(integrations_router)
 v1.include_router(notifications_router)
