@@ -1,6 +1,0 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](../../docs/BRAIN.md) · [Docs index](../../docs/README.md)
-
-# Docker Hardening
-
-Run containers as non-root, minimal filesystem permissions, read-only root FS where possible, drop capabilities, pin images by digest, add health checks, resource limits, graceful shutdown and security scanning.

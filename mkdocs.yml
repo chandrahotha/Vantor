@@ -37,4 +37,4 @@ nav:
   - Deployment: docs/08-deployment/local.md
   - Operations: docs/09-operations/runbook.md
   - Decisions: docs/10-decisions/README.md
-  - Specs 06-10: docs/11-specs-06-10/README.md
+  - Audit findings: docs/00-plan/audit-findings/MASTER_FINDINGS.md

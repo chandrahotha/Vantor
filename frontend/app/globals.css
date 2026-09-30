@@ -1733,7 +1733,7 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
 .topbar-signin-btn:hover { opacity: 0.92; }
 
 /* ------------------------------------------------------------------------- *
- * Grade-5 design system — VANTOR_MAX_AI_WORKKIT/12_FRONTEND_GRADE5.
+ * Grade-5 design system — docs/05-frontend/grade5/DESIGN_SYSTEM.md.
  *
  * The one rule this layer is built around: a text-bearing fill uses the
  * AA-checked `--primary` steps, never `--accent`. Every palette declares an

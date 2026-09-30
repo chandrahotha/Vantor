@@ -59,7 +59,7 @@ def main(argv: list[str]) -> int:
         targets = [p for p in ROOT.rglob("*")
                    if p.is_file() and p.suffix in {".py", ".md", ".ts", ".tsx", ".css", ".yml", ".yaml", ".json", ".sh", ".ps1", ".mjs"}
                    and not ({"node_modules", ".next", ".git", ".kilo", "mypy_cache",
-                             ".pytest_cache", ".ruff_cache", "__pycache__", "11-specs-06-10"} & set(p.parts))]
+                             ".pytest_cache", ".ruff_cache", "__pycache__"} & set(p.parts))]
     fixed = 0
     for p in targets:
         if not p.exists():

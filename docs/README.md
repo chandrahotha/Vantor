@@ -12,7 +12,7 @@ docs/
   BRAIN.md                  ← central brain (read first)
   README.md                 ← this index
   glossary.md               ← shared vocabulary
-  00-plan/ROADMAP.md, REPOSITORY_AUDIT.md, MIGRATION_PLAN.md, BUGS.md, SCORECARD.md, masterdoc.md
+  00-plan/ROADMAP.md, REPOSITORY_AUDIT.md, MIGRATION_PLAN.md, BUGS.md, SCORECARD.md, audit-findings/
   01-product/requirements.md
   01-product/portfolio.md      ← canonical list of the 10 products
   02-architecture/system.md, domain.md, database.md, api.md
@@ -35,8 +35,8 @@ docs/
 | 0 | Roadmap (Phases 0–11) | TESTED 3–4, IN DEV 5–8, 11 planned | [00-plan/ROADMAP.md](00-plan/ROADMAP.md) |
 | 0 | Repository audit | VERIFIED | [00-plan/REPOSITORY_AUDIT.md](00-plan/REPOSITORY_AUDIT.md) |
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
-| 0 | Original brief (masterdoc) | Reference — scope since grown 5 → 10 products | [00-plan/masterdoc.md](00-plan/masterdoc.md) |
 | 0 | Session handoff | IMPLEMENTED | [00-plan/SESSION.md](00-plan/SESSION.md) |
+| 0 | Audit findings (45-item register) | VERIFIED | [00-plan/audit-findings/MASTER_FINDINGS.md](00-plan/audit-findings/MASTER_FINDINGS.md) |
 | 0 | Bug & risk register | LIVE — 141 tests, 0 open S1/S2 defects | [00-plan/BUGS.md](00-plan/BUGS.md) |
 | 0 | Scorecard | Brutal self-assessment — 4.6/10 as a product, 8/10 as engineering judgement | [00-plan/SCORECARD.md](00-plan/SCORECARD.md) |
 | 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
@@ -56,6 +56,5 @@ docs/
 | 8 | Local deployment | IMPLEMENTED compose | [08-deployment/local.md](08-deployment/local.md) |
 | 9 | Operations runbook | PLANNED | [09-operations/runbook.md](09-operations/runbook.md) |
 | 10 | Decisions (ADRs) | Accepted | [10-decisions/README.md](10-decisions/README.md) |
-| 11 | Product specs 06–10 (vendored build-brain index) | REFERENCE | [11-specs-06-10/README.md](11-specs-06-10/README.md) |
 
 Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) · [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) · [`00-plan/BUGS.md`](00-plan/BUGS.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)

@@ -118,8 +118,9 @@ Native modules in the decided order `08 → 09 → 07 → 06 → 10`:
 supplier qualification (08) · PO price intel (09) · spend intel (07) · sourcing optimizer (06) ·
 negotiation simulator (10).
 Each has a deterministic engine with golden-vector tests (`test_onboarding`, `test_price_intel`,
-`test_spend_intel`, `test_optimizer`, `test_negosim`). Specs are vendored read-only in
-[`../11-specs-06-10/`](../11-specs-06-10/README.md).
+`test_spend_intel`, `test_optimizer`, `test_negosim`). The original vendor spec bundle has been
+retired; [`../01-product/portfolio.md`](../01-product/portfolio.md) is the canonical per-product
+reference.
 **Gaps:** no product's full spec acceptance suite has been run, and none has UI. The truth
 hierarchy holds throughout (deterministic math = record, AI = advisory until approved).
 Gate: all five acceptance suites green on real DB. **NOT MET.**

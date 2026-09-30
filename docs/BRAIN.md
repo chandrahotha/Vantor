@@ -54,8 +54,8 @@ flowchart TD
 | 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–11 with per-phase gaps + reporting rules | TESTED 3–4 |
 | 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix (audit scope, not product count) | VERIFIED |
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
-| 0 | [`00-plan/masterdoc.md`](00-plan/masterdoc.md) | Original brief, verbatim (superseded: 5 repos → 10 products) | Reference |
 | 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
+| 0 | [`00-plan/audit-findings/MASTER_FINDINGS.md`](00-plan/audit-findings/MASTER_FINDINGS.md) | 45-item evidence-backed defect/risk register | VERIFIED |
 | 1 | [`01-product/requirements.md`](01-product/requirements.md) | PRD: modules, graph, non-negotiables | PLANNED |
 | 1 | [`01-product/portfolio.md`](01-product/portfolio.md) | **Canonical list of the 10 products** + per-product status | IN DEVELOPMENT |
 | 2 | [`02-architecture/system.md`](02-architecture/system.md) | Modular monolith, free topology | PLANNED |
@@ -73,8 +73,11 @@ flowchart TD
 | 8 | [`08-deployment/local.md`](08-deployment/local.md) + [`../docker-compose.yml`](../docker-compose.yml) | Free local stack | IMPLEMENTED compose |
 | 9 | [`09-operations/runbook.md`](09-operations/runbook.md) | Health/backup/incidents + RLS session discipline | IMPLEMENTED |
 | 10 | [`10-decisions/README.md`](10-decisions/README.md) | ADR index (001–006) | Accepted |
-| 11 | [`11-specs-06-10/README.md`](11-specs-06-10/README.md) | Products 06–10 build-brain index (sourcing optimizer, spend intel, onboarding, price intel, nego sim) | REFERENCE |
 | X | [`glossary.md`](glossary.md) | Ubiquitous language | IMPLEMENTED |
+
+Products 06–10 shipped as native modules (`sourcing/`, `spend/`, `suppliers/`, `ai/` — see
+[`01-product/portfolio.md`](01-product/portfolio.md)); their original vendored spec bundle has
+been retired now that the modules and this documentation set are the source of truth.
 
 ## Concept trails (follow the brain, not folders)
 
@@ -86,4 +89,4 @@ flowchart TD
 
 ## Brain maintenance rule
 
-Any new `.md` added anywhere MUST: (1) add a row above, (2) prepend the standard breadcrumb header (verified by `python scripts/verify_brain_links.py`), (3) appear in `docs/README.md` + `mkdocs.yml` nav. CI docs gate enforces this. Exception: `docs/11-specs-06-10/` is a verbatim third-party bundle (indexed only, never edited).
+Any new `.md` added anywhere MUST: (1) add a row above, (2) prepend the standard breadcrumb header (verified by `python scripts/verify_brain_links.py`), (3) appear in `docs/README.md` + `mkdocs.yml` nav. CI docs gate enforces this.

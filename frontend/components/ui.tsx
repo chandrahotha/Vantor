@@ -441,7 +441,7 @@ export function LiveRegion({ children }: { children: React.ReactNode }) {
 }
 
 /* ------------------------------------------------------------------------- *
- * Grade-5 design system — VANTOR_MAX_AI_WORKKIT/12_FRONTEND_GRADE5.
+ * Grade-5 design system — docs/05-frontend/grade5/DESIGN_SYSTEM.md.
  *
  * Every primitive below follows one rule: colour is never the only signal.
  * Tone is carried in a class or a data attribute for styling, and the meaning

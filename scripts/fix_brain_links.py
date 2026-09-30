@@ -17,10 +17,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 BRAIN = ROOT / "docs" / "BRAIN.md"
 DOCS_INDEX = ROOT / "docs" / "README.md"
 
-SKIP = {"masterdoc.txt", "BRAIN.md"}
+SKIP = {"BRAIN.md"}
 SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__",
-             ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache",
-             "11-specs-06-10"}
+             ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache"}
 
 MARKER = "<!-- vantor-brain-link -->"
 HEAD = "> \U0001f9e0 **Vantor Brain:** [BRAIN.md]({brain}) · [Docs index]({index})"

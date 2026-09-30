@@ -36,9 +36,9 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > Products 01–05 came from the five private repositories audited in Phase 0
 > ([`docs/00-plan/REPOSITORY_AUDIT.md`](docs/00-plan/REPOSITORY_AUDIT.md)). Products 06–10
-> arrived later as a vendored build-brain
-> ([`docs/11-specs-06-10/`](docs/11-specs-06-10/README.md)). "Five" in older docs refers to
-> the **audit scope**, never the product count.
+> were added later and now ship as native modules — see
+> [`docs/01-product/portfolio.md`](docs/01-product/portfolio.md) for the canonical mapping.
+> "Five" in older docs refers to the **audit scope**, never the product count.
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
@@ -193,7 +193,7 @@ README.md  LICENSE  SECURITY.md  CONTRIBUTING.md  CODE_OF_CONDUCT.md  CHANGELOG.
 .env.example  docker-compose.yml  .gitignore  mkdocs.yml
 docs/
   BRAIN.md  README.md  glossary.md
-  00-plan/{ROADMAP.md,REPOSITORY_AUDIT.md,MIGRATION_PLAN.md,masterdoc.md,SESSION.md}
+  00-plan/{ROADMAP.md,REPOSITORY_AUDIT.md,MIGRATION_PLAN.md,SESSION.md,audit-findings/}
   01-product/{requirements.md,portfolio.md}
   02-architecture/{system.md,domain.md,database.md,api.md}
   03-ai/{architecture.md,safety.md,evaluation.md}
@@ -204,7 +204,6 @@ docs/
   08-deployment/local.md
   09-operations/runbook.md
   10-decisions/{README.md,ADR-001…007.md}
-  11-specs-06-10/            (vendored Products 06–10 build-brain, read-only)
 assets/brand/{vantor-logo-source.png,logo.svg,logo-mono.svg,logo-dark.svg,favicon.svg,app-icon.svg,social-preview.svg}
 backend/  frontend/  worker/  api/  scripts/
 (android/ arrives with the Coming-Soon native wave — strategy: docs/07-android/strategy.md)
@@ -220,7 +219,6 @@ mkdocs.yml  .github/{workflows/ci.yml,dependabot.yml}
 | `docs/00-plan/MIGRATION_PLAN.md` | KEEP/ADAPT/MERGE/REFACTOR/REWRITE plan |
 | `docs/00-plan/ROADMAP.md` | Phases 0–11, Definition of Done |
 | `docs/01-product/requirements.md` | PRD |
-| `docs/11-specs-06-10/README.md` | Vendored specs for products 06–10 (read-only input) |
 | `docs/02-architecture/system.md` | Modular monolith, free stack |
 | `docs/03-ai/architecture.md` | Gateway, typed tools, HITL, free providers |
 | `docs/04-security/architecture.md` | Auth, tenancy, RBAC, audit |

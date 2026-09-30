@@ -19,7 +19,7 @@ import {
 
 /**
  * The Grade-5 primitives from
- * VANTOR_MAX_AI_WORKKIT/12_FRONTEND_GRADE5/DESIGN_SYSTEM.md.
+ * docs/05-frontend/grade5/DESIGN_SYSTEM.md.
  *
  * The design rule these tests exist to protect is that colour is never the only
  * signal. A red button that says "Reject" is safe; a red button with a glyph

@@ -60,4 +60,4 @@ docker compose --profile storage up -d minio
   `drain_webhooks` every 30s and `spend_snapshot` hourly. If it is not up, contract expiry
   rolling and spend rollups do not happen at all — the dashboard's live `expiring` query still
   works, but the stored statuses do not move. `docker compose logs beat` is the place to look.
-- Staging/prod reuse same images; swap to managed Postgres/Redis/S3/OIDC via env only. Backups + restore drills: see `../09-operations/runbook.md`. Full prod checklist: masterdoc §55.
+- Staging/prod reuse same images; swap to managed Postgres/Redis/S3/OIDC via env only. Backups + restore drills, and the full production checklist: see `../09-operations/runbook.md`.

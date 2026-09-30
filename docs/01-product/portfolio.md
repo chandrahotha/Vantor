@@ -11,10 +11,10 @@ VANTOR consolidates **ten** products from the ProcurementAI portfolio into one m
 monolith. Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
 realised as the AI/HITL/approval substrate the others call.
 
-> **Why ten and not five.** The original brief (`../00-plan/masterdoc.md`) and the
-> Phase 0 audit scope were **five private repositories** — products 01–05. Products
-> 06–10 arrived later as a vendored build-brain (`../11-specs-06-10/`). Any doc that
-> still says "five products" is describing the *audit scope*, not the product.
+> **Why ten and not five.** The original brief and the Phase 0 audit scope were
+> **five private repositories** — products 01–05 (see `../00-plan/REPOSITORY_AUDIT.md`).
+> Products 06–10 arrived later and now ship as native modules. Any doc that still
+> says "five products" is describing the *audit scope*, not the product.
 
 ## The ten (verified state)
 
@@ -70,8 +70,6 @@ realised as the AI/HITL/approval substrate the others call.
    │
 10 Negotiation Simulator ←─ consumes 02 + 03 + 05 (simulation only, never auto-applies)
 ```
-
-Upstream portfolio map (vendored, read-only): `../11-specs-06-10/PORTFOLIO_MAP_01-10.md`.
 
 ## Portfolio rule (inherited, still binding)
 
