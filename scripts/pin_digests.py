@@ -100,9 +100,26 @@ def _open(req: urllib.request.Request, timeout: float = 20.0):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def resolve_digest(ref: str) -> str:
+def manifest_url(ref: str) -> str:
+    """The registry v2 manifest URL for an image reference.
+
+    Split out from `resolve_digest` so the URL shape can be checked without a
+    network call — `repository` is `name:tag` (e.g. `library/redis:7-alpine`),
+    and the registry API takes the name and the reference as separate path
+    segments. Passing `name:tag` as the name segment doubles the tag into the
+    URL (`/v2/library/redis:7-alpine/manifests/7-alpine`), which 404s on
+    Docker Hub and fails token auth on quay.io because the same string leaks
+    into the scope it requests (`repository:name%3Atag:pull`). That shape
+    looked plausible enough to ship with zero coverage until it was run
+    against a real registry.
+    """
     registry, repository = split_reference(ref)
-    base = f"https://{registry}/v2/{repository}/manifests/{repository.rpartition(':')[2]}"
+    name, _, tag = repository.rpartition(":")
+    return f"https://{registry}/v2/{name}/manifests/{tag}"
+
+
+def resolve_digest(ref: str) -> str:
+    base = manifest_url(ref)
     req = urllib.request.Request(base, headers={"Accept": ACCEPT})
     try:
         with _open(req) as resp:
@@ -153,7 +170,7 @@ def resolve_digest(ref: str) -> str:
                 f"{exc.reason}{f' ({body})' if body else ''}"
             ) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise SystemExit(f"{ref}: could not reach {registry} ({exc})") from exc
+            raise SystemExit(f"{ref}: could not reach {urllib.parse.urlparse(base).netloc} ({exc})") from exc
 
 
 def read_env(path: pathlib.Path) -> list[str]:
@@ -256,7 +273,42 @@ def write_env(images, digests, env_lines) -> None:
     print(f"wrote {len(digests)} digests to {ENV_FILE}")
 
 
+#: (ref, expected manifest URL). Each one is the exact shape that broke before
+#: `manifest_url` existed: the tag doubled into the name segment, 404ing on
+#: Docker Hub and failing token auth on quay.io. Offline — these are checked
+#: on every run, in `--check` and the real resolve, because the real resolve
+#: is also what `--check` cannot exercise (it needs a live registry) and this
+#: bug shipped with a passing `--check` the whole time.
+SELF_TEST_CASES = [
+    ("redis:7-alpine", "https://registry-1.docker.io/v2/library/redis/manifests/7-alpine"),
+    ("pgvector/pgvector:pg16", "https://registry-1.docker.io/v2/pgvector/pgvector/manifests/pg16"),
+    ("quay.io/keycloak/keycloak:25.0", "https://quay.io/v2/keycloak/keycloak/manifests/25.0"),
+    ("ollama/ollama:0.3.12", "https://registry-1.docker.io/v2/ollama/ollama/manifests/0.3.12"),
+]
+
+
+def self_test() -> int:
+    failures = []
+    for ref, expected in SELF_TEST_CASES:
+        actual = manifest_url(ref)
+        if actual != expected:
+            failures.append(f"{ref}: expected {expected!r}, got {actual!r}")
+        # The one invariant that caught the original bug: the tag must appear
+        # exactly once, after the final `/manifests/`, never inside the name.
+        tag = ref.rpartition(":")[2]
+        name_segment = actual.rsplit("/manifests/", 1)[0]
+        if tag in name_segment.rsplit("/", 1)[-1]:
+            failures.append(f"{ref}: tag {tag!r} leaked into the name segment of {actual!r}")
+    for f in failures:
+        print(f"SELF-TEST FAIL: {f}", file=sys.stderr)
+    return len(failures)
+
+
 def main() -> int:
+    if self_test():
+        print("pin_digests: self-test failed, refusing to run", file=sys.stderr)
+        return 2
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true", help="verify only, no network")
     ap.add_argument("--stdout", action="store_true", help="print, change nothing")

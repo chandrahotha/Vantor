@@ -15,4 +15,5 @@ Harassment, discrimination, trolling, personal attacks, publishing private info 
 
 ## Enforcement
 
-Violations may result in warning, temporary ban, or permanent removal. Report privately to maintainers (`SECURITY_CONTACT` before launch). All complaints reviewed confidentially.
+Violations may result in warning, temporary ban, or permanent removal. Report privately to
+**digi.tracks@outlook.com**. All complaints reviewed confidentially.

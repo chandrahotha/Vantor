@@ -1,0 +1,26 @@
+# Shell scripts must stay LF — a CRLF shebang (`#!/bin/sh\r`) is read by Linux
+# as a request for an interpreter literally named `/bin/sh\r`, which does not
+# exist. On Windows, Git's common `core.autocrlf=true` default checks text
+# files out with CRLF, which silently broke `deploy/keycloak/init.sh` this way
+# and took the whole `docker compose up` keycloak-init step down with it:
+# `exec /app/init.sh: no such file or directory`, with nothing in that message
+# pointing at line endings. `eol=lf` makes Git check these out as LF
+# regardless of the platform or a developer's `core.autocrlf` setting.
+*.sh text eol=lf
+*.sh.in text eol=lf
+
+# Anything else that is interpreted by a shebang or a Linux container
+# entrypoint, where the same failure mode applies.
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+*.dockerfile text eol=lf
+
+# Binary assets must never be line-ending-normalized at all — doing so
+# corrupts them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

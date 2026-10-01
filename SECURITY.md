@@ -3,13 +3,14 @@
 
 # Security Policy — VANTOR
 
-**Status: `PLANNED` + enforced from Phase 3 onward.**
+**Status: enforced.** The controls below are implemented and covered by the automated
+suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspirational.
 
 ## Supported versions
 
 | Version | Supported |
 |---|---|
-| `main` (V1 scaffold) | Best effort (no running production yet) |
+| `main` | Best effort — this is a pre-`1.0` project; see `CHANGELOG.md` for what has shipped |
 | Future `1.x` releases | Security patches documented in CHANGELOG |
 
 ## Reporting a vulnerability
@@ -17,7 +18,8 @@
 - **Do not open a public issue for vulnerabilities.**
 - Email privately: **digi.tracks@outlook.com** (Digi Tracks).
 - Include: affected version/commit, reproduction steps, impact, suggested mitigation.
-- Expect acknowledgement within 72h, triage within 7 days once `1.0` ships.
+- Expect acknowledgement within 72 hours. There is no dedicated security team or SLA
+  behind this project today — triage timing is best-effort until that changes.
 
 ## Guaranteed controls (Definition of Done)
 

@@ -204,6 +204,7 @@ docs/
   08-deployment/local.md
   09-operations/runbook.md
   10-decisions/{README.md,ADR-001…007.md}
+  12-legal/ (draft legal docs — not legally reviewed, see docs/12-legal/README.md)
 assets/brand/{vantor-logo-source.png,logo.svg,logo-mono.svg,logo-dark.svg,favicon.svg,app-icon.svg,social-preview.svg}
 backend/  frontend/  worker/  api/  scripts/
 (android/ arrives with the Coming-Soon native wave — strategy: docs/07-android/strategy.md)

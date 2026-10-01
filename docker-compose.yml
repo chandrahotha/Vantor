@@ -62,6 +62,15 @@ services:
     # pgvector/pgvector:pg16 — digest pinned by scripts/pin_digests.py
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     <<: *hardened
+    # The official entrypoint starts as root to `chown` a fresh PGDATA volume to
+    # the postgres user, then drops to it with gosu — `cap_drop: ALL` removes
+    # exactly the capabilities (CHOWN to take ownership, SETUID/SETGID to drop
+    # to postgres, DAC_OVERRIDE for the permission check in between) that dance
+    # needs, so the container crash-looped on every boot with "chmod: Operation
+    # not permitted" / "failed switching to 'postgres': operation not permitted"
+    # and never actually ran. Adding these four back is still far narrower than
+    # the unrestricted capability set this container had before VNT-034.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -84,6 +93,10 @@ services:
     # redis:7-alpine — digest pinned by scripts/pin_digests.py
     image: ${REDIS_IMAGE:-redis:7-alpine}@${REDIS_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     <<: *hardened
+    # Same reason as postgres: the Alpine entrypoint chowns /data and drops from
+    # root to the redis user before `cap_drop: ALL` would let it, so the plain
+    # hardened profile crash-looped this container on every boot too.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
     # VNT-034: this was an unauthenticated port published on the host.
     # `requirepass` is set from the environment with no default.
     command:
@@ -176,6 +189,8 @@ services:
   keycloak-db:
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     <<: *hardened
+    # Same postgres entrypoint, same requirement — see the `postgres` service.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}

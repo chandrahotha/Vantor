@@ -16,11 +16,16 @@
 ```powershell
 git checkout -b feat/<scope>-<short-desc>
 Copy-Item .env.example .env
-docker compose up -d postgres redis minio keycloak ollama
-# run module tests (commands finalized Phase 3)
+python scripts/pin_digests.py       # resolves real image digests into .env; required once before compose
+docker compose up -d postgres redis keycloak ollama
+python -m pytest backend/tests -q   # backend
+cd frontend; npm run typecheck; npm run lint; npm test; cd ..
 git commit -m "feat(scope): what + why"
 gh pr create --fill
 ```
+
+Object storage is BYO S3-compatible (`S3_ENDPOINT`/`S3_BUCKET` in `.env`) or local-disk
+in development; there is no bundled MinIO service.
 
 ## PR checklist
 

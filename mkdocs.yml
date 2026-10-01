@@ -38,3 +38,4 @@ nav:
   - Operations: docs/09-operations/runbook.md
   - Decisions: docs/10-decisions/README.md
   - Audit findings: docs/00-plan/audit-findings/MASTER_FINDINGS.md
+  - Legal: docs/12-legal/README.md

@@ -24,6 +24,7 @@ docs/
   08-deployment/local.md
   09-operations/runbook.md
   10-decisions/README.md + ADR-001…006
+  12-legal/ (draft, not legally reviewed)
 ```
 
 ## Index
@@ -56,5 +57,6 @@ docs/
 | 8 | Local deployment | IMPLEMENTED compose | [08-deployment/local.md](08-deployment/local.md) |
 | 9 | Operations runbook | PLANNED | [09-operations/runbook.md](09-operations/runbook.md) |
 | 10 | Decisions (ADRs) | Accepted | [10-decisions/README.md](10-decisions/README.md) |
+| 12 | Legal (privacy, terms, DPA, MSA, refunds) | `DRAFT — NOT LEGALLY REVIEWED` | [12-legal/README.md](12-legal/README.md) |
 
 Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) · [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) · [`00-plan/BUGS.md`](00-plan/BUGS.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
