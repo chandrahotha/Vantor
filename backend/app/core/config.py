@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     s3_access_key: str = Field(default="", alias="S3_ACCESS_KEY")
     s3_secret_key: str = Field(default="", alias="S3_SECRET_KEY")
     s3_prefix: str = Field(default="", alias="S3_PREFIX")
+    # Explicit opt-in for local-disk storage in production (see get_storage()).
+    # Empty means "decide automatically": S3 if configured, otherwise refuse in
+    # production. A deployment with no object storage and no second node — the
+    # single-container image — sets this to accept the single-node limit
+    # instead of losing uploads to a refusal with no documented way out.
+    storage_driver: str = Field(default="", alias="STORAGE_DRIVER")
 
     # Archive-bomb limits — VNT-011. A 50 MB upload that decompresses to 50 GB is
     # a one-request denial of service, so the parse is bounded independently of
@@ -217,15 +223,41 @@ class Settings(BaseSettings):
         return f"{self.oidc_issuer.rstrip('/')}/protocol/openid-connect/certs"
 
     def require_prod_secrets(self) -> None:
-        """Fail-closed: production must not run on placeholder secrets."""
+        """Fail-closed: production must not run on placeholder secrets.
+
+        The required set is deployment-mode aware rather than a fixed list,
+        because a fixed list is either wrong for `AUTH_MODE=local` (which has
+        no Keycloak and no Postgres to speak of) or silently stops checking
+        anything real. Only variables this process actually reads are checked
+        here — `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `ENCRYPTION_KEY` and
+        `KEYCLOAK_CLIENT_SECRET` were checked here previously but are not read
+        by any code in this app (the worker's credential is
+        `SERVICE_CLIENT_SECRET`, checked separately where the worker starts),
+        so requiring them blocked every production start without protecting
+        anything.
+        """
         if not self.is_prod:
             return
-        placeholders = ("change-me", "generate-32-bytes-min", "")
-        for name in ("DATABASE_URL", "OIDC_ISSUER", "JWT_AUDIENCE", "POSTGRES_PASSWORD",
-                     "JWT_SECRET", "REFRESH_TOKEN_SECRET", "ENCRYPTION_KEY",
-                     "KEYCLOAK_CLIENT_SECRET", "S3_SECRET_KEY"):
+        placeholders = ("change-me", "generate-32-bytes-min")
+
+        def _is_placeholder(val: str) -> bool:
+            # A prior version used `any(p in val for p in placeholders + ("",))`,
+            # which is `True` for every string: the empty string is a substring
+            # of everything, so this refused to start in production no matter
+            # what was configured. Checked for emptiness explicitly instead.
+            return val == "" or any(p in val for p in placeholders)
+
+        required = ["DATABASE_URL"]
+        if self.auth_mode == "oidc":
+            required += ["OIDC_ISSUER", "JWT_AUDIENCE"]
+        if not self.database_url_resolved.startswith("sqlite"):
+            required.append("POSTGRES_PASSWORD")
+        if self.s3_endpoint or self.s3_bucket:
+            required.append("S3_SECRET_KEY")
+
+        for name in required:
             val = os.getenv(name, "")
-            if any(p in val for p in placeholders):
+            if _is_placeholder(val):
                 raise RuntimeError(f"Refusing production start: {name} is missing or placeholder")
 
 

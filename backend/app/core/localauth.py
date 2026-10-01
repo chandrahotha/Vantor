@@ -127,23 +127,60 @@ def roles() -> tuple[str, ...]:
     return tuple(sorted({r.strip() for r in raw.split(",") if r.strip()}))
 
 
-def issue_session() -> tuple[str, int, dict]:
-    """Mint one local session token.
+#: Named personas the one physical operator can sign in as. This mode has no
+#: user directory — "anyone who can reach the API is the operator" — so every
+#: persona below carries the full configured role set; picking one changes
+#: nothing about what is permitted. What it changes is `sub`.
+#:
+#: That matters because segregation-of-duties checks (`check_sod`) compare the
+#: requester's `sub` to the approver's `sub`, and with a single identity that
+#: comparison is always equal: a requisition, PO or invoice could be created
+#: but never approved, because the only operator could never approve their own
+#: document. Letting the operator pick a persona before each action records a
+#: distinct, real identity for that step — the same person is still the one
+#: typing, but the system can tell the requester and the approver apart, the
+#: same way it would for two different people, and the approval history names
+#: whichever persona actually clicked approve.
+PERSONAS: dict[str, str] = {
+    "operator": "Administrator",
+    "buyer": "Buyer",
+    "approver": "Approver",
+    "compliance": "Compliance Reviewer",
+    "legal": "Legal Reviewer",
+}
+
+DEFAULT_PERSONA = "operator"
+
+
+def resolve_persona(persona: str) -> str:
+    """A known persona key, or the default for anything unrecognised/blank."""
+    key = (persona or "").strip().lower()
+    return key if key in PERSONAS else DEFAULT_PERSONA
+
+
+def issue_session(persona: str = DEFAULT_PERSONA) -> tuple[str, int, dict]:
+    """Mint one local session token for the given persona.
 
     Returns `(token, expires_in_seconds, profile)`. The profile is what the web
     app shows in the sidebar; it is derived from the same claims that go into
     the token, so the two cannot disagree.
     """
     settings = get_settings()
+    key = resolve_persona(persona)
+    label = PERSONAS[key]
+    sub = "local-operator" if key == DEFAULT_PERSONA else f"local-{key}"
+    name = settings.local_user_name if key == DEFAULT_PERSONA else f"{settings.local_user_name} — {label}"
+    domain = settings.local_user_email.rsplit("@", 1)[-1] if "@" in settings.local_user_email else "vantor.local"
+    email = settings.local_user_email if key == DEFAULT_PERSONA else f"{key}@{domain}"
     now = datetime.now(timezone.utc)
     ttl = timedelta(hours=settings.local_session_hours)
     claims = {
         "iss": settings.oidc_issuer,
         "aud": settings.jwt_audience,
-        "sub": "local-operator",
+        "sub": sub,
         "tenant_id": settings.local_tenant,
-        "email": settings.local_user_email,
-        "name": settings.local_user_name,
+        "email": email,
+        "name": name,
         "realm_access": {"roles": list(roles())},
         "iat": now,
         "exp": now + ttl,
@@ -151,6 +188,7 @@ def issue_session() -> tuple[str, int, dict]:
         # and an operator reading it later should be able to tell a local
         # passwordless session from a federated identity.
         "vantor_auth": "local",
+        "vantor_local_persona": key,
     }
     pem = signing_key().private_bytes(
         serialization.Encoding.PEM,
@@ -159,10 +197,12 @@ def issue_session() -> tuple[str, int, dict]:
     )
     token = jwt.encode(claims, pem, algorithm="RS256", headers={"kid": LOCAL_KID})
     profile = {
-        "name": settings.local_user_name,
-        "email": settings.local_user_email,
+        "name": name,
+        "email": email,
         "tenant": settings.local_tenant,
         "roles": list(roles()),
+        "persona": key,
+        "personaLabel": label,
     }
     return token, int(ttl.total_seconds()), profile
 

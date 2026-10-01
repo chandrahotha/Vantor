@@ -472,7 +472,7 @@ def get_storage() -> StorageDriver:
             region=settings.s3_region, access_key=settings.s3_access_key,
             secret_key=settings.s3_secret_key, prefix=settings.s3_prefix)
     else:
-        if settings.is_prod:
+        if settings.is_prod and settings.storage_driver != "filesystem":
             raise DocumentError(
                 "DOC_STORAGE_UNCONFIGURED",
                 "No object storage is configured. Local-disk storage is refused in "

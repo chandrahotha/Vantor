@@ -105,8 +105,25 @@
           "auth"
         ],
         "summary": "Create Session",
-        "description": "Start a local session.\n\nDeliberately unauthenticated \u2014 that is what \"passwordless\" means here. The\nroute is refused outright when `AUTH_MODE` does not include `local`, so a\ndeployment that has moved to a real identity provider cannot be walked past\nby calling this endpoint; it answers 404, not 401, because in that\nconfiguration the route genuinely does not exist as a way in.",
+        "description": "Start a local session.\n\nDeliberately unauthenticated \u2014 that is what \"passwordless\" means here. The\nroute is refused outright when `AUTH_MODE` does not include `local`, so a\ndeployment that has moved to a real identity provider cannot be walked past\nby calling this endpoint; it answers 404, not 401, because in that\nconfiguration the route genuinely does not exist as a way in.\n\n`persona` picks which named local identity the token is issued for (see\n`GET /auth/personas`). It does not change what the token permits \u2014 there is\none operator and every persona holds the full configured role set \u2014 it\nchanges `sub`, so a requester and an approver can be recorded as distinct\nidentities and segregation-of-duties checks can actually be satisfied by\nthe one physical operator switching hats.",
         "operationId": "create_session_api_v1_auth_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SessionIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -115,6 +132,39 @@
                 "schema": {
                   "type": "object",
                   "title": "Response Create Session Api V1 Auth Session Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/personas": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "List Personas",
+        "description": "Named local identities `POST /auth/session` will accept.\n\n404s under `AUTH_MODE=oidc` for the same reason `/auth/session` does: in\nthat configuration this is not a way to sign in, so it does not exist.",
+        "operationId": "list_personas_api_v1_auth_personas_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Personas Api V1 Auth Personas Get"
                 }
               }
             }
@@ -5860,6 +5910,18 @@
           "dims"
         ],
         "title": "ScorecardIn"
+      },
+      "SessionIn": {
+        "properties": {
+          "persona": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Persona",
+            "default": "operator"
+          }
+        },
+        "type": "object",
+        "title": "SessionIn"
       },
       "ShouldCostIn": {
         "properties": {

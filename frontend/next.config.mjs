@@ -100,7 +100,14 @@ const nextConfig = {
   output: "standalone",
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+    // `??`, not `||`: an explicitly empty NEXT_PUBLIC_API_URL means same-origin
+    // (see RAW_API above) and must reach the client bundle as "", not as the
+    // hardcoded dev fallback. `||` treats "" as unset because it is falsy, so
+    // this used to rewrite the single-container image's deliberate same-origin
+    // setting back into `http://localhost:8000` — a host unreachable from the
+    // browser outside the machine that built the image, which made every API
+    // call from the UI fail on an otherwise-healthy deployment.
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
   },
   /** Same-origin API proxy for the single-container image.
    *

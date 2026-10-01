@@ -92,3 +92,65 @@ def test_the_three_keycloak_hosts_agree():
     kc_url = env_example_value("NEXT_PUBLIC_KEYCLOAK_URL")
     realm = env_example_value("NEXT_PUBLIC_KEYCLOAK_REALM")
     assert Settings().oidc_issuer == f"{kc_url}/realms/{realm}"
+
+
+class TestRequireProdSecrets:
+    """`require_prod_secrets` used to be `"" in val`, which is `True` for every
+    string — the empty string is a substring of everything — so it refused to
+    start in production no matter what was configured. It also demanded
+    `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `ENCRYPTION_KEY` and
+    `KEYCLOAK_CLIENT_SECRET`, none of which any code in this app reads, which
+    meant a correctly configured deployment could never pass it either way.
+    This is what makes the single-container image (`APP_ENV=production`,
+    `AUTH_MODE=local`, SQLite, no S3) boot at all.
+    """
+
+    def test_single_container_profile_starts_clean(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "local")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        for name in ("OIDC_ISSUER", "JWT_AUDIENCE", "POSTGRES_PASSWORD",
+                     "S3_ENDPOINT", "S3_BUCKET", "S3_SECRET_KEY"):
+            monkeypatch.delenv(name, raising=False)
+        Settings(_env_file=None).require_prod_secrets()  # must not raise
+
+    def test_oidc_mode_without_issuer_is_refused(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        monkeypatch.delenv("OIDC_ISSUER", raising=False)
+        with pytest.raises(RuntimeError, match="OIDC_ISSUER"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_postgres_backend_without_password_is_refused(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "local")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor@postgres:5432/vantor")
+        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+        with pytest.raises(RuntimeError, match="POSTGRES_PASSWORD"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_s3_configured_without_secret_key_is_refused(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "local")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        monkeypatch.setenv("S3_ENDPOINT", "https://s3.example.com")
+        monkeypatch.setenv("S3_BUCKET", "vantor-docs")
+        monkeypatch.delenv("S3_SECRET_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="S3_SECRET_KEY"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_placeholder_value_is_still_refused(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        monkeypatch.setenv("OIDC_ISSUER", "http://localhost:8080/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "change-me")
+        with pytest.raises(RuntimeError, match="JWT_AUDIENCE"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_development_mode_is_never_checked(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "development")
+        for name in ("DATABASE_URL", "OIDC_ISSUER", "JWT_AUDIENCE", "POSTGRES_PASSWORD"):
+            monkeypatch.delenv(name, raising=False)
+        Settings(_env_file=None).require_prod_secrets()  # must not raise

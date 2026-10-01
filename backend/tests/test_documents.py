@@ -269,3 +269,54 @@ def test_tampered_bytes_are_quarantined_not_served(client, tmp_path):
     assert dl.status_code == 409
     row = c.get("/api/v1/documents", headers=h).json()["data"][0]
     assert row["status"] == "quarantined"
+
+
+class TestGetStorageProductionGate:
+    """`get_storage()` refuses local-disk storage in production unless an
+    operator has explicitly opted in. This used to advertise `STORAGE_DRIVER=
+    filesystem` as that opt-in in its own error message while reading nothing
+    of the kind, which meant the single-container image (production, no S3)
+    refused every upload with no way out that actually worked."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self, monkeypatch, tmp_path):
+        from app.core.config import get_settings
+        from app.services.document import reset_storage_cache
+
+        monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+        monkeypatch.delenv("S3_ENDPOINT", raising=False)
+        monkeypatch.delenv("S3_BUCKET", raising=False)
+        get_settings.cache_clear()
+        reset_storage_cache()
+        yield
+        get_settings.cache_clear()
+        reset_storage_cache()
+
+    def test_production_without_storage_driver_is_refused(self, monkeypatch):
+        from app.core.config import get_settings
+        from app.services.document import DocumentError, get_storage
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.delenv("STORAGE_DRIVER", raising=False)
+        get_settings.cache_clear()
+        with pytest.raises(DocumentError) as exc:
+            get_storage()
+        assert exc.value.code == "DOC_STORAGE_UNCONFIGURED"
+
+    def test_production_with_storage_driver_filesystem_is_allowed(self, monkeypatch):
+        from app.core.config import get_settings
+        from app.services.document import FilesystemStorage, get_storage
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("STORAGE_DRIVER", "filesystem")
+        get_settings.cache_clear()
+        assert isinstance(get_storage(), FilesystemStorage)
+
+    def test_development_needs_no_opt_in(self, monkeypatch):
+        from app.core.config import get_settings
+        from app.services.document import FilesystemStorage, get_storage
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.delenv("STORAGE_DRIVER", raising=False)
+        get_settings.cache_clear()
+        assert isinstance(get_storage(), FilesystemStorage)

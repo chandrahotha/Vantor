@@ -18,7 +18,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { getSession, keepFresh, restoreSession, setSession, signIn, subscribeSession } from "../lib/auth";
+import { fetchPersonas, getSession, keepFresh, restoreSession, setSession, signIn, subscribeSession, type Persona } from "../lib/auth";
 import { setRefreshFn, setTokenGetter, setUnauthorizedHandler } from "../lib/api";
 import Shell from "./Shell";
 
@@ -373,12 +373,28 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
 function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
+  // Populated only under AUTH_MODE=local; stays empty (and the picker stays
+  // hidden) under OIDC, when the API is unreachable, or in a test that mocks
+  // fetch for a different endpoint — fetchPersonas() never throws for that.
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [persona, setPersona] = useState("");
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchPersonas(ctrl.signal).then((list) => {
+      if (list.length > 1) {
+        setPersonas(list);
+        setPersona((cur) => cur || list[0].key);
+      }
+    });
+    return () => ctrl.abort();
+  }, []);
 
   async function enter() {
     setBusy(true);
     setFailed("");
     try {
-      await signIn();
+      await signIn(persona || undefined);
       onSignedIn?.();
     } catch (e: unknown) {
       setFailed(e instanceof Error ? e.message : "Sign-in failed.");
@@ -406,6 +422,22 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
               <span className="authscreen-alert-msg">{failed}</span>
             </span>
           </div>
+        ) : null}
+
+        {personas.length > 1 ? (
+          <label className="authscreen-persona">
+            <span className="authscreen-persona-label">Enter as</span>
+            <select
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              disabled={busy}
+              aria-label="Local identity to sign in as"
+            >
+              {personas.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </label>
         ) : null}
 
         <div className="authscreen-actions">

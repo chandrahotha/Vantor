@@ -5,7 +5,7 @@
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
 [![Tests: 362 backend + 152 frontend](https://img.shields.io/badge/tests-362%20backend%20%2B%20152%20frontend-brightgreen.svg)](backend/tests/)
-[![API: 95 operations](https://img.shields.io/badge/API-95%20operations-blue.svg)](api/openapi.json)
+[![API: 96 operations](https://img.shields.io/badge/API-96%20operations-blue.svg)](api/openapi.json)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
 [![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-black.svg)](frontend/)
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status.** Backend: 362 pytest passing, 7 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 95 API operations. Web: 152 vitest passing across 13 suites, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 31 tests.
+**Status.** Backend: 383 pytest collected, 7 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 96 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 31 tests.
 
 Not `PRODUCTION READY`, and two qualifications matter more than the counts:
 
@@ -70,7 +70,7 @@ with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top — every AI answer cite
 
 ## What works today (tested, no mocks)
 
-- [x] Backend API (FastAPI, 95 operations, 362 pytest passing): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
+- [x] Backend API (FastAPI, 96 operations, 376 pytest passing): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (keyword + cosine re-rank, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
 - [x] AuthN/Z: two modes, same verification path. **`AUTH_MODE=local` (default)** makes the API its own issuer — it holds an RSA keypair and mints RS256 tokens, so the product runs with no identity service at all. It is **passwordless**: `POST /api/v1/auth/session` issues a session to whoever asks, which means *anyone who can reach the deployment is the operator*. That is the deliberate trade for a one-container deploy; do not expose such a deployment to an untrusted network. **`AUTH_MODE=oidc`** requires Keycloak as before. In both modes the token is signed, carries a tenant, expires, and is verified identically — a forged or foreign-signed token is a 401, which `tests/test_local_auth.py` asserts. Plus RLS tenant isolation (Postgres only), RBAC, hash-chained audit, idempotency, rate limiting, security headers and an honest `/ready`. The `DISABLE_AUTH=1` escape hatch — which returned a full-Admin actor with no token, in every environment, under a docstring saying no such branch existed — has been removed.
 - [x] Web app (Next.js 16 / React 19, 15 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
 - [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
@@ -173,7 +173,7 @@ It seeds suppliers, contracts and notifications. RFQs, purchase orders, invoices
 budgets are left empty, so those panels show their empty state until you create
 records through the API.
 
-- API Documentation: `http://localhost:8000/docs` (Interactive OpenAPI Swagger, 90 operations across all 10 modules).
+- API Documentation: `http://localhost:8000/docs` (Interactive OpenAPI Swagger, 96 operations across all 10 modules).
 - Health & Readiness: `http://localhost:8000/healthz` and `http://localhost:8000/ready`.
 
 ### 3. Containerized Enterprise Deployment (Optional Docker Compose)
@@ -255,7 +255,7 @@ encoding guards); the long weekly job adds the PG migration chain and the heavie
 suites. Run the same gates locally before you push:
 
 ```powershell
-python -m pytest backend/tests -q     # 330 tests (5 need PostgreSQL)
+python -m pytest backend/tests -q     # 383 tests (7 need PostgreSQL)
 python scripts/verify_brain_links.py  # docs brain-link gate
 cd frontend; npm run typecheck; npm run lint; npm run build
 ```

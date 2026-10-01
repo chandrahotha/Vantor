@@ -29,7 +29,11 @@
  * client cannot forge one that the API will accept.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// `??`, not `||`: an explicitly empty NEXT_PUBLIC_API_URL means same-origin
+// (the single-container image), and "" is falsy, so `||` would silently
+// replace it with the dev fallback and send every request to an address the
+// browser cannot reach outside the machine that built the image.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const STORAGE_KEY = "vantor.session";
 /** Re-issue this far ahead of expiry, so a long-lived tab never blocks on it. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
@@ -41,6 +45,8 @@ export type Session = {
   roles: string[];
   /** Epoch milliseconds. */
   expiresAt: number;
+  /** Local-auth persona key (e.g. "approver"), empty for an OIDC session. */
+  persona?: string;
 };
 
 type Listener = (s: Session | null) => void;
@@ -108,13 +114,41 @@ export async function fetchAuthConfig(signal?: AbortSignal): Promise<AuthConfig>
   return body.data as AuthConfig;
 }
 
-/** Ask the API for a session. Resolves once a real token is held. */
-export async function signIn(): Promise<Session> {
+export type Persona = { key: string; label: string };
+
+/** Named local identities the operator can sign in as (local auth only).
+ *
+ *  Resolves to an empty list on anything other than a clean 2xx response with
+ *  the expected shape — a 404 under `AUTH_MODE=oidc`, an unreachable API, or a
+ *  mocked response shaped for a different endpoint all land here, and an empty
+ *  list means the sign-in screen falls back to its single default button
+ *  rather than rendering a picker with nothing meaningful in it.
+ */
+export async function fetchPersonas(signal?: AbortSignal): Promise<Persona[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/auth/personas`, { signal });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const list = body?.data?.personas;
+    return Array.isArray(list) ? list.filter((p) => p && typeof p.key === "string" && typeof p.label === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Ask the API for a session. Resolves once a real token is held.
+ *
+ *  `persona` picks which named local identity to sign in as (see
+ *  `fetchPersonas`); omitted, the API issues the default operator identity —
+ *  unchanged from before personas existed.
+ */
+export async function signIn(persona?: string): Promise<Session> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}/api/v1/auth/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(persona ? { persona } : {}),
     });
   } catch {
     throw new Error(
@@ -134,6 +168,7 @@ export async function signIn(): Promise<Session> {
     tenant: d.user?.tenant || "",
     roles: Array.isArray(d.user?.roles) ? [...d.user.roles].sort() : [],
     expiresAt: Date.now() + Math.max(0, Number(d.expiresIn) || 0) * 1000,
+    persona: typeof d.user?.persona === "string" ? d.user.persona : "",
   };
   if (!session.tenant) {
     // Same rule the Keycloak path enforced: no tenant, no session. The API
@@ -168,7 +203,11 @@ export function keepFresh(onExpired: () => void): () => void {
     }
     if (s.expiresAt - Date.now() > RENEW_BEFORE_MS) return;
     try {
-      await signIn();
+      // Renew as the same persona the session already holds — otherwise a
+      // tab left open while acting as "Approver" would silently renew back
+      // to the default operator identity partway through, which is exactly
+      // the kind of identity-under-your-feet bug personas exist to prevent.
+      await signIn(s.persona);
     } catch {
       // Keep the current token; it is still valid. If it does lapse the next
       // tick reports it, and any request that 401s ends the session anyway.

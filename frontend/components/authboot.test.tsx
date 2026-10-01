@@ -194,3 +194,49 @@ describe("the sign-in screen", () => {
     );
   });
 });
+
+describe("the sign-in screen persona picker", () => {
+  it("stays hidden when the API offers no personas (e.g. OIDC mode, or unreachable)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(envelope({ personas: [] }));
+    render(<AuthScreen state="signin" />);
+    await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+  });
+
+  it("offers a persona picker when the API lists more than one", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      envelope({
+        personas: [
+          { key: "operator", label: "Administrator" },
+          { key: "buyer", label: "Buyer" },
+          { key: "approver", label: "Approver" },
+        ],
+      }),
+    );
+    render(<AuthScreen state="signin" />);
+    const select = await screen.findByRole("combobox", { name: /local identity/i });
+    expect(select).toBeInTheDocument();
+    // No credential field exists alongside it.
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
+  });
+
+  it("sends the selected persona when signing in", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/personas")) {
+        return envelope({
+          personas: [
+            { key: "operator", label: "Administrator" },
+            { key: "approver", label: "Approver" },
+          ],
+        });
+      }
+      return envelope({ token: "a.b.c", expiresIn: 3600, user: { name: "X", tenant: "t1", roles: [], persona: "approver" } });
+    });
+    render(<AuthScreen state="signin" />);
+    const select = await screen.findByRole("combobox", { name: /local identity/i });
+    await userEvent.selectOptions(select, "approver");
+    await userEvent.click(screen.getByRole("button", { name: /log in to vantor/i }));
+    await waitFor(() => expect(auth.getSession()?.token).toBe("a.b.c"));
+    const sessionCall = fetchSpy.mock.calls.find(([url]) => String(url).includes("/auth/session"));
+    expect(sessionCall?.[1]?.body).toBe(JSON.stringify({ persona: "approver" }));
+  });
+});

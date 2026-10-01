@@ -43,6 +43,31 @@ function cspOf(headers: Header[]): string {
   return csp;
 }
 
+describe("next.config NEXT_PUBLIC_API_URL passthrough", () => {
+  it("passes an explicitly empty value through as empty, not the dev fallback", async () => {
+    // The single-container image sets NEXT_PUBLIC_API_URL="" so the browser
+    // calls same-origin `/api/...`. `env.NEXT_PUBLIC_API_URL` used `||`, and ""
+    // is falsy, so this field silently became "http://localhost:8000" — a host
+    // unreachable from a browser outside the machine that built the image.
+    // Every client-side fetch (lib/api.ts, lib/auth.ts) reads this exact field.
+    const config = await loadConfig({ NEXT_PUBLIC_API_URL: "" });
+    expect(config.env.NEXT_PUBLIC_API_URL).toBe("");
+  });
+
+  it("still falls back when the variable is genuinely unset", async () => {
+    // `process.env.X = undefined` stringifies to "undefined", it does not
+    // delete the key — a real "unset" needs an actual delete.
+    delete process.env.NEXT_PUBLIC_API_URL;
+    const config = await loadConfig();
+    expect(config.env.NEXT_PUBLIC_API_URL).toBe("http://localhost:8000");
+  });
+
+  it("passes through an explicit non-empty value unchanged", async () => {
+    const config = await loadConfig({ NEXT_PUBLIC_API_URL: "https://api.example.test" });
+    expect(config.env.NEXT_PUBLIC_API_URL).toBe("https://api.example.test");
+  });
+});
+
 describe("next.config security headers", () => {
   it("puts a content security policy on the app's own responses", async () => {
     // The API's CSP governs documents the API serves. The pages a user reads are

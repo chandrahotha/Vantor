@@ -756,6 +756,30 @@ table.grid th.col-end button { justify-content: flex-end; }
 .authscreen-title { font-size: var(--fs-24); font-weight: 700; letter-spacing: -0.025em; margin: 0 0 8px; color: #fff; }
 .authscreen-sub { color: #94a3b8; font-size: var(--fs-13); margin: 0 0 20px; max-width: 44ch; line-height: 1.5; }
 
+.authscreen-persona {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-l);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+.authscreen-persona-label { font-size: var(--fs-13); color: #94a3b8; }
+.authscreen-persona select {
+  font: inherit;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-m);
+  padding: 6px 10px;
+}
+
 .authscreen-actions {
   display: flex;
   flex-direction: column;

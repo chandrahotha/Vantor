@@ -217,6 +217,58 @@ jobs:
           npm run build
       - name: Frontend container builds
         run: docker build ./frontend
+  e2e:
+    needs: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend deps
+        run: pip install -r backend/requirements.txt
+      - name: Start the API (AUTH_MODE=local, SQLite — no Keycloak/Postgres needed)
+        # This is the one gate that drives a real browser against a real,
+        # running backend. `journey.spec.ts` and `business-workflow.spec.ts`
+        # previously never ran in CI at all — the only sign-in screen ever
+        # audited or screenshotted was the "API unreachable" error state, and
+        # the full requisition -> approval -> PO -> invoice workflow had never
+        # been proven through the UI. AUTH_MODE=local needs no identity
+        # provider, so this needs no Keycloak service container.
+        env:
+          APP_ENV: development
+          AUTH_MODE: local
+          DATABASE_URL: "sqlite:///./data/ci_e2e.db"
+          LOCAL_KEY_PATH: "./data/ci_e2e_key.pem"
+        run: |
+          cd backend
+          nohup python -m uvicorn app.main:app --port 8000 > /tmp/backend.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/v1/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/api/v1/health || (cat /tmp/backend.log && exit 1)
+      - name: Install frontend deps + Playwright browsers
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run Playwright E2E suite
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
   dependabot-audit:
     needs: policy
     runs-on: ubuntu-latest

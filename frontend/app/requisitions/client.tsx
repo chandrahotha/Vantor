@@ -64,7 +64,16 @@ export default function Requisitions() {
   const columns: Column<Req>[] = [
     { key: "code", header: "Code", render: (r) => <span className="mono">{r.code}</span> },
     { key: "title", header: "Title", render: (r) => r.title },
-    { key: "status", header: "Status", render: (r) => <Badge tone={r.status === "submitted" ? "info" : r.status === "approved" ? "ok" : "warn"}>{r.status}</Badge> },
+    {
+      key: "status", header: "Status", render: (r) => (
+        <Badge tone={
+          r.status === "submitted" ? "info"
+          : r.status === "approved" || r.status === "ordered" ? "ok"
+          : r.status === "rejected" ? "bad"
+          : "warn"
+        }>{r.status}</Badge>
+      ),
+    },
     { key: "requester", header: "Requester", render: (r) => <span className="mono" style={{ fontSize: 12 }}>{r.requester}</span> },
     {
       key: "act", header: "", render: (r) =>

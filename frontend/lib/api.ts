@@ -3,7 +3,11 @@
  * backend envelope {data,pagination,error,requestId}; HTTP errors surface the
  * envelope error code, never a raw stack. Empty data renders empty states upstream.
  */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// `??`, not `||`: an explicitly empty NEXT_PUBLIC_API_URL means same-origin
+// (the single-container image), and "" is falsy, so `||` would silently
+// replace it with the dev fallback and send every request to an address the
+// browser cannot reach outside the machine that built the image.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 import { getSession } from "./auth";
 

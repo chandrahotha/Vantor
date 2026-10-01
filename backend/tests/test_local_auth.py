@@ -188,3 +188,73 @@ def test_there_is_no_disable_auth_bypass(client, monkeypatch):
         text = f.read()
     assert 'getenv("DISABLE_AUTH")' not in text
     assert 'environ["DISABLE_AUTH"]' not in text
+
+
+def test_default_session_is_unchanged_by_personas_existing(client):
+    """No body, or an unrecognised persona, must still mint today's identity —
+    existing deployments and the renewal path in `lib/auth.ts` post no body."""
+    body = client.post("/api/v1/auth/session").json()["data"]
+    claims = jwt.decode(body["token"], options={"verify_signature": False})
+    assert claims["sub"] == "local-operator"
+    assert claims["vantor_local_persona"] == "operator"
+
+    bad = client.post("/api/v1/auth/session", json={"persona": "ceo"}).json()["data"]
+    assert jwt.decode(bad["token"], options={"verify_signature": False})["sub"] == "local-operator"
+
+
+def test_persona_changes_identity_not_permissions(client):
+    approver = client.post("/api/v1/auth/session", json={"persona": "approver"}).json()["data"]
+    claims = jwt.decode(approver["token"], options={"verify_signature": False})
+    assert claims["sub"] == "local-approver"
+    assert claims["vantor_local_persona"] == "approver"
+    # Same role set as the default persona — personas distinguish *who*, not
+    # *what they can do*; this mode has no user directory to scope roles from.
+    base = jwt.decode(_token(client), options={"verify_signature": False})
+    assert set(claims["realm_access"]["roles"]) == set(base["realm_access"]["roles"])
+
+
+def test_personas_listed_under_local_mode(client):
+    r = client.get("/api/v1/auth/personas")
+    assert r.status_code == 200
+    keys = {p["key"] for p in r.json()["data"]["personas"]}
+    assert {"operator", "buyer", "approver", "compliance", "legal"} <= keys
+
+
+def test_personas_hidden_under_oidc_mode(client, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("AUTH_MODE", "oidc")
+    get_settings.cache_clear()
+    try:
+        assert client.get("/api/v1/auth/personas").status_code == 404
+    finally:
+        get_settings.cache_clear()
+
+
+def test_personas_let_the_single_operator_clear_segregation_of_duties(client):
+    """The bug this exists to fix: with one identity, a requisition could be
+    submitted but never approved, because the only operator could never
+    approve their own document (`APPROVAL_SOD`). Two personas, same human."""
+    buyer = {"Authorization": "Bearer " + client.post(
+        "/api/v1/auth/session", json={"persona": "buyer"}).json()["data"]["token"]}
+    approver = {"Authorization": "Bearer " + client.post(
+        "/api/v1/auth/session", json={"persona": "approver"}).json()["data"]["token"]}
+
+    rid = client.post("/api/v1/requisitions", json={
+        "code": "REQ-PERSONA-1", "title": "Persona SoD check",
+        "lines": [{"description": "Widget", "quantity": 1, "est_price_minor": 1000}],
+    }, headers=buyer).json()["data"]["id"]
+    assert client.post(f"/api/v1/requisitions/{rid}/submit", headers=buyer).status_code == 200
+
+    pending = client.get("/api/v1/approvals", headers=buyer).json()["data"]
+    aid = next(a["id"] for a in pending if a["resourceId"] == rid)
+
+    # The same persona that raised it still cannot approve it.
+    denied = client.post(f"/api/v1/approvals/{aid}/decide", json={"approve": True}, headers=buyer)
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "APPROVAL_SOD"
+
+    # A different persona — same physical operator, distinct recorded identity
+    # — can.
+    approved = client.post(f"/api/v1/approvals/{aid}/decide", json={"approve": True}, headers=approver)
+    assert approved.status_code == 200, approved.text

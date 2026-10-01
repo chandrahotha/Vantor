@@ -9,6 +9,7 @@ type POLine = { id: string; lineNo: number; description: string; quantity: numbe
 type Invoice = { id: string; code: string; status: string };
 type PODetail = { id: string; code: string; status: string; totalMinor: number; currency: string; lines: POLine[]; invoices: Invoice[] };
 type Supplier = { id: string; code: string; name: string };
+type Requisition = { id: string; code: string; title: string; status: string };
 
 /** Why a PO line was not evaluated, from `spend/price-evaluate`. */
 const SKIP_REASON: Record<string, string> = {
@@ -58,11 +59,12 @@ export function OrdersPage() {
   const [more, setMore] = useState(false);
   const [detail, setDetail] = useState<PODetail | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
 
-  const [form, setForm] = useState({ code: "", supplierId: "", currency: "INR", description: "", quantity: "1", unitPrice: "" });
+  const [form, setForm] = useState({ code: "", supplierId: "", requisitionId: "", currency: "INR", description: "", quantity: "1", unitPrice: "" });
   const [invoice, setInvoice] = useState({ code: "", quantity: "", unitPrice: "" });
   /** The lifecycle action awaiting confirmation; null means no dialog. */
   const [pending, setPending] = useState<{ po: PO; key: string; label: string; path?: string; confirm?: string } | null>(null);
@@ -84,6 +86,11 @@ export function OrdersPage() {
     setCursor(cur);
     const s = await api<Supplier[]>("/api/v1/suppliers?limit=100&sort=name&order=asc");
     setSuppliers(s.data || []);
+    // Only an approved requisition can answer a PO — see
+    // `backend/app/routers/purchase.py::create_po` — so the picker only ever
+    // offers ones that will actually convert, instead of a 422 after the fact.
+    const req = await api<Requisition[]>("/api/v1/requisitions?status=approved&limit=100");
+    setRequisitions(req.data || []);
   }, []);
 
   const { state, error, reload } = useBoot(() => load(""));
@@ -100,11 +107,16 @@ export function OrdersPage() {
         method: "POST", idemKey: newIdemKey(),
         body: JSON.stringify({
           code: form.code, supplier_id: form.supplierId, currency: form.currency,
+          requisition_id: form.requisitionId,
           lines: [{ description: form.description, quantity: Number(form.quantity), unit_price_minor: Math.round(Number(form.unitPrice) * 100) }],
         }),
       });
-      setNote(`PO ${form.code.toUpperCase()} created as draft. It now needs approval.`);
-      setForm({ ...form, code: "", description: "", quantity: "1", unitPrice: "" });
+      setNote(
+        form.requisitionId
+          ? `PO ${form.code.toUpperCase()} created as draft against the linked requisition, which is now ordered. The PO still needs approval.`
+          : `PO ${form.code.toUpperCase()} created as draft. It now needs approval.`,
+      );
+      setForm({ ...form, code: "", requisitionId: "", description: "", quantity: "1", unitPrice: "" });
       await load("");
     });
   }
@@ -250,6 +262,12 @@ export function OrdersPage() {
             </select>
           </label>
           <label>Currency<input aria-label="PO currency" size={5} value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} /></label>
+          <label>Requisition
+            <select aria-label="Linked requisition" value={form.requisitionId} onChange={(e) => setForm({ ...form, requisitionId: e.target.value })}>
+              <option value="">None — raise directly</option>
+              {requisitions.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.title}</option>)}
+            </select>
+          </label>
           <label>Line<input aria-label="PO line description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="M10 hex bolt" /></label>
           <label>Qty<input aria-label="PO quantity" inputMode="numeric" size={5} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
           <label>Unit price<input aria-label="PO unit price" inputMode="decimal" size={8} value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} placeholder="12.50" /></label>

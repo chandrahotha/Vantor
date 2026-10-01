@@ -66,6 +66,7 @@ ENV APP_ENV=production \
     DATABASE_URL=sqlite:////data/vantor.db \
     LOCAL_KEY_PATH=/data/session-signing-key.pem \
     UPLOAD_DIR=/data/uploads \
+    STORAGE_DRIVER=filesystem \
     AUTH_MODE=local \
     PORT=8080 \
     API_PORT=8000 \
