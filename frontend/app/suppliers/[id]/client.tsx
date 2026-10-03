@@ -2,13 +2,16 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import Shell from "../../../components/Shell";
-import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, StatCard, useBoot, type Column } from "../../../components/ui";
-import { api, newIdemKey } from "../../../lib/api";
-type Supplier = { id: string; code: string; name: string; status: string; country: string; currency: string; riskTier?: string };
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, StatCard, useBoot, type Column } from "../../../components/ui";
+import { api, fmtMinor, newIdemKey } from "../../../lib/api";
+type Supplier = { id: string; code: string; name: string; status: string; country: string; currency: string; riskTier?: string; categoryId?: string; categoryName?: string };
 type Contact = { id: string; fullName: string; email: string; phone: string; role: string };
 type Scorecard = { supplierId: string; score: number; grade: string; risk_tier: string; dims: Record<string, number> } | null;
 type Cert = { id: string; name: string; issuer: string; validUntil: string; status: string };
 type Qual = { status: string; exists: boolean; checklist?: { key: string; label: string; done: boolean }[] };
+type ContractRow = { id: string; code: string; title: string; status: string; valueMinor: number; currency: string; endDate: string };
+type PORow = { id: string; code: string; status: string; totalMinor: number; currency: string };
+type InvoiceRow = { id: string; code: string; status: string; totalMinor: number; currency: string; poCode?: string };
 
 const SCORE_DIMS = ["financial", "quality", "delivery", "service", "compliance"] as const;
 
@@ -18,6 +21,9 @@ export default function SupplierDetail({ id }: { id: string }) {
   const [scorecard, setScorecard] = useState<Scorecard>(null);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [qual, setQual] = useState<Qual | null>(null);
+  const [contracts, setContracts] = useState<ContractRow[]>([]);
+  const [pos, setPos] = useState<PORow[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
@@ -31,18 +37,27 @@ export default function SupplierDetail({ id }: { id: string }) {
   const [confirmReject, setConfirmReject] = useState(false);
 
   const load = useCallback(async () => {
-    const [s, ct, sc, cf, q] = await Promise.all([
+    const [s, ct, sc, cf, q, contractRows, poRows, invRows] = await Promise.all([
       api<Supplier>(`/api/v1/suppliers/${id}`),
       api<Contact[]>(`/api/v1/suppliers/${id}/contacts`),
       api<Scorecard>(`/api/v1/suppliers/${id}/scorecard`),
       api<Cert[]>(`/api/v1/suppliers/${id}/certifications`),
       api<Qual>(`/api/v1/suppliers/${id}/qualification`),
+      // The supplier 360 used to answer only "who is this and are they
+      // qualified" — what they have actually been awarded, bought from, and
+      // paid for lived on three other pages with no reverse link back here.
+      api<ContractRow[]>(`/api/v1/contracts?supplierId=${id}&limit=10`),
+      api<PORow[]>(`/api/v1/purchase-orders?supplierId=${id}&limit=10`),
+      api<InvoiceRow[]>(`/api/v1/invoices?supplierId=${id}&limit=10`),
     ]);
     setSupplier(s.data);
     setContacts(ct.data || []);
     setScorecard(sc.data);
     setCerts(cf.data || []);
     setQual(q.data);
+    setContracts(contractRows.data || []);
+    setPos(poRows.data || []);
+    setInvoices(invRows.data || []);
   }, [id]);
 
   const { state, error, reload } = useBoot(load);
@@ -99,6 +114,27 @@ export default function SupplierDetail({ id }: { id: string }) {
     { key: "role", header: "Role", render: (c) => c.role || "—" },
   ];
 
+  const contractCols: Column<ContractRow>[] = [
+    { key: "code", header: "Code", render: (c) => <Link href="/contracts" className="mono">{c.code}</Link> },
+    { key: "title", header: "Title", render: (c) => c.title },
+    { key: "status", header: "Status", render: (c) => <Badge tone={c.status === "active" ? "ok" : c.status === "terminated" ? "bad" : undefined}>{c.status}</Badge> },
+    { key: "end", header: "Ends", render: (c) => c.endDate || "—" },
+    { key: "value", header: "Value", numeric: true, render: (c) => <Money>{fmtMinor(c.valueMinor, c.currency)}</Money> },
+  ];
+
+  const poCols: Column<PORow>[] = [
+    { key: "code", header: "Code", render: (p) => <Link href="/orders" className="mono">{p.code}</Link> },
+    { key: "status", header: "Status", render: (p) => <Badge tone={p.status === "invoiced" || p.status === "closed" ? "ok" : undefined}>{p.status}</Badge> },
+    { key: "total", header: "Total", numeric: true, render: (p) => <Money>{fmtMinor(p.totalMinor, p.currency)}</Money> },
+  ];
+
+  const invoiceCols: Column<InvoiceRow>[] = [
+    { key: "code", header: "Code", render: (i) => <Link href="/orders" className="mono">{i.code}</Link> },
+    { key: "po", header: "PO", render: (i) => i.poCode || "—" },
+    { key: "status", header: "Status", render: (i) => <Badge tone={i.status === "paid" || i.status === "approved" ? "ok" : i.status === "rejected" ? "bad" : undefined}>{i.status}</Badge> },
+    { key: "total", header: "Total", numeric: true, render: (i) => <Money>{fmtMinor(i.totalMinor, i.currency)}</Money> },
+  ];
+
   const certCols: Column<Cert>[] = [
     { key: "name", header: "Certification", render: (c) => c.name },
     { key: "issuer", header: "Issuer", render: (c) => c.issuer || "—" },
@@ -128,6 +164,7 @@ export default function SupplierDetail({ id }: { id: string }) {
           </p>
           <h1>{supplier ? `${supplier.code} — ${supplier.name}` : "Supplier"}</h1>
           <p>Everything on file for this supplier. Every change here is written to the audit trail.</p>
+          {supplier?.categoryName ? <p style={{ color: "var(--muted)", fontSize: 13 }}>Category: {supplier.categoryName}</p> : null}
         </div>
       </div>
 
@@ -231,6 +268,21 @@ export default function SupplierDetail({ id }: { id: string }) {
           </details>
           <DataTable caption="Contacts" rows={contacts} rowKey={(c) => c.id} columns={contactCols}
             empty={<Empty title="No contacts yet" />} />
+
+          {/* The 360 used to stop at "who is this and are they qualified" —
+              what this supplier has actually been awarded, bought from and
+              paid lived on three separate pages with no link back here. */}
+          <h2 style={{ marginTop: 20 }}>Contracts</h2>
+          <DataTable caption="Contracts with this supplier" rows={contracts} rowKey={(c) => c.id} columns={contractCols}
+            empty={<Empty title="No contracts with this supplier" />} />
+
+          <h2 style={{ marginTop: 20 }}>Purchase orders</h2>
+          <DataTable caption="Purchase orders with this supplier" rows={pos} rowKey={(p) => p.id} columns={poCols}
+            empty={<Empty title="No purchase orders with this supplier" />} />
+
+          <h2 style={{ marginTop: 20 }}>Invoices</h2>
+          <DataTable caption="Invoices from this supplier" rows={invoices} rowKey={(i) => i.id} columns={invoiceCols}
+            empty={<Empty title="No invoices from this supplier" />} />
         </>
       ) : <Empty title="Supplier not found" hint="It may be outside your tenant." />}
 

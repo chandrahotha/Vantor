@@ -19,6 +19,7 @@ from ..core.tenant import get_db
 from ..models.pricecase import PriceCase
 from ..models.purchase import PurchaseOrderLine
 from ..models.spend import SavingsRecord, SpendTransaction
+from ..services.names import supplier_names
 from ..services.price_intel import ANOMALY_BP, BaselineCache, PriceIntelError, baseline_for, normalize_item, variance_bp
 from ..services.should_cost import ShouldCostError, gap_vs_quote, model_total
 from ..services.spend_intel import concentration as _concentration
@@ -78,7 +79,9 @@ def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = D
         .where(SavingsRecord.tenant_id == actor.tenant_id)
         .group_by(SavingsRecord.currency)).all())
 
-    by_supplier = [{"supplierId": s, "currency": c, "poTotalMinor": int(t or 0), "poCount": int(n or 0)} for s, c, t, n in comm_rows]
+    sup_names = supplier_names(db, actor.tenant_id, {s for s, _c, _t, _n in comm_rows})
+    by_supplier = [{"supplierId": s, "supplierName": sup_names.get(s, ""), "currency": c,
+                    "poTotalMinor": int(t or 0), "poCount": int(n or 0)} for s, c, t, n in comm_rows]
 
     def _totals(pairs):  # type: ignore[no-untyped-def]
         acc: dict[str, int] = {}
@@ -261,8 +264,9 @@ def price_cases(request: Request, actor: Actor = Depends(get_actor), db: Session
     rows = list(db.execute(stmt).scalars())
     has_more = len(rows) > limit
     rows = rows[:limit]
-    data = [{"id": r.id, "poId": r.po_id, "supplierId": r.supplier_id, "item": r.item,
-             "baselineMinor": r.baseline_minor, "quotedMinor": r.quoted_minor,
+    sup_names = supplier_names(db, actor.tenant_id, {r.supplier_id for r in rows})
+    data = [{"id": r.id, "poId": r.po_id, "supplierId": r.supplier_id, "supplierName": sup_names.get(r.supplier_id, ""),
+             "item": r.item, "baselineMinor": r.baseline_minor, "quotedMinor": r.quoted_minor,
              "varianceBp": r.variance_bp, "samples": r.samples, "status": r.status,
              "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
     return envelope(data, {"limit": limit, "nextCursor": data[-1]["id"] if has_more and data else "",

@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, EntityLink, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
-type PO = { id: string; code: string; status: string; totalMinor: number; currency: string; supplierId: string };
+type PO = { id: string; code: string; status: string; totalMinor: number; currency: string; supplierId: string; supplierName?: string };
 type POLine = { id: string; lineNo: number; description: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number };
 type Invoice = { id: string; code: string; status: string };
-type PODetail = { id: string; code: string; status: string; totalMinor: number; currency: string; lines: POLine[]; invoices: Invoice[] };
+type PODetail = { id: string; code: string; status: string; totalMinor: number; currency: string; supplierId: string; supplierName?: string; lines: POLine[]; invoices: Invoice[] };
 type Supplier = { id: string; code: string; name: string };
 type Requisition = { id: string; code: string; title: string; status: string };
 
@@ -48,7 +48,8 @@ const PO_ACTIONS: Record<string, { key: string; label: string; path?: string; co
 };
 
 const TONE: Record<string, "ok" | "warn" | "bad" | "info" | undefined> = {
-  approved: "info", sent: "info", received: "info", draft: "warn", closed: "ok", rejected: "bad",
+  approved: "info", sent: "info", received: "info", matched: "info", draft: "warn",
+  closed: "ok", paid: "ok", rejected: "bad",
 };
 
 export function OrdersPage() {
@@ -66,6 +67,12 @@ export function OrdersPage() {
 
   const [form, setForm] = useState({ code: "", supplierId: "", requisitionId: "", currency: "INR", description: "", quantity: "1", unitPrice: "" });
   const [invoice, setInvoice] = useState({ code: "", quantity: "", unitPrice: "" });
+  // Rejecting an invoice needs a written reason (the API refuses one without
+  // it) and paying one needs a payment reference, so like the approvals queue
+  // this is a per-row box that only appears while one of those is being typed.
+  const [invRejecting, setInvRejecting] = useState("");
+  const [invPaying, setInvPaying] = useState("");
+  const [invReason, setInvReason] = useState("");
   /** The lifecycle action awaiting confirmation; null means no dialog. */
   const [pending, setPending] = useState<{ po: PO; key: string; label: string; path?: string; confirm?: string } | null>(null);
   /** The detail panel is rendered below a paginated table, so on a laptop it
@@ -213,8 +220,37 @@ export function OrdersPage() {
     });
   }
 
+  async function rejectInvoice(inv: Invoice) {
+    if (!detail) return;
+    if (!invReason.trim()) { setErr("A rejection needs a written reason."); return; }
+    await act(`inv-${inv.id}`, async () => {
+      await api(`/api/v1/invoices/${inv.id}/reject`, {
+        method: "POST", idemKey: newIdemKey(), body: JSON.stringify({ reason: invReason.trim() }),
+      });
+      setNote(`Invoice ${inv.code} rejected. The received quantity is released for re-billing.`);
+      setInvRejecting(""); setInvReason("");
+      await load(cursor);
+      await refreshDetail();
+    });
+  }
+
+  async function payInvoice(inv: Invoice) {
+    if (!detail) return;
+    if (!invReason.trim()) { setErr("Recording payment needs a reference."); return; }
+    await act(`inv-${inv.id}`, async () => {
+      await api(`/api/v1/invoices/${inv.id}/pay`, {
+        method: "POST", idemKey: newIdemKey(), body: JSON.stringify({ reason: invReason.trim() }),
+      });
+      setNote(`Invoice ${inv.code} marked paid (ref. ${invReason.trim()}).`);
+      setInvPaying(""); setInvReason("");
+      await load(cursor);
+      await refreshDetail();
+    });
+  }
+
   const columns: Column<PO>[] = [
     { key: "code", header: "Code", render: (p) => <span className="mono">{p.code}</span> },
+    { key: "supplier", header: "Supplier", render: (p) => <EntityLink kind="supplier" id={p.supplierId} name={p.supplierName} /> },
     { key: "status", header: "Status", render: (p) => <Badge tone={TONE[p.status]}>{p.status}</Badge> },
     { key: "total", header: "Total", numeric: true, render: (p) => <Money>{fmtMinor(p.totalMinor, p.currency)}</Money> },
     {
@@ -296,7 +332,9 @@ export function OrdersPage() {
             <h2 style={{ margin: 0 }}>{detail.code} <Badge tone={TONE[detail.status]}>{detail.status}</Badge></h2>
             <button className="ghost" onClick={() => { setDetail(null); setScrollTo(""); }}>Close</button>
           </div>
-          <p style={{ color: "var(--muted)" }}>Total {fmtMinor(detail.totalMinor, detail.currency)}</p>
+          <p style={{ color: "var(--muted)" }}>
+            Supplier <EntityLink kind="supplier" id={detail.supplierId} name={detail.supplierName} /> · Total {fmtMinor(detail.totalMinor, detail.currency)}
+          </p>
 
           <DataTable caption={`Lines for ${detail.code}`} rows={detail.lines} rowKey={(l) => l.id}
             columns={[
@@ -341,12 +379,71 @@ export function OrdersPage() {
               { key: "code", header: "Code", render: (i) => <span className="mono">{i.code}</span> },
               { key: "status", header: "Status", render: (i) => <Badge tone={TONE[i.status]}>{i.status}</Badge> },
               {
-                key: "act", header: "3-way match", render: (i) =>
-                  i.status === "received" ? (
-                    <button onClick={() => approveInvoice(i)} disabled={busy !== ""}>
-                      {busy === `inv-${i.id}` ? "Matching…" : "Approve"}
-                    </button>
-                  ) : <span style={{ color: "var(--muted)" }}>{i.status === "approved" ? "matched" : "—"}</span>,
+                key: "act", header: "Decision", render: (i) => {
+                  const busyThis = busy === `inv-${i.id}`;
+                  if (i.status === "received" || i.status === "matched") {
+                    return (
+                      <span className="toolbar" style={{ gap: 6 }}>
+                        <button onClick={() => approveInvoice(i)} disabled={busy !== ""}>
+                          {busyThis ? "Matching…" : "Approve"}
+                        </button>
+                        <button
+                          className="ghost"
+                          aria-pressed={invRejecting === i.id}
+                          disabled={busy !== ""}
+                          onClick={() => { setInvRejecting(invRejecting === i.id ? "" : i.id); setInvReason(""); }}
+                        >
+                          Reject
+                        </button>
+                        {invRejecting === i.id ? (
+                          <span className="toolbar" style={{ gap: 6 }}>
+                            <label className="sr-only" htmlFor={`inv-reason-${i.id}`}>Reason for rejection</label>
+                            <input
+                              id={`inv-reason-${i.id}`}
+                              value={invReason}
+                              onChange={(e) => setInvReason(e.target.value)}
+                              placeholder="Why is this rejected?"
+                              style={{ minWidth: 180 }}
+                            />
+                            <button onClick={() => rejectInvoice(i)} disabled={busy !== ""}>
+                              {busyThis ? "…" : "Confirm"}
+                            </button>
+                          </span>
+                        ) : null}
+                      </span>
+                    );
+                  }
+                  if (i.status === "approved") {
+                    return (
+                      <span className="toolbar" style={{ gap: 6 }}>
+                        <button
+                          className="ghost"
+                          aria-pressed={invPaying === i.id}
+                          disabled={busy !== ""}
+                          onClick={() => { setInvPaying(invPaying === i.id ? "" : i.id); setInvReason(""); }}
+                        >
+                          Mark paid
+                        </button>
+                        {invPaying === i.id ? (
+                          <span className="toolbar" style={{ gap: 6 }}>
+                            <label className="sr-only" htmlFor={`inv-pay-${i.id}`}>Payment reference</label>
+                            <input
+                              id={`inv-pay-${i.id}`}
+                              value={invReason}
+                              onChange={(e) => setInvReason(e.target.value)}
+                              placeholder="Payment reference"
+                              style={{ minWidth: 180 }}
+                            />
+                            <button onClick={() => payInvoice(i)} disabled={busy !== ""}>
+                              {busyThis ? "…" : "Confirm"}
+                            </button>
+                          </span>
+                        ) : null}
+                      </span>
+                    );
+                  }
+                  return <span style={{ color: "var(--muted)" }}>{i.status === "paid" ? "settled" : "—"}</span>;
+                },
               },
             ]}
             empty={<Empty title="No invoices" hint="Record one above once goods are received." />} />

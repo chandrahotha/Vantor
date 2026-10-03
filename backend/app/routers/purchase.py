@@ -25,6 +25,7 @@ from ..models.purchase import Approval, Invoice, InvoiceLine, PurchaseOrder, Pur
 from ..models.spend import SpendTransaction
 from ..models.supplier import Category, Supplier
 from ..services.audit import record_event
+from ..services.names import supplier_names
 from ..services.refs import require_ref
 from ..services.purchase import APPROVER_ROLES, PurchaseError, check_sod, decide_approval, next_pending, order_pending, required_tiers, three_way_match
 
@@ -311,8 +312,27 @@ def list_approvals(request: Request, actor: Actor = Depends(get_actor), db: Sess
     rows = list(db.execute(stmt).scalars())
     has_more = len(rows) > limit
     rows = rows[:limit]
+    # VNT-UI: this queue used to answer "what am I deciding" with the resource
+    # type and eight characters of a UUID — the one screen whose entire job is
+    # letting a human make an informed approve/reject call showed them the
+    # least human-readable identifier in the product. One grouped query per
+    # resource type instead of one per row.
+    codes: dict[str, str] = {}
+    req_ids = {a.resource_id for a in rows if a.resource == "requisition"}
+    po_ids = {a.resource_id for a in rows if a.resource == "purchase_order"}
+    inv_ids = {a.resource_id for a in rows if a.resource == "invoice"}
+    if req_ids:
+        codes.update({r.id: r.code for r in db.execute(select(Requisition).where(
+            Requisition.tenant_id == actor.tenant_id, Requisition.id.in_(req_ids))).scalars()})
+    if po_ids:
+        codes.update({p.id: p.code for p in db.execute(select(PurchaseOrder).where(
+            PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id.in_(po_ids))).scalars()})
+    if inv_ids:
+        codes.update({i.id: i.code for i in db.execute(select(Invoice).where(
+            Invoice.tenant_id == actor.tenant_id, Invoice.id.in_(inv_ids))).scalars()})
     data = [{
-        "id": a.id, "resource": a.resource, "resourceId": a.resource_id, "status": a.status,
+        "id": a.id, "resource": a.resource, "resourceId": a.resource_id,
+        "resourceCode": codes.get(a.resource_id, ""), "status": a.status,
         "tier": a.tier, "requestedBy": a.created_by, "decidedBy": a.decided_by or "",
         "reason": a.reason or "", "requiresHumanReview": True,
         "createdAt": a.created_at.isoformat() if a.created_at else "",
@@ -815,10 +835,13 @@ def _mark_po_invoiced(db: Session, actor: Actor, po_id: str, invoice_id: str) ->
 
 @router.get("/purchase-orders")
 def list_pos(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
-             limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default=""), status_: str = Query(default="", alias="status")) -> dict:
+             limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default=""), status_: str = Query(default="", alias="status"),
+             supplier_id: str = Query(default="", alias="supplierId")) -> dict:
     stmt = select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id)
     if status_:
         stmt = stmt.where(PurchaseOrder.status == status_)
+    if supplier_id:
+        stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)
     if cursor:
         cur = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == cursor)).scalar_one_or_none()
         if cur is None:
@@ -828,7 +851,9 @@ def list_pos(request: Request, actor: Actor = Depends(get_actor), db: Session = 
     stmt = stmt.order_by(desc(PurchaseOrder.created_at), desc(PurchaseOrder.id)).limit(limit + 1)
     rows = list(db.execute(stmt).scalars())
     has_more, rows = len(rows) > limit, rows[:limit]
-    data = [{"id": p.id, "code": p.code, "status": p.status, "totalMinor": p.total_minor, "supplierId": p.supplier_id} for p in rows]
+    names = supplier_names(db, actor.tenant_id, {p.supplier_id for p in rows})
+    data = [{"id": p.id, "code": p.code, "status": p.status, "totalMinor": p.total_minor,
+             "supplierId": p.supplier_id, "supplierName": names.get(p.supplier_id, "")} for p in rows]
     return envelope(data, {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
 
 
@@ -839,9 +864,62 @@ def get_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: Se
         raise HTTPException(status_code=404, detail="PO not found")
     lines = list(db.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.tenant_id == actor.tenant_id, PurchaseOrderLine.po_id == pid).order_by(PurchaseOrderLine.line_no)).scalars())
     invs = list(db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.po_id == pid)).scalars())
+    names = supplier_names(db, actor.tenant_id, {po.supplier_id})
     return envelope({"id": po.id, "code": po.code, "status": po.status, "totalMinor": po.total_minor,
-                     "supplierId": po.supplier_id, "currency": po.currency,
+                     "supplierId": po.supplier_id, "supplierName": names.get(po.supplier_id, ""), "currency": po.currency,
                      "lines": [{"id": l.id, "lineNo": l.line_no, "description": l.description, "quantity": l.quantity,
                                 "unitPriceMinor": l.unit_price_minor, "lineTotalMinor": l.line_total_minor} for l in lines],
                      "invoices": [{"id": i.id, "code": i.code, "status": i.status} for i in invs]},
+                    None, getattr(request.state, "request_id", ""))
+
+
+@router.get("/invoices")
+def list_invoices(request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor),
+                  limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default=""),
+                  status_: str = Query(default="", alias="status"), po_id: str = Query(default="", alias="poId"),
+                  supplier_id: str = Query(default="", alias="supplierId")) -> dict:
+    """Invoice index. VNT-UI: there was no way to list or open an invoice at all —
+    the only read path was nested three deep under `GET /purchase-orders/{id}`,
+    which is why neither a dedicated invoices screen nor a supplier's invoice
+    history could exist. Same keyset pagination as every other list here."""
+    stmt = select(Invoice).where(Invoice.tenant_id == actor.tenant_id)
+    if status_:
+        stmt = stmt.where(Invoice.status == status_)
+    if po_id:
+        stmt = stmt.where(Invoice.po_id == po_id)
+    if supplier_id:
+        stmt = stmt.where(Invoice.supplier_id == supplier_id)
+    if cursor:
+        cur = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == cursor)).scalar_one_or_none()
+        if cur is None:
+            raise HTTPException(status_code=422, detail="Invalid cursor")
+        stmt = stmt.where(or_(Invoice.created_at < cur.created_at,
+                              ((Invoice.created_at == cur.created_at) & (Invoice.id < cursor))))
+    stmt = stmt.order_by(desc(Invoice.created_at), desc(Invoice.id)).limit(limit + 1)
+    rows = list(db.execute(stmt).scalars())
+    has_more, rows = len(rows) > limit, rows[:limit]
+    po_codes = {p.id: p.code for p in db.execute(select(PurchaseOrder).where(
+        PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id.in_({i.po_id for i in rows if i.po_id}))).scalars()}
+    names = supplier_names(db, actor.tenant_id, {i.supplier_id for i in rows})
+    data = [{"id": i.id, "code": i.code, "status": i.status, "totalMinor": i.total_minor, "currency": i.currency,
+             "poId": i.po_id or "", "poCode": po_codes.get(i.po_id or "", ""),
+             "supplierId": i.supplier_id, "supplierName": names.get(i.supplier_id, ""),
+             "createdAt": i.created_at.isoformat() if i.created_at else ""} for i in rows]
+    return envelope(data, {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
+
+
+@router.get("/invoices/{iid}")
+def get_invoice(iid: str, request: Request, actor: Actor = Depends(get_actor), db: Session = Depends(db_for_actor)) -> dict:
+    inv = db.execute(select(Invoice).where(Invoice.tenant_id == actor.tenant_id, Invoice.id == iid)).scalar_one_or_none()
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    lines = list(db.execute(select(InvoiceLine).where(InvoiceLine.tenant_id == actor.tenant_id, InvoiceLine.invoice_id == iid)).scalars())
+    po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == inv.po_id)).scalar_one_or_none() if inv.po_id else None
+    names = supplier_names(db, actor.tenant_id, {inv.supplier_id})
+    return envelope({"id": inv.id, "code": inv.code, "status": inv.status, "totalMinor": inv.total_minor, "currency": inv.currency,
+                     "poId": inv.po_id or "", "poCode": po.code if po else "",
+                     "supplierId": inv.supplier_id, "supplierName": names.get(inv.supplier_id, ""),
+                     "lines": [{"id": l.id, "poLineId": l.po_line_id, "quantity": l.quantity,
+                                "unitPriceMinor": l.unit_price_minor, "lineTotalMinor": l.line_total_minor} for l in lines],
+                     "createdAt": inv.created_at.isoformat() if inv.created_at else ""},
                     None, getattr(request.state, "request_id", ""))

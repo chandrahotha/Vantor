@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import Shell from "../../components/Shell";
 import { AuthScreen, Badge, DataTable, Empty, ErrorBox, LiveRegion, useBoot, type Column } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -65,7 +66,9 @@ export default function Notifications() {
     {
       key: "title", header: "Title", render: (n) => (
         <>
-          {n.title}
+          {n.link ? (
+            <Link href={n.link} onClick={() => { if (!n.read) mark(n.id); }}>{n.title}</Link>
+          ) : n.title}
           {n.body ? <div style={{ color: "var(--muted)", fontSize: 12 }}>{n.body}</div> : null}
         </>
       ),

@@ -477,16 +477,27 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 }
 .panel > summary {
   cursor: pointer; font-weight: 600; color: var(--primary); font-size: var(--fs-13);
-  list-style: none; display: flex; align-items: center; gap: 6px;
-  transition: color var(--t-fast) var(--ease);
+  list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  /* VNT-UI: this is the primary "create new X" action on every main list page
+     (suppliers, orders, requisitions, contracts, RFQs, integrations,
+     governance, supplier detail — 8 files). It used to carry no background,
+     no border and stretch full-width inside `.panel`'s own card chrome, so the
+     card itself looked like the button, and the actual click target was plain
+     coloured text floating in a large empty field — it did not read as a
+     button at all, let alone a primary one. Sized and bordered like the rest
+     of the `.btn` family so it is unmistakably a button both collapsed and
+     open. */
+  padding: 8px 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
-/* A disclosure row previously gave no feedback until the click landed — the
-   cursor changed but nothing else did, so it read as flat label text rather
-   than a control. Every other interactive surface in this system (buttons,
-   nav links, the user chip) darkens or lifts on hover; this one didn't. */
-.panel > summary:hover { color: var(--primary-strong); }
+.panel > summary:hover { color: var(--primary-strong); background: var(--primary-soft, rgba(0, 56, 255, 0.08)); border-color: var(--primary); }
+.panel > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .panel > summary::before { content: "+"; font-weight: 700; transition: transform var(--t-fast) var(--ease); }
 .panel[open] > summary::before { transform: rotate(45deg); }
+.panel[open] > summary { margin-bottom: 14px; }
 .panel h2, .panel h3 { margin-top: 18px; }
 .banner {
   background: #ecfdf5; color: #065f46;

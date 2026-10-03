@@ -25,6 +25,7 @@ from ..models.spend import SavingsRecord
 from ..models.supplier import Category, Supplier
 from ..models.onboarding import SupplierQualification
 from ..services.audit import record_event
+from ..services.names import supplier_names
 from ..services.refs import require_ref
 from ..services.sourcing import SourcingError, check_quote_transition, check_rfq_transition, line_total
 
@@ -151,9 +152,18 @@ def get_rfq(rfq_id: str, request: Request, actor: Actor = Depends(get_actor), db
         raise HTTPException(status_code=404, detail="RFQ not found")
     lines = list(db.execute(select(RfqLine).where(RfqLine.tenant_id == actor.tenant_id, RfqLine.rfq_id == rfq_id).order_by(RfqLine.line_no)).scalars())
     quotes = list(db.execute(select(Quote).where(Quote.tenant_id == actor.tenant_id, Quote.rfq_id == rfq_id)).scalars())
+    names = supplier_names(db, actor.tenant_id, {q.supplier_id for q in quotes})
     dto = _rfq_dto(r, len(lines))
     dto["lines"] = [{"id": l.id, "lineNo": l.line_no, "description": l.description, "quantity": l.quantity, "uom": l.uom} for l in lines]
-    dto["quotes"] = [{"id": q.id, "supplierId": q.supplier_id, "status": q.status, "totalMinor": q.total_minor} for q in quotes]
+    dto["quotes"] = [{"id": q.id, "supplierId": q.supplier_id, "supplierName": names.get(q.supplier_id, ""),
+                      "status": q.status, "totalMinor": q.total_minor} for q in quotes]
+    award = db.execute(select(Award).where(Award.tenant_id == actor.tenant_id, Award.rfq_id == rfq_id)).scalar_one_or_none()
+    if award is not None:
+        winner = db.get(Quote, award.quote_id)
+        dto["award"] = {"id": award.id, "quoteId": award.quote_id,
+                        "supplierId": winner.supplier_id if winner else "",
+                        "supplierName": names.get(winner.supplier_id, "") if winner else "",
+                        "awardedTotalMinor": award.awarded_total_minor, "reason": award.reason}
     return envelope(dto, None, getattr(request.state, "request_id", ""))
 
 
@@ -446,7 +456,10 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
             body=f"Winner total {server_total}.", link="/rfqs", created_by=actor.sub)
     db.commit()
     db.refresh(a)
-    return envelope({"id": a.id, "quoteId": q.id, "awardedTotalMinor": server_total}, None, getattr(request.state, "request_id", ""))
+    names = supplier_names(db, actor.tenant_id, {q.supplier_id})
+    return envelope({"id": a.id, "rfqId": rfq_id, "quoteId": q.id, "supplierId": q.supplier_id,
+                     "supplierName": names.get(q.supplier_id, ""), "awardedTotalMinor": server_total},
+                    None, getattr(request.state, "request_id", ""))
 
 
 class OptimizeIn(BaseModel):
@@ -476,6 +489,9 @@ def optimize(rfq_id: str, payload: OptimizeIn, request: Request, actor: Actor = 
         out = allocate(quotes=quotes, max_share_bp=payload.max_share_bp, exclude=set(payload.exclude))
     except OptimizerError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
+    names = supplier_names(db, actor.tenant_id, {a["supplier_id"] for a in out["allocations"]})
+    for a in out["allocations"]:
+        a["supplier_name"] = names.get(a["supplier_id"], "")
     record_event(db, tenant_id=actor.tenant_id, actor=actor.sub, action="RFQ_OPTIMIZED", resource="rfq",
                  resource_id=rfq_id, after={"total_minor": out["total_minor"], "legs": len(out["allocations"])}, source="api", created_by=actor.sub)
     db.commit()

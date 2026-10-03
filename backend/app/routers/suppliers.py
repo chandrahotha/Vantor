@@ -27,6 +27,7 @@ from ..models.scorecard import SupplierScorecard
 from ..models.onboarding import SupplierCertification, SupplierQualification
 from ..models.supplier import Category, Supplier, SupplierContact
 from ..services.audit import record_event
+from ..services.names import category_names
 from ..services.refs import require_ref
 from ..services.scoring import DEFAULT_WEIGHTS, ScoringError, score as score_supplier
 from ..services.supplier import (
@@ -107,7 +108,7 @@ class ContactIn(BaseModel):
     role: str = ""
 
 
-def _to_dto(s: Supplier, duplicate_of: str = "") -> dict:
+def _to_dto(s: Supplier, duplicate_of: str = "", category_name: str = "") -> dict:
     return {
         "id": s.id,
         "code": s.code,
@@ -116,6 +117,7 @@ def _to_dto(s: Supplier, duplicate_of: str = "") -> dict:
         "country": s.country,
         "currency": s.currency,
         "categoryId": s.category_id,
+        "categoryName": category_name,
         "paymentTerms": s.payment_terms,
         "riskTier": s.risk_tier,
         "notes": s.notes,
@@ -164,7 +166,9 @@ def list_suppliers(
     rows = rows[:limit]
     next_cursor = rows[-1].id if has_more and rows else ""
     rid = getattr(request.state, "request_id", "")
-    return envelope([_to_dto(r) for r in rows], {"limit": limit, "nextCursor": next_cursor, "hasMore": has_more, "sort": sort, "order": order}, rid)
+    cat_names = category_names(db, actor.tenant_id, {r.category_id for r in rows})
+    return envelope([_to_dto(r, category_name=cat_names.get(r.category_id or "", "")) for r in rows],
+                    {"limit": limit, "nextCursor": next_cursor, "hasMore": has_more, "sort": sort, "order": order}, rid)
 
 
 @router.post("/suppliers", status_code=201)
@@ -202,7 +206,8 @@ def create_supplier(payload: SupplierIn, request: Request, actor: Actor = Depend
     db.commit()
     db.refresh(row)
     rid = getattr(request.state, "request_id", "")
-    return envelope(_to_dto(row, dup), None, rid)
+    cat_names = category_names(db, actor.tenant_id, {row.category_id})
+    return envelope(_to_dto(row, dup, category_name=cat_names.get(row.category_id or "", "")), None, rid)
 
 
 @router.get("/suppliers/{supplier_id}")
@@ -210,7 +215,8 @@ def get_supplier(supplier_id: str, request: Request, actor: Actor = Depends(get_
     row = db.execute(select(Supplier).where(Supplier.tenant_id == actor.tenant_id, Supplier.id == supplier_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    return envelope(_to_dto(row), None, getattr(request.state, "request_id", ""))
+    cat_names = category_names(db, actor.tenant_id, {row.category_id})
+    return envelope(_to_dto(row, category_name=cat_names.get(row.category_id or "", "")), None, getattr(request.state, "request_id", ""))
 
 
 @router.patch("/suppliers/{supplier_id}")
@@ -247,7 +253,8 @@ def update_supplier(supplier_id: str, payload: SupplierPatch, request: Request, 
                  source="api", ip=request.client.host if request.client else "", created_by=actor.sub)
     db.commit()
     db.refresh(row)
-    return envelope(_to_dto(row), None, getattr(request.state, "request_id", ""))
+    cat_names = category_names(db, actor.tenant_id, {row.category_id})
+    return envelope(_to_dto(row, category_name=cat_names.get(row.category_id or "", "")), None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/suppliers/{supplier_id}/contacts")

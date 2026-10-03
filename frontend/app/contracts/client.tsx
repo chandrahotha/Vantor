@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, EntityLink, ErrorBox, LiveRegion, Money, Pager, useBoot, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
-type Contract = { id: string; code: string; title: string; status: string; endDate: string; valueMinor: number; currency: string };
+type Contract = { id: string; code: string; title: string; status: string; endDate: string; valueMinor: number; currency: string; supplierId: string; supplierName?: string };
 type Obligation = { id: string; title: string; status: string; dueDate: string; owner: string };
 type Supplier = { id: string; code: string; name: string };
 
@@ -137,6 +137,7 @@ export default function ContractsPage() {
   const columns: Column<Contract>[] = [
     { key: "code", header: "Code", render: (c) => <span className="mono">{c.code}</span> },
     { key: "title", header: "Title", render: (c) => c.title },
+    { key: "supplier", header: "Supplier", render: (c) => <EntityLink kind="supplier" id={c.supplierId} name={c.supplierName} /> },
     { key: "status", header: "Status", render: (c) => <Badge tone={TONE[c.status]}>{c.status}</Badge> },
     { key: "end", header: "Ends", render: (c) => c.endDate || "—" },
     { key: "value", header: "Value", numeric: true, render: (c) => <Money>{fmtMinor(c.valueMinor, c.currency)}</Money> },
@@ -214,6 +215,7 @@ export default function ContractsPage() {
             <button className="ghost" onClick={() => { setSel(null); setScrollTo(""); }}>Close</button>
           </div>
           <p style={{ color: "var(--muted)", fontSize: 12 }}>
+            Supplier <EntityLink kind="supplier" id={sel.supplierId} name={sel.supplierName} /> ·
             Value {fmtMinor(sel.valueMinor, sel.currency)} · ends {sel.endDate || "—"}
           </p>
 

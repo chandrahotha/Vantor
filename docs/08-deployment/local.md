@@ -28,8 +28,12 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
 # then set AI_PROVIDER=ollama (and EMBEDDING_PROVIDER=ollama) in .env and
 # restart the backend.
 
-# S3-compatible object storage
-docker compose --profile storage up -d minio
+# S3-compatible object storage: no bundled container. MinIO withdrew its images
+# from Docker Hub and quay.io, so a `minio` service here could never start — see
+# the comment above the `keycloak` service in docker-compose.yml. Leave
+# S3_ENDPOINT/S3_BUCKET blank in .env to use local-disk storage (UPLOAD_DIR)
+# instead, which is what the template ships; set all four S3_* vars against any
+# real S3-compatible endpoint you run yourself to use that instead.
 ```
 
 | Service | Port | Profile | Needed for |
@@ -40,7 +44,6 @@ docker compose --profile storage up -d minio
 | keycloak-init | — | — | one-shot realm/role/client bootstrap; exits when done |
 | beat | — | — | the RQ scheduler (expiry roll, webhook drain, spend snapshot) |
 | ollama | 11434 | `ai` | local LLM + `nomic-embed-text` |
-| minio | 9000 / 9001 | `storage` | S3-compatible blobs |
 
 - **Keycloak is bootstrapped for you.** `keycloak` imports `deploy/keycloak/realm-vantor.json`
   with `--import-realm`, and `keycloak-init` then creates the roles, the worker's
@@ -51,7 +54,8 @@ docker compose --profile storage up -d minio
 - Sign-in is Keycloak, and only Keycloak. The web app has no demo mode, no persona picker and no
   local credential path — a session exists if and only if the IdP returned a signed token carrying
   a tenant, and the API refuses a forged one in every environment including development.
-- MinIO: create bucket `vantor-docs` (tenant prefixes enforced in code).
+- Object storage: no bundled MinIO (see above) — set `S3_*` against your own S3-compatible
+  endpoint and create the bucket there, or leave them blank to use local-disk storage.
 - Online AI instead of Ollama: no profile needed. Put a free key in `.env`
   (`OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `OPENCODE_ZEN_API_KEY`) and set
   `AI_PROVIDER` to that provider's name. Keys are never stored by the server and

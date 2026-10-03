@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Money, Pager, StatCard, useBoot, type Column } from "../../components/ui";
+import { AuthScreen, Badge, ConfirmDialog, DataTable, Empty, EntityLink, ErrorBox, LiveRegion, Money, Pager, StatCard, useBoot, type Column } from "../../components/ui";
 import { API_URL, api, fmtMinor, newIdemKey } from "../../lib/api";
 import { getSession } from "../../lib/auth";
 
@@ -15,13 +15,13 @@ type Summary = {
   poTotalMinor: number; invoicedTotalMinor: number; savedMinor: number;
   byCurrency: { committed: Record<string, number>; invoiced: Record<string, number>; saved: Record<string, number> };
   currencyCount: number;
-  bySupplier: { supplierId: string; currency: string; poTotalMinor: number; poCount: number }[];
+  bySupplier: { supplierId: string; supplierName?: string; currency: string; poTotalMinor: number; poCount: number }[];
 };
 
 type Intel = {
-  cube: { supplierId: string; categoryId: string; currency: string; totalMinor: number; poCount: number }[];
+  cube: { supplierId: string; supplierName?: string; categoryId: string; categoryName?: string; currency: string; totalMinor: number; poCount: number }[];
   leakageTotalMinor: number;
-  concentration: { topShareBp: number; topSupplier: string; singleSourceRisk: boolean };
+  concentration: { topShareBp: number; topSupplierId: string; topSupplierName?: string; singleSourceRisk: boolean };
 };
 type Case = { id: string; item: string; baselineMinor: number; quotedMinor: number; varianceBp: number; samples: number; status: string };
 
@@ -164,7 +164,7 @@ export function SpendPage() {
           ) : null}
 
           {intel?.concentration.singleSourceRisk ? (
-            <ErrorBox message={`Single-source risk: ${intel.concentration.topSupplier} holds ${(intel.concentration.topShareBp / 100).toFixed(1)}% of spend.`} />
+            <ErrorBox message={`Single-source risk: ${intel.concentration.topSupplierName || intel.concentration.topSupplierId} holds ${(intel.concentration.topShareBp / 100).toFixed(1)}% of spend.`} />
           ) : null}
 
           <h2>Price anomalies {cases.length ? <Badge tone="warn">{cases.length} open</Badge> : null}</h2>
@@ -205,8 +205,8 @@ export function SpendPage() {
           <h2 style={{ marginTop: 20 }}>Spend cube</h2>
           <DataTable caption="Spend cube by supplier and category" rows={intel?.cube ?? []} rowKey={(r, ) => `${r.supplierId}-${r.categoryId}`}
             columns={[
-              { key: "sup", header: "Supplier", render: (r) => <span className="mono">{r.supplierId.slice(0, 8)}</span> },
-              { key: "cat", header: "Category", render: (r) => r.categoryId || "—" },
+              { key: "sup", header: "Supplier", render: (r) => <EntityLink kind="supplier" id={r.supplierId} name={r.supplierName} /> },
+              { key: "cat", header: "Category", render: (r) => r.categoryName || (r.categoryId === "uncategorized" ? "Uncategorized" : r.categoryId) || "—" },
               { key: "pos", header: "POs", numeric: true, render: (r) => r.poCount },
               { key: "total", header: "Total", numeric: true, render: (r) => <Money>{fmtMinor(r.totalMinor, r.currency)}</Money> },
             ]}
@@ -391,7 +391,14 @@ export function DocumentsPage() {
           </div>
           <DataTable caption={`Search results for ${searched}`} rows={hits} rowKey={(h) => `${h.documentId}-${h.chunkNo}`}
             columns={[
-              { key: "doc", header: "Document", render: (h) => <span className="mono">{h.documentId.slice(0, 8)}</span> },
+              {
+                key: "doc", header: "Document",
+                // The currently-loaded page of the document list is the only
+                // source for a filename here — a hit from a document outside
+                // it still falls back to a truncated id rather than nothing.
+                render: (h) => rows.find((d) => d.id === h.documentId)?.filename
+                  || <span className="mono">{h.documentId.slice(0, 8)}</span>,
+              },
               { key: "chunk", header: "Chunk", numeric: true, render: (h) => h.chunkNo },
               { key: "ex", header: "Excerpt", render: (h) => h.excerpt },
             ]}

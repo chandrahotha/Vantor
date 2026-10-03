@@ -35,10 +35,14 @@ tenants of a system whose users span countries.
 - **PostgreSQL verification is partial, and the boundary is not recorded.** RLS policy behaviour
   was proven against a genuine PostgreSQL 18 instance on 2026-09-26 with a non-superuser app
   role — see runbook §7. The exact revision tested was not written down, so it cannot be assumed
-  to cover migrations added since. No PostgreSQL is available in the current development
-  environment, so the PG-gated tests (`test_pg_infrastructure.py`) skip here, and the pgvector
-  HNSW index, the partial unique indexes and the `FOR UPDATE SKIP LOCKED` drains are unverified
-  on a real engine.
+  to cover migrations added since. Re-verified on 2026-10-03 against the real
+  `pgvector/pgvector:pg16` container in `docker compose up`'s own stack (not a disposable CI
+  container — the deployment's own Postgres, reached through a temporary host tunnel): the full
+  backend suite, PG tier included, **385 passed, 0 skipped, 0 failed**, through the restricted
+  `vantor_app` role migration 0026 creates. The pgvector HNSW index (`ix_chunk_embedding_hnsw`),
+  the partial unique indexes and the `FOR UPDATE SKIP LOCKED` drains are no longer "unverified on
+  a real engine" — same caveat as every dated verification in this project: it covers the revision
+  tested, not whatever is added after.
 - **The RLS test only covers the baseline migration.** It asserts `0001_baseline.py` defines its
   policies, but 13 later migrations also enable RLS and no test covers them. A new tenant table
   could ship without a policy and the suite would stay green.

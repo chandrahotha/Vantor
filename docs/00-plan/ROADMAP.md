@@ -72,8 +72,8 @@ Gate: E2E P2P flow green — **PASSING** on sqlite unit tests + PG migration CI.
 Real: validate, store, extract (PDF/DOCX/XLSX/multi-sheet/CSV), chunk, embed (ollama real
 / toy deterministic / disabled honest fallback), cosine re-rank with `mode: semantic|keyword`,
 audit; the extract endpoint is role-gated and idempotent (200), with per-chunk vector counts.
-**Still absent:** OCR, analyze/evidence/review workflows, pgvector index (JSON vector storage
-with Python cosine re-rank is the current honest path).
+**Still absent:** OCR, analyze/evidence/review workflows. The pgvector HNSW index
+(migration `0022_pgvector_embeddings`) is in place — the gap is the OCR/eval loop, not the index.
 Gate: **NOT MET** for large-doc + eval accuracy — embedding correctness is covered, the larger
 OCR/eval loop is not.
 

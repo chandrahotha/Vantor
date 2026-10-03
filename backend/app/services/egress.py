@@ -174,7 +174,7 @@ def _resolve(host: str, port: int) -> tuple[str, ...]:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise EgressError("EGRESS_DNS_FAIL", f"Could not resolve host {host!r}", detail=str(exc)) from exc
-    resolved = tuple(dict.fromkeys(info[4][0] for info in infos))
+    resolved = tuple(dict.fromkeys(str(info[4][0]) for info in infos))
     if not resolved:
         raise EgressError("EGRESS_DNS_EMPTY", f"Host {host!r} resolved to no addresses")
     return resolved

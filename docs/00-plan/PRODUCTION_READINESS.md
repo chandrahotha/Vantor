@@ -96,8 +96,6 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
 
 - `integrations/` and `negosim/` UI exist; `/integrations` and `/negosim` are now in the
   sitemap; deeper webhook retry visibility (per-attempt retries view) is pending.
-- `pgvector` native index — currently JSON + Python cosine re-rank; deliberate and labelled
-  (`mode: keyword|toy-rank|semantic`).
 - OTEL / Prometheus / Grafana dashboards and a real restore drill remain Phase 10 work.
 - Android Phase 9: placeholder only, per plan.
 - The 47 GitHub Dependabot *alert records* will clear on the next scan that re-resolves the

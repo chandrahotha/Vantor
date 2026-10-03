@@ -93,11 +93,15 @@ def test_intelligence_end_to_end(client):
     assert intel["leakageTotalMinor"] == 90_000  # s2 invoice uncovered
     assert intel["maverickTotalMinor"] == 90_000  # P2 uncategorized
     assert intel["concentration"]["singleSourceRisk"] is True  # 90k/100k = 90%
-    assert intel["concentration"]["topSupplier"] == s2
+    # VNT-UI: this used to be `topSupplier` holding the raw supplier *id* under a
+    # name that reads as a display name — the UI rendered a bare UUID in a risk
+    # message. Split into id (for linking) and name (for display).
+    assert intel["concentration"]["topSupplierId"] == s2
+    assert intel["concentration"]["topSupplierName"] == "Beta"
     # empty tenant => explicit zeros
     empty = c.get("/api/v1/spend/intelligence", headers=_h(pem, "u0", "void")).json()["data"]
     assert empty["cube"] == [] and empty["leakageTotalMinor"] == 0
-    assert empty["concentration"] == {"topShareBp": 0, "topSupplier": "", "singleSourceRisk": False}
+    assert empty["concentration"] == {"topShareBp": 0, "topSupplierId": "", "topSupplierName": "", "singleSourceRisk": False}
 
 
 def test_intelligence_never_publishes_a_cross_currency_total(client):

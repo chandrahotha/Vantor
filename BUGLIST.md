@@ -767,6 +767,20 @@ Fixed by conditioning token refresh on an active, non-bypass authentication prov
 The sidebar brand container rendered with CSS invert filters and non-sticky positioning, clipping during sidebar navigation scroll.
 Fixed by establishing a sticky full-width brand header (`position: sticky; top: 0; z-index: 20;`), using the crisp full Vantor brand mark, and styling pagination controls (Prev = Red, Next = Green).
 
+### B-46 · Every document upload failed out of the box; the one deployment doc describing this exact stack was also wrong about which auth it uses · **FIXED** — closed 2026-10-03
+
+Two compounding defects found by actually uploading a file through the running compose stack rather than reading the code and assuming it worked:
+
+1. **`S3_ENDPOINT=http://minio:9000` shipped in both `.env` and `.env.example`, pointing at a service `docker-compose.yml` does not define.** MinIO withdrew its images from Docker Hub and quay.io (recorded in a comment above the `keycloak` service), so whoever removed the `minio` service forgot to blank the `S3_*` defaults that pointed at it. `get_storage()` sees `s3_endpoint` and `s3_bucket` both set and picks the S3 driver unconditionally — it has no way to know the host is unreachable until it tries. Every upload therefore failed with `httpx.ConnectError`, caught and reported honestly as `DOC_STORAGE_UNAVAILABLE` (503) rather than silently losing bytes — the *reporting* was correct, the *configuration* was not. Confirmed via the real audit trail: `select action, reason from audit_events where action='DOCUMENT_STORAGE_FAILED'` returned `reason='ConnectError'` on this exact deployment. Fixed by blanking `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` in both files, which makes `get_storage()` fall through to local-disk storage (`UPLOAD_DIR=/srv/uploads`, already correctly volume-mounted in compose) — verified by uploading a real file through the live API afterward and confirming the bytes landed on disk at the tenant-sharded path.
+2. **`docs/08-deployment/local.md` claimed "Sign-in is Keycloak, and only Keycloak... no demo mode, no persona picker"** for this exact compose stack, and told readers to run `docker compose --profile storage up -d minio` — a profile and service that do not exist in `docker-compose.yml`. Root cause: `.env.example` never set `AUTH_MODE` at all, so despite this stack provisioning a full Keycloak realm, the backend's documented default (`local`, passwordless, single-tenant — see root `README.md`) was silently what every fresh clone actually got, Keycloak running alongside and unused. Fixed by setting `AUTH_MODE=oidc` explicitly in `.env.example` so this stack's default behaviour matches what this specific doc describes, and correcting the doc's MinIO instructions to match reality (no bundled container; bring your own S3-compatible endpoint, or leave `S3_*` blank for local-disk storage).
+
+### B-47 · Every foreign key in the product rendered as a bare UUID; invoices had no way to be rejected or paid from the UI · **FIXED** — closed 2026-10-03
+
+Two gaps found by clicking through every screen as a user rather than trusting that a passing test suite means the product is finished:
+
+1. **Every list and detail screen that referenced a supplier, category, or document showed the raw id (or an 8-character truncation of one) instead of its name — including one real bug this surfaced: `spend/intelligence`'s `concentration.topSupplier` held the raw supplier *id* under a field name that reads as a display name, so the single-source-risk banner rendered a bare UUID inline in a sentence meant to warn a human.** Root cause: no endpoint resolved a foreign key to its referenced row's name; the frontend had no shared component for "link to another entity" and so never asked for one. Fixed with a tenant-scoped batch name-resolver (`backend/app/services/names.py` — one query per entity type per request, not one per row) wired into contracts, purchase orders, RFQ quotes/awards/optimizer allocations, spend cube/leakage/price-cases, and the supplier list; the approvals queue's `GET /approvals` now also resolves `resourceCode` so a pending decision reads "PO-2026-04" instead of `purchase_order 9d0101d3`. The frontend gained one `EntityLink` component (`frontend/components/ui.tsx`) that every cross-entity reference now renders through, and the supplier 360 page gained its missing reverse-links: a supplier's contracts, purchase orders and invoices, previously visible only by going to three other pages and searching. Verified live: created a real supplier/contract/PO through the running API and screenshotted the resolved names and working reverse-links, not just the unit tests.
+2. **The invoice lifecycle was real in the backend and dead in the UI.** `POST /invoices/{id}/reject` (releases the received quantity for re-billing, requires a written reason) and `POST /invoices/{id}/pay` (records settlement against the ledger entry already posted at approval, requires a payment reference) have existed since VNT-018 with full lifecycle enforcement (`INVOICE_FLOW`, the DB CHECK constraint, SoD, audit events) — and no button anywhere called either one. An invoice could be created and approved and then simply had nowhere left to go: `rejected` and `paid` were reachable states with zero UI path to them. There was also no way to list, search or open an invoice independent of its parent PO — the only read path was nested three deep under `GET /purchase-orders/{id}`. Fixed by adding `GET /invoices` and `GET /invoices/{id}` (keyset-paginated, filterable by `supplierId`/`poId`, same shape as every other list endpoint) and, in `frontend/app/shared/orders.tsx`, Reject and Mark Paid controls on each invoice row — Reject opens a required-reason box (same pattern as the approvals queue), Mark Paid opens a required-reference box — both wired to the real endpoints. Verified live end-to-end through the running UI, signed in as two different local personas to satisfy the real segregation-of-duties check (buyer creates and receives, approver decides): built two purchase orders through to a received invoice, approved and paid one (`PO → invoiced`, invoice badge → `paid`, "Mark paid" button gone, Decision column reads "settled"), rejected the other with a written reason (invoice badge → `rejected`, PO reverts to `received` with "Next: record invoice" — the released quantity is re-billable, exactly as the backend docstring says it should be).
+
 ---
 
 ## Environment: what could not be verified at all
@@ -831,11 +845,27 @@ Stated precisely, because the honest answer is more useful than a yes.
 - The Keycloak redirect lock-out is fixed by restoring the IdP rather than removing it (B-28),
   and the two webfonts the build ships are the ones the stylesheet names (B-42).
 
-**Not proved:**
+**Resolved and previously misreported as unproved:** "the app has not been run as a composed
+system" was itself wrong as of 2026-10-03. `docker compose up -d --build` was run end to end on
+this machine: `postgres`, `redis`, `keycloak`, `keycloak-db`, `backend` and `frontend` all reached
+`healthy`, the migrate job ran and exited 0, and the full backend suite — 385 tests, PG tier
+included — passed against that exact running Postgres through a temporary host tunnel (see
+`docs/02-architecture/database.md`). `keycloak-init` failed on this run, but not from a code
+defect: this machine's `keycloak-db` volume already held an admin user bootstrapped by an earlier
+session's `.env`, and Keycloak only applies `KC_BOOTSTRAP_ADMIN_PASSWORD` to an empty database —
+every subsequent boot ignores it if the realm already has an admin. A genuinely fresh clone with
+no prior volumes does not hit this; it is a local-state artifact of repeated testing on one
+machine, not a deploy defect, and clearing the stale `keycloak-db-data` volume was left to the
+user rather than done automatically (deleting a volume is treated as irreversible local
+destruction here, correctly).
 
-- The app has **not** been run as a composed system. A Docker engine is available and the compose
-  file validates, but `docker compose up` was not executed end to end, so the images, the network
-  wiring and `keycloak-init`'s completion are unproven as a whole.
+**Still not proved:**
+
+- A *truly first-ever* `docker compose up` on an empty set of named volumes — this run reused an
+  existing (if stale) `postgres`/`redis` volume pair for everything except `keycloak-init`, so the
+  from-nothing path (fresh `postgres` init, fresh `keycloak` realm import, migrate running against
+  a database that has never seen a single table) is still inferred from the individual pieces
+  rather than witnessed in one run.
 - `GET /api/v1/ready` correctly returns **503** on an unmigrated database — the app reports it is
   not ready rather than lying, which is the intended behaviour.
 

@@ -28,6 +28,7 @@ from ..models.matchrun import MatchRun
 from ..models.purchase import Invoice, InvoiceLine, PurchaseOrder, PurchaseOrderLine
 from ..models.supplier import Supplier
 from ..services.audit import record_event
+from ..services.names import supplier_names
 from ..services.contract import EXPIRY_WINDOW_DAYS, ContractError, check_dates, check_obligation, \
     check_transition, is_due_expiring
 
@@ -125,8 +126,9 @@ class ObligationIn(BaseModel):
     owner: str = ""
 
 
-def _dto(c: Contract, noblig: int = 0) -> dict:
-    return {"id": c.id, "code": c.code, "title": c.title, "supplierId": c.supplier_id, "status": c.status,
+def _dto(c: Contract, noblig: int = 0, supplier_name: str = "") -> dict:
+    return {"id": c.id, "code": c.code, "title": c.title, "supplierId": c.supplier_id,
+            "supplierName": supplier_name, "status": c.status,
             "contractType": c.contract_type, "currency": c.currency, "valueMinor": c.value_minor,
             "startDate": c.start_date, "endDate": c.end_date, "obligationCount": noblig,
             "createdAt": c.created_at.isoformat() if c.created_at else ""}
@@ -137,7 +139,7 @@ def list_contracts(request: Request, actor: Actor = Depends(get_actor), db: Sess
                    limit: int = Query(default=25, ge=1, le=100), cursor: str = Query(default=""),
                    sort: str = Query(default="created_at"), order: str = Query(default="desc"),
                    search: str = Query(default=""), status_: str = Query(default="", alias="status"),
-                   expiring: bool = Query(default=False)) -> dict:
+                   expiring: bool = Query(default=False), supplier_id: str = Query(default="", alias="supplierId")) -> dict:
     if sort not in {"created_at", "code", "title", "status", "end_date"}:
         raise HTTPException(status_code=422, detail="Invalid sort")
     if order not in {"asc", "desc"}:
@@ -146,6 +148,8 @@ def list_contracts(request: Request, actor: Actor = Depends(get_actor), db: Sess
     stmt = select(Contract).where(Contract.tenant_id == actor.tenant_id)
     if status_:
         stmt = stmt.where(Contract.status == status_)
+    if supplier_id:
+        stmt = stmt.where(Contract.supplier_id == supplier_id)
     if expiring:
         # VNT-041. This used to be `status == "expiring"`, a *stored* status that
         # only exists once the scheduled roll has run. So the dashboard's
@@ -179,7 +183,9 @@ def list_contracts(request: Request, actor: Actor = Depends(get_actor), db: Sess
     stmt = stmt.order_by(asc(col) if order == "asc" else desc(col), asc(Contract.id) if order == "asc" else desc(Contract.id)).limit(limit + 1)
     rows = list(db.execute(stmt).scalars())
     has_more, rows = len(rows) > limit, rows[:limit]
-    return envelope([_dto(r) for r in rows], {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
+    names = supplier_names(db, actor.tenant_id, {r.supplier_id for r in rows})
+    return envelope([_dto(r, supplier_name=names.get(r.supplier_id, "")) for r in rows],
+                    {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
 
 
 @router.post("/contracts", status_code=201)
@@ -192,6 +198,7 @@ def create_contract(payload: ContractIn, request: Request, actor: Actor = Depend
         check_dates(payload.start_date, payload.end_date)
     except ContractError as exc:
         raise HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message}) from exc
+    sup = None
     if payload.supplier_id:
         sup = db.execute(select(Supplier).where(Supplier.tenant_id == actor.tenant_id, Supplier.id == payload.supplier_id)).scalar_one_or_none()
         if sup is None:
@@ -211,7 +218,7 @@ def create_contract(payload: ContractIn, request: Request, actor: Actor = Depend
                  resource_id=c.id, after={"code": code}, source="api", created_by=actor.sub)
     db.commit()
     db.refresh(c)
-    return envelope(_dto(c), None, getattr(request.state, "request_id", ""))
+    return envelope(_dto(c, supplier_name=sup.name if sup else ""), None, getattr(request.state, "request_id", ""))
 
 
 @router.get("/contracts/{contract_id}")
@@ -220,7 +227,8 @@ def get_contract(contract_id: str, request: Request, actor: Actor = Depends(get_
     if c is None:
         raise HTTPException(status_code=404, detail="Contract not found")
     obligs = list(db.execute(select(ContractObligation).where(ContractObligation.tenant_id == actor.tenant_id, ContractObligation.contract_id == contract_id).order_by(ContractObligation.due_date)).scalars())
-    dto = _dto(c, len(obligs))
+    names = supplier_names(db, actor.tenant_id, {c.supplier_id})
+    dto = _dto(c, len(obligs), supplier_name=names.get(c.supplier_id, ""))
     dto["obligations"] = [{"id": o.id, "title": o.title, "status": o.status, "dueDate": o.due_date, "owner": o.owner} for o in obligs]
     return envelope(dto, None, getattr(request.state, "request_id", ""))
 
@@ -248,7 +256,8 @@ def move_contract(contract_id: str, payload: ContractStatusIn, request: Request,
                  resource_id=c.id, before={"status": before}, after={"status": c.status}, source="api", created_by=actor.sub)
     db.commit()
     db.refresh(c)
-    return envelope(_dto(c), None, getattr(request.state, "request_id", ""))
+    names = supplier_names(db, actor.tenant_id, {c.supplier_id})
+    return envelope(_dto(c, supplier_name=names.get(c.supplier_id, "")), None, getattr(request.state, "request_id", ""))
 
 
 @router.post("/contracts/{contract_id}/obligations", status_code=201)

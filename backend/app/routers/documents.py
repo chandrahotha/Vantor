@@ -207,7 +207,8 @@ def list_docs(request: Request, actor: Actor = Depends(get_actor), db: Session =
     rows = list(db.execute(stmt).scalars())
     has_more, rows = len(rows) > limit, rows[:limit]
     data = [{"id": r.id, "filename": r.filename, "sizeBytes": r.size_bytes, "sha256": r.sha256,
-             "status": r.status, "resource": r.resource, "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
+             "status": r.status, "resource": r.resource, "resourceId": r.resource_id,
+             "createdAt": r.created_at.isoformat() if r.created_at else ""} for r in rows]
     return envelope(data, {"limit": limit, "nextCursor": rows[-1].id if has_more and rows else "", "hasMore": has_more}, getattr(request.state, "request_id", ""))
 
 
@@ -378,7 +379,7 @@ def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session
     candidates = {h.id: {"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
                           "text": h.text[:280], "embedding": h.embedding} for h, _status in rows}
 
-    if db.bind.dialect.name == "postgresql" and provider() != "disabled":
+    if db.get_bind().dialect.name == "postgresql" and provider() != "disabled":
         qv = embed(q)
         if qv is not None:
             qlit = "[" + ",".join(repr(float(v)) for v in qv) + "]"

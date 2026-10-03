@@ -8,6 +8,7 @@
  *  empty-state handling instead of reinventing it.
  */
 import Image from "next/image";
+import Link from "next/link";
 import {
   createContext,
   useCallback,
@@ -44,6 +45,39 @@ export function Money({ children }: { children: string }) {
     <>
       {m[1]} <span className="ccy">{m[2]}</span>
     </>
+  );
+}
+
+//: Only `supplier` has its own detail route (`/suppliers/[id]`). The others
+//: list-only pages with no per-id route yet, so a reference to one of them
+//: links to the list rather than a dead URL — still strictly better than the
+//: bare/truncated id this replaces, and upgrades for free the day those routes
+//: exist, because every caller goes through here instead of hand-rolling the
+//: href.
+const ENTITY_LIST_PATH: Record<string, string> = {
+  supplier: "/suppliers",
+  contract: "/contracts",
+  po: "/orders",
+  invoice: "/orders",
+  rfq: "/rfqs",
+};
+
+/** A link to another entity, with a human-readable label instead of a bare id.
+ *
+ *  Every cross-entity reference in the product (a PO's supplier, a contract's
+ *  supplier, an RFQ's winning bidder, ...) renders through here, so "which
+ *  supplier" is always a name and a click rather than a UUID. `name` is
+ *  optional — while it hasn't resolved yet this falls back to the id itself
+ *  rather than rendering nothing.
+ */
+export function EntityLink({ kind, id, name }: { kind: keyof typeof ENTITY_LIST_PATH; id: string; name?: string }) {
+  if (!id) return <span className="muted">—</span>;
+  const base = ENTITY_LIST_PATH[kind];
+  const label = name || id;
+  return kind === "supplier" ? (
+    <Link href={`${base}/${id}`}>{label}</Link>
+  ) : (
+    <Link href={base} title={`Open ${kind} ${id} in the list below`}>{label}</Link>
   );
 }
 

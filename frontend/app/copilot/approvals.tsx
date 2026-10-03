@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, LiveRegion, Skeleton, useBoot, useToast, type Column } from "../../components/ui";
 import { ApiError, api, newIdemKey } from "../../lib/api";
 
@@ -8,6 +9,7 @@ export type Approval = {
   id: string;
   resource: string;
   resourceId: string;
+  resourceCode?: string;
   status: string;
   tier: string;
   requestedBy: string;
@@ -16,6 +18,19 @@ export type Approval = {
   requiresHumanReview: boolean;
   createdAt: string;
 };
+
+//: Where this resource type lives on a list page. No per-id detail route
+//: exists for any of these yet (only Suppliers has one), so this links to the
+//: list rather than a dead URL.
+const RESOURCE_PATH: Record<string, string> = {
+  requisition: "/requisitions",
+  purchase_order: "/orders",
+  invoice: "/orders",
+};
+
+function documentLabel(a: Approval): string {
+  return a.resourceCode ? `${a.resourceCode}` : `${a.resource} ${a.resourceId.slice(0, 8)}`;
+}
 
 const TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
   requested: "warn", approved: "ok", rejected: "bad",
@@ -97,7 +112,12 @@ export default function Approvals() {
   }
 
   const columns: Column<Approval>[] = [
-    { key: "resource", header: "Document", render: (a: Approval) => `${a.resource} ${a.resourceId.slice(0, 8)}` },
+    {
+      key: "resource", header: "Document",
+      render: (a: Approval) => RESOURCE_PATH[a.resource] ? (
+        <Link href={RESOURCE_PATH[a.resource]} className="mono">{documentLabel(a)}</Link>
+      ) : <span className="mono">{documentLabel(a)}</span>,
+    },
     { key: "tier", header: "Tier", render: (a: Approval) => <Badge tone="info">{a.tier}</Badge> },
     { key: "requestedBy", header: "Requested by", render: (a: Approval) => <span className="mono">{a.requestedBy}</span> },
     { key: "status", header: "Status", render: (a: Approval) => <Badge tone={TONE[a.status] ?? "info"}>{a.status}</Badge> },
@@ -186,7 +206,7 @@ export default function Approvals() {
         }}
         body={
           <>
-            Approving releases <strong className="mono">{confirming?.resource} {confirming?.resourceId.slice(0, 8)}</strong>{" "}
+            Approving releases <strong className="mono">{confirming ? documentLabel(confirming) : ""}</strong>{" "}
             at tier <strong>{confirming?.tier}</strong>, requested by{" "}
             <strong className="mono">{confirming?.requestedBy}</strong>.
             <br />

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Shell from "../../components/Shell";
-import { AuthScreen, Badge, Button, ConfirmDialog, DataTable, Empty, ErrorBox, FilterBar, LiveRegion, Money, Pager, Segmented, useBoot, useToast, type Column } from "../../components/ui";
+import { AuthScreen, Badge, Button, ConfirmDialog, DataTable, Empty, EntityLink, ErrorBox, FilterBar, LiveRegion, Money, Pager, Segmented, useBoot, useToast, type Column } from "../../components/ui";
 import { api, fmtMinor, newIdemKey } from "../../lib/api";
 
 type Rfq = { id: string; code: string; title: string; status: string; currency: string; lineCount?: number };
@@ -9,7 +9,7 @@ type Comp = { quoteId: string; supplierId: string; supplierName: string; status:
 type Supplier = { id: string; code: string; name: string };
 type RfqLine = { id: string; lineNo: number; description: string; quantity: number; uom: string };
 /** One explainable allocation from the optimizer, in the server's own shape. */
-type Allocation = { supplier_id: string; quote_id: string; share_bp: number; cost_minor: number; reason: string };
+type Allocation = { supplier_id: string; supplier_name?: string; quote_id: string; share_bp: number; cost_minor: number; reason: string };
 type OptimizerResult = {
   allocations: Allocation[];
   total_minor: number;
@@ -366,7 +366,7 @@ export default function Rfqs() {
                 rows={plan.allocations}
                 rowKey={(a) => a.quote_id || a.supplier_id}
                 columns={[
-                  { key: "sup", header: "Supplier", render: (a) => a.supplier_id },
+                  { key: "sup", header: "Supplier", render: (a) => <EntityLink kind="supplier" id={a.supplier_id} name={a.supplier_name} /> },
                   { key: "share", header: "Share", numeric: true, render: (a) => `${(a.share_bp / 100).toFixed(2)}%` },
                   { key: "bp", header: "bp", numeric: true, render: (a) => a.share_bp },
                   { key: "cost", header: "Cost", numeric: true, render: (a) => <Money>{fmtMinor(a.cost_minor, sel.currency)}</Money> },
@@ -388,7 +388,7 @@ export default function Rfqs() {
             rows={sel.comp}
             rowKey={(q) => q.quoteId}
             columns={[
-              { key: "sup", header: "Supplier", render: (q) => q.supplierName },
+              { key: "sup", header: "Supplier", render: (q) => <EntityLink kind="supplier" id={q.supplierId} name={q.supplierName} /> },
               { key: "status", header: "Status", render: (q) => <Badge tone={q.status === "awarded" ? "ok" : undefined}>{q.status}</Badge> },
               { key: "lines", header: "Lines", numeric: true, render: (q) => q.lineCount },
               { key: "total", header: "Total", numeric: true, render: (q) => <Money>{fmtMinor(q.totalMinor, q.currency || sel.currency)}</Money> },
