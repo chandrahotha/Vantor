@@ -111,6 +111,56 @@ def test_search_flow_with_and_without_vectors(monkeypatch, client):
     assert s2["pagination"]["mode"] == "toy-rank"
 
 
+@pytest.mark.pg
+def test_ann_search_finds_a_chunk_ilike_could_never_reach(monkeypatch, pg_client):
+    """RA-006 (re-audit 2026-10-02): the HNSW index existed since migration 0022
+    and had never actually been queried — every candidate was ILIKE-prefiltered
+    first, so a chunk with zero literal substring overlap with the query could
+    never surface, no matter how close its vector was. This proves the new
+    `ORDER BY embedding <=> :qv` pool (search_docs, documents.py) actually runs:
+    the uploaded chunk's text contains no form of the query word at all, so the
+    keyword stage alone would return zero rows, and only the ANN pool (which has
+    no ILIKE filter) can be why it's found. The toy provider's embeddings aren't
+    semantically meaningful, but they're always non-null for non-empty text — the
+    ANN query's `LIMIT 50` with no further filter means any embedded chunk is
+    reachable, which is exactly the mechanism being proven, not the quality of
+    the ranking.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    c, pem, tenant = pg_client
+
+    def _h() -> dict:
+        now = datetime.now(timezone.utc)
+        tok = jwt.encode(
+            {"iss": ISS, "aud": AUD, "sub": "u1", "tenant_id": tenant,
+             "realm_access": {"roles": ["Buyer"]}, "exp": now + timedelta(minutes=5), "iat": now},
+            pem, algorithm="RS256", headers={"kid": "pg-kid"},
+        )
+        return {"Authorization": f"Bearer {tok}"}
+
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "toy")
+    up = c.post("/api/v1/documents",
+                files={"file": ("supply.csv", io.BytesIO(b"steel bolts procurement supply chain logistics"), "text/csv")},
+                headers=_h())
+    assert up.status_code == 201, up.text
+    did = up.json()["data"]["id"]
+    ex = c.post(f"/api/v1/documents/{did}/extract", headers=_h())
+    assert ex.status_code == 200 and ex.json()["data"]["embedded"] > 0, ex.text
+
+    query = "xenoplasticity"  # appears nowhere in the uploaded text or anywhere else
+    s = c.get(f"/api/v1/documents/search?q={query}", headers=_h())
+    assert s.status_code == 200, s.text
+    data = s.json()
+    assert data["pagination"]["mode"] == "toy-rank"
+    assert any(h["documentId"] == did for h in data["data"]), (
+        "the ANN pool should have found this chunk even with zero ILIKE overlap: "
+        f"{data}"
+    )
+
+
 def test_extract_includes_real_page_counts(monkeypatch, client):
     """The old code counted Flate streams as pages."""
     c, pem = client

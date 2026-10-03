@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "vendor", "target", ".opencode", ".pytest_cache", ".kilo"}
+SKIP_DIRS = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", ".venv-audit", "venv", "vendor", "target", ".opencode", ".pytest_cache", ".kilo"}
 failures = []
 mds = sorted(p for p in ROOT.rglob("*.md") if not (SKIP_DIRS & set(p.parts)))
 for p in mds:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,6 +17,45 @@ from .config import get_settings
 
 _engine = None
 _SessionLocal: sessionmaker | None = None
+
+#: Key under `Session.info` holding the tenant a session is pinned to. See
+#: `_reapply_tenant_pin_on_every_transaction`.
+_TENANT_INFO_KEY = "vantor_tenant_id"
+
+
+@event.listens_for(Session, "after_begin")
+def _reapply_tenant_pin_on_every_transaction(session, transaction, connection):  # type: ignore[no-untyped-def]
+    """Re-apply the tenant pin at the start of every transaction, not just the
+    first.
+
+    `set_config(..., true)` ("SET LOCAL") correctly resets when a transaction
+    commits or rolls back — that is what keeps a connection returning to the
+    pool from carrying one request's tenant context into the next request that
+    happens to reuse it. But several routers call `db.commit()` mid-handler
+    and keep using the same session afterward (`db.refresh(row)` immediately
+    after `db.commit()` is a repeated pattern across routers). Once RLS
+    actually applies to the application's own role (migration
+    0026_app_role_least_privilege), that second, post-commit transaction has
+    no tenant context, and the row the handler just wrote becomes invisible to
+    its own RLS policy — not a tenant leak, but a fail-closed `500` on most
+    write endpoints. Reproduced live: `POST /suppliers` 500'd on
+    `db.refresh(row)` with `InvalidRequestError: Could not refresh instance`
+    the first time this was exercised with RLS actually enforced; previously
+    invisible because every connection had RLS silently bypassed outright.
+
+    A first attempt stashed the tenant on `Connection.info` instead of here —
+    wrong, because `Session.commit()` does not guarantee the *same* physical
+    connection backs the session's next transaction (it can return to the
+    pool and a different one can be checked out). `Session.info` belongs to
+    the Session object itself, independent of which connection backs any
+    given transaction, which is what makes this correct across a mid-handler
+    commit regardless of pooling. This listener is global (bound to the
+    `Session` class, registered once at import time) and a no-op for any
+    session that never had its tenant pinned (`session.info` empty).
+    """
+    tenant_id = session.info.get(_TENANT_INFO_KEY)
+    if tenant_id and connection.dialect.name == "postgresql":
+        connection.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
 
 
 def get_engine():  # type: ignore[no-untyped-def]
@@ -54,7 +93,10 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
     db = factory()
     try:
         if tenant_id and db.bind.dialect.name == "postgresql":
-            # Session is already inside a transaction; SET LOCAL scopes RLS to it.
+            # `session.info` makes `_reapply_tenant_pin_on_every_transaction` pin
+            # every transaction this session opens — including one after a
+            # mid-handler `db.commit()` — without every call site doing it by hand.
+            db.info[_TENANT_INFO_KEY] = tenant_id
             db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         yield db
         db.commit()
@@ -75,6 +117,7 @@ def pinned_session(tenant_id: str) -> Session:
     """
     db = get_session_factory()()
     if tenant_id and db.bind.dialect.name == "postgresql":
+        db.info[_TENANT_INFO_KEY] = tenant_id
         db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     return db
 

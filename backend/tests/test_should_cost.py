@@ -32,7 +32,16 @@ def test_gap_vectors():
     assert g2["verdict"] == "below"
     g3 = gap_vs_quote(should_minor=1_636_250, quoted_minor=1_636_250)
     assert g3["verdict"] == "at_par" and g3["gap_minor"] == 0
-    assert gap_vs_quote(should_minor=0, quoted_minor=100)["variance_bp"] == 0
+    import pytest
+
+    from app.services.should_cost import ShouldCostError
+
+    # A zero baseline makes "percent variance" undefined, not zero — this used
+    # to silently report variance_bp: 0 for a should-cost of nothing, masking
+    # the degenerate case rather than surfacing it (RA-007).
+    with pytest.raises(ShouldCostError) as exc:
+        gap_vs_quote(should_minor=0, quoted_minor=100)
+    assert exc.value.code == "COST_BASELINE_INVALID"
 
 
 def test_rejects_guesses():

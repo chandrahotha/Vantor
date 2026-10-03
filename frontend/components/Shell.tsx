@@ -211,10 +211,15 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
                 {(shown.name.replace(/\s*\(Bypass\)/i, "").trim() || "AD").slice(0, 2).toUpperCase()}
               </div>
               <div className="userchip-info">
-                <div className="userchip-name">
+                {/* `title` restores what the CSS ellipsis takes away: the
+                    sidebar is a fixed 248px and a real tenant's name or
+                    tenant slug routinely overflows it, with nothing before
+                    this that let a user confirm which account "Administra…"
+                    actually was short for. */}
+                <div className="userchip-name" title={shown.name.replace(/\s*\(Bypass\)/i, "").trim() || "Administrator"}>
                   {shown.name.replace(/\s*\(Bypass\)/i, "").trim() || "Administrator"}
                 </div>
-                <div className="userchip-tenant">{shown.tenant}</div>
+                <div className="userchip-tenant" title={shown.tenant}>{shown.tenant}</div>
               </div>
               <button
                 type="button"

@@ -70,6 +70,21 @@ jobs:
         run: python scripts/verify_brain_links.py
       - name: Encoding check (no mojibake in tracked text)
         run: python scripts/check_mojibake.py
+      - name: Install deps for the doc-count gate
+        # RA-009 (re-audit 2026-10-02): this job never installed anything, so
+        # doc_counts.py's `pytest --collect-only` / `npx vitest run` calls both
+        # failed to import/run and it reported every count as None — the gate
+        # that exists specifically to catch doc/reality drift could not
+        # actually catch it. Needs both backend and frontend deps: the script
+        # shells out to both.
+        run: |
+          pip install -r backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
       - name: Documentation counts match the code
         # VNT-042. The READMEs asserted hand-written numbers that had drifted into
         # contradicting each other - three files, three different answers, none of
@@ -127,8 +142,15 @@ jobs:
           JWT_AUDIENCE: vantor-web
         run: python -m pytest backend/tests -q
       - name: Alembic baseline check (PG)
+        # 0026_app_role_least_privilege creates the restricted `vantor_app` role
+        # the application must connect as — Postgres never applies row security
+        # to the superuser role this CI service (and every other deployment
+        # path) uses to run migrations, regardless of FORCE ROW LEVEL SECURITY.
+        # Proven live: every tenant_isolation policy was a no-op for the app's
+        # own queries until this role existed and DATABASE_URL pointed at it.
         env:
           DATABASE_URL: postgresql://vantor:vantor-test@localhost:5432/vantor_test
+          APP_DB_PASSWORD: ci-app-role-test-pw
         run: |
           cd backend
           alembic upgrade head
@@ -141,9 +163,17 @@ jobs:
         # approvals cannot both clear one ceiling — out of CI entirely, so the
         # S1 money check had never once run. Both files carry `@pytest.mark.pg`.
         # A third PG file must not need this line edited to be included.
+        #
+        # PG_TEST_DATABASE_URL still names the owner role: pgsupport.py's
+        # pg_app_url() derives the restricted vantor_app connection from it for
+        # the application/test-client side, while alembic keeps running as the
+        # owner (DDL needs it). APP_DB_PASSWORD must match the value the
+        # previous step set on the role, or authentication fails outright
+        # rather than silently falling back to the superuser.
         env:
           APP_ENV: test
           PG_TEST_DATABASE_URL: postgresql://vantor:vantor-test@localhost:5432/vantor_test
+          APP_DB_PASSWORD: ci-app-role-test-pw
           OIDC_ISSUER: https://issuer.test/realms/vantor
           JWT_AUDIENCE: vantor-web
         run: cd backend && python -m pytest -m pg -q
@@ -247,6 +277,12 @@ jobs:
           LOCAL_KEY_PATH: "./data/ci_e2e_key.pem"
         run: |
           cd backend
+          # RA-010 (re-audit 2026-10-02): `data/` is gitignored (.gitignore:54)
+          # so it does not exist on a clean checkout, and nothing created it
+          # before this step tried to open a sqlite file inside it — the e2e
+          # suite (journey.spec.ts, business-workflow.spec.ts) never actually
+          # ran; it hard-failed here before Playwright ever started.
+          mkdir -p data
           nohup python -m uvicorn app.main:app --port 8000 > /tmp/backend.log 2>&1 &
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/v1/health > /dev/null && break

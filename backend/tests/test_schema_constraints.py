@@ -69,6 +69,13 @@ def _all_migration_checks() -> dict[tuple[str, str], str]:
             return None
 
     class _FakeBind:
+        class dialect:  # noqa: N801
+            # 0026 is Postgres-only (creates a role, which SQLite has no concept
+            # of) and checks `bind.dialect.name` to no-op everywhere else; without
+            # this the recorder has no `.dialect` at all and the migration raises
+            # before this harness ever gets to the part it actually checks for.
+            name = "sqlite"
+
         def execute(self, *_a, **_k) -> _EmptyResult:  # type: ignore[no-untyped-def]
             return _EmptyResult()
 

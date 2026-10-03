@@ -55,9 +55,20 @@ export function SpendPage() {
   } as const;
 
   const load = useCallback(async () => {
-    setS((await api<Summary>("/api/v1/spend/summary")).data);
-    setIntel((await api<Intel>("/api/v1/spend/intelligence")).data);
-    setCases((await api<Case[]>("/api/v1/spend/price-cases?status=open")).data || []);
+    // These three endpoints don't depend on one another, so they go in parallel
+    // — this used to be three sequential `await`s, which made this page's load
+    // time the *sum* of three round trips instead of the slowest one. `all`
+    // (not `allSettled`) keeps the existing failure behaviour: any one request
+    // failing still rejects the whole load and `useBoot` renders the error
+    // screen, exactly as before.
+    const [sp, intelRes, casesRes] = await Promise.all([
+      api<Summary>("/api/v1/spend/summary"),
+      api<Intel>("/api/v1/spend/intelligence"),
+      api<Case[]>("/api/v1/spend/price-cases?status=open"),
+    ]);
+    setS(sp.data);
+    setIntel(intelRes.data);
+    setCases(casesRes.data || []);
   }, []);
 
   const { state, error, reload } = useBoot(load);

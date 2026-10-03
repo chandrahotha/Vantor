@@ -475,7 +475,16 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   margin-bottom: 18px;
   box-shadow: var(--elev-1);
 }
-.panel > summary { cursor: pointer; font-weight: 600; color: var(--primary); font-size: var(--fs-13); list-style: none; display: flex; align-items: center; gap: 6px; }
+.panel > summary {
+  cursor: pointer; font-weight: 600; color: var(--primary); font-size: var(--fs-13);
+  list-style: none; display: flex; align-items: center; gap: 6px;
+  transition: color var(--t-fast) var(--ease);
+}
+/* A disclosure row previously gave no feedback until the click landed — the
+   cursor changed but nothing else did, so it read as flat label text rather
+   than a control. Every other interactive surface in this system (buttons,
+   nav links, the user chip) darkens or lifts on hover; this one didn't. */
+.panel > summary:hover { color: var(--primary-strong); }
 .panel > summary::before { content: "+"; font-weight: 700; transition: transform var(--t-fast) var(--ease); }
 .panel[open] > summary::before { transform: rotate(45deg); }
 .panel h2, .panel h3 { margin-top: 18px; }

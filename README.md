@@ -4,7 +4,7 @@
 # VANTOR — Intelligent Procurement Operating System
 
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 362 backend + 152 frontend](https://img.shields.io/badge/tests-362%20backend%20%2B%20152%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 376 backend + 155 frontend](https://img.shields.io/badge/tests-376%20backend%20%2B%20155%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 96 operations](https://img.shields.io/badge/API-96%20operations-blue.svg)](api/openapi.json)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status.** Backend: 383 pytest collected, 7 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 96 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 31 tests.
+**Status.** Backend: 384 pytest collected, 8 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 96 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 38 tests collected, 34 passing, 4 skipped.
 
 Not `PRODUCTION READY`, and two qualifications matter more than the counts:
 

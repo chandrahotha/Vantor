@@ -284,8 +284,15 @@ class TestGetStorageProductionGate:
         from app.services.document import reset_storage_cache
 
         monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-        monkeypatch.delenv("S3_ENDPOINT", raising=False)
-        monkeypatch.delenv("S3_BUCKET", raising=False)
+        # Must be set to "" rather than deleted: pydantic-settings falls through to
+        # the .env file (env_file=".env" in Settings.model_config) whenever the env
+        # var is merely absent, so delenv() re-exposes a contributor's real local
+        # .env (S3_ENDPOINT/S3_BUCKET/S3_SECRET_KEY from `cp .env.example .env`)
+        # instead of clearing it — the same leak conftest.py already guards against
+        # at module scope by setting (not deleting) these two vars.
+        monkeypatch.setenv("S3_ENDPOINT", "")
+        monkeypatch.setenv("S3_BUCKET", "")
+        monkeypatch.setenv("S3_SECRET_KEY", "")
         get_settings.cache_clear()
         reset_storage_cache()
         yield

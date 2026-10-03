@@ -13,7 +13,8 @@ from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import and_, desc, or_, select
+from sqlalchemy import and_, bindparam, desc, or_, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -337,10 +338,25 @@ def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session
                 q: str = Query(default="", min_length=2, max_length=200)) -> dict:
     """Keyword + optional semantic ranking over extracted chunks.
 
-    Keyword stage: ILIKE substring match (works on SQLite and Postgres). Ranking
-    stage: if the embedding provider has written vectors, cosine score re-orders
-    those candidates; otherwise the keyword order stands and `mode` says so.
-    Chunks without vectors are never ranked as if they matched.
+    Keyword stage: ILIKE substring match (works on SQLite and Postgres) — this
+    never drops; an exact substring hit is always a candidate, keyword mode or
+    not. Ranking stage: if the embedding provider has written vectors, cosine
+    score re-orders the merged candidate pool; otherwise the keyword order
+    stands and `mode` says so. Chunks without vectors are never ranked as if
+    they matched.
+
+    RA-006 (re-audit 2026-10-02): on Postgres, with a vector available, a
+    second candidate pool is pulled via `ORDER BY embedding <=> :qv LIMIT 50`
+    against the real `vector(n)` column — the HNSW index
+    (`ix_chunk_embedding_hnsw`, `vector_cosine_ops`) existed since migration
+    0022 and had never actually been queried; every candidate was always
+    ILIKE-prefiltered first, so a chunk with no literal substring match could
+    never surface regardless of how semantically close it was. Merging in the
+    ANN pool before the existing Python rerank fixes that without weakening
+    the keyword guarantee or changing the final scoring method: the only
+    difference is which chunks reach `rank()` in the first place. SQLite (the
+    entire test suite) takes neither pgvector operator nor index and is
+    unaffected — this is additive and dialect-gated.
 
     Chunks are joined to their parent document so a QUARANTINED document is not
     searchable. It was not joined before, and the two quarantine paths return
@@ -348,7 +364,7 @@ def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session
     kept surfacing in search results.
     """
     from ..models.document import DocumentChunk
-    from ..services.embeddings import rank
+    from ..services.embeddings import embed, provider, rank
 
     like = f"%{q.strip()}%"
     rows = list(db.execute(
@@ -359,9 +375,26 @@ def search_docs(request: Request, actor: Actor = Depends(get_actor), db: Session
                DocumentChunk.text.ilike(like))
         .order_by(DocumentChunk.document_id, DocumentChunk.chunk_no).limit(50)).all())
 
-    candidates = [{"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
-                   "text": h.text[:280], "embedding": h.embedding} for h, _status in rows]
-    ranked, mode = rank(q, candidates)
+    candidates = {h.id: {"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
+                          "text": h.text[:280], "embedding": h.embedding} for h, _status in rows}
+
+    if db.bind.dialect.name == "postgresql" and provider() != "disabled":
+        qv = embed(q)
+        if qv is not None:
+            qlit = "[" + ",".join(repr(float(v)) for v in qv) + "]"
+            ann_rows = list(db.execute(
+                select(DocumentChunk, Document.status).join(
+                    Document, and_(Document.id == DocumentChunk.document_id, Document.tenant_id == actor.tenant_id))
+                .where(DocumentChunk.tenant_id == actor.tenant_id,
+                       Document.status != "quarantined",
+                       DocumentChunk.embedding.is_not(None))
+                .order_by(sql_text("document_chunks.embedding <=> CAST(:qv AS vector)").bindparams(bindparam("qv", qlit)))
+                .limit(50)).all())
+            for h, _status in ann_rows:
+                candidates.setdefault(h.id, {"id": h.id, "document_id": h.document_id, "chunk_no": h.chunk_no,
+                                              "text": h.text[:280], "embedding": h.embedding})
+
+    ranked, mode = rank(q, list(candidates.values()))
     out = [{"documentId": r["document_id"], "chunkNo": r["chunk_no"], "excerpt": r["text"]} for r in ranked[:25]]
     return envelope(out, {"count": len(out), "mode": mode}, getattr(request.state, "request_id", ""))
 

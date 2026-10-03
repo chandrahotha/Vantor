@@ -141,6 +141,22 @@ const JSON_LD = {
   ],
 };
 
+// Sets `data-theme` before the browser paints a single pixel.
+//
+// `data-palette` is server-rendered as the default so that token layer is
+// active on the very first paint (see the comment below), but light/dark
+// `data-theme` had no equivalent: it was only ever written inside
+// `ThemeInit`'s `useEffect`, which runs *after* the first paint. Every visitor
+// whose OS prefers dark mode, or who had previously chosen dark, was shown a
+// flash of the light theme on every single page load and hard navigation
+// before JS caught up and flipped it — the exact "visible flash" the palette
+// attribute was deliberately server-rendered to avoid. A blocking inline
+// script in `<head>` runs synchronously while the HTML is still parsing, so
+// `data-theme` is correct before `<body>` ever paints. `ThemeInit`'s effect
+// still runs on mount (so OS-preference changes keep being tracked live) but
+// now starts from the right value instead of correcting it a frame late.
+const THEME_INIT_SCRIPT = `(function(){try{var k="vantor.theme",s=localStorage.getItem(k),d=document.documentElement;d.dataset.theme=s==="light"||s==="dark"?s:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch(e){}})();`;
+
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
     // `data-palette` is server-rendered as the default so the token layer is
@@ -148,6 +164,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
     // un-bridged tokens and then re-paint once ThemeInit adopts the stored
     // choice — a visible flash for every user who chose a non-default palette.
     <html lang="en" data-palette="cobalt" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <NextTopLoader color="var(--primary)" showSpinner={false} />
         <ThemeInit />

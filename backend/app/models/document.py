@@ -6,13 +6,25 @@ native pgvector column lands with the embedding worker in Wave 2).
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin, tenant_key, tenant_ref
 from .vectortype import Vector
 
 DOC_STATUSES = {"uploaded", "quarantined", "ready"}
+
+
+def _in(column: str, allowed: set[str]) -> str:
+    """Render a status-domain CHECK from the single source of truth.
+
+    RA-008 (re-audit 2026-10-02). Same pattern as
+    `app/models/purchase.py::_in`: sorted so the DDL string is byte-identical
+    on every build, matching what
+    `alembic/versions/0027_remaining_status_checks.py` creates.
+    """
+    values = ", ".join(f"'{s}'" for s in sorted(allowed))
+    return f"{column} in ({values})"
 
 
 class Document(Base, TenantMixin):
@@ -31,6 +43,7 @@ class Document(Base, TenantMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "sha256", name="uq_doc_tenant_sha"),
         Index("ix_doc_tenant_resource", "tenant_id", "resource", "resource_id"),
+        CheckConstraint(_in("status", DOC_STATUSES), name="ck_document_status"),
 
         # Composite, tenant-carrying link — this table is referenced by a composite link.
         tenant_key("documents"),

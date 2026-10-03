@@ -51,10 +51,19 @@ def model_total(*, material_minor: int, labor_minor: int, overhead_bp: int, logi
 
 
 def gap_vs_quote(*, should_minor: int, quoted_minor: int) -> dict:
-    """Signed gap (quote − should) + variance in basis points vs should."""
+    """Signed gap (quote − should) + variance in basis points vs should.
+
+    Raises on a zero baseline rather than reporting `variance_bp: 0`: a
+    percentage variance against a should-cost of zero is mathematically
+    undefined, not "no variance" — the old behaviour masked exactly the
+    degenerate case it should have surfaced. Matches `price_intel.py`'s
+    identical check on the equivalent condition (`PRICE_BASELINE_INVALID`).
+    """
     should_minor = _minor(should_minor, "should_minor")
     quoted_minor = _minor(quoted_minor, "quoted_minor")
+    if should_minor == 0:
+        raise ShouldCostError("COST_BASELINE_INVALID", "should_minor must be positive to compute a variance")
     gap = quoted_minor - should_minor
-    variance_bp = round(gap / should_minor * BP) if should_minor else 0
+    variance_bp = round(gap / should_minor * BP)
     return {"gap_minor": gap, "variance_bp": variance_bp,
             "verdict": "above" if gap > 0 else "below" if gap < 0 else "at_par"}

@@ -237,13 +237,36 @@ services:
     #                 docker compose exec ollama ollama pull nomic-embed-text
     # Then set AI_PROVIDER=ollama (and EMBEDDING_PROVIDER=ollama for real vectors).
 
+  # One-shot: runs the Alembic chain as the owner/superuser role, then exits.
+  # Nothing else in this stack ever ran a migration — `docker compose up` on an
+  # empty database started a backend that passed its healthcheck (which never
+  # touches Postgres) and then returned 500 "relation does not exist" on the
+  # first real request. `backend` now waits for this to exit 0 before starting.
+  migrate:
+    build: ./backend
+    <<: *hardened
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vantor}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
   backend:
     build: ./backend
     <<: *hardened
     env_file: .env
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vantor}
+      # Runs as `vantor_app` (migration 0026), never as POSTGRES_USER: that role
+      # is a superuser, and Postgres never applies row-level security to a
+      # superuser or BYPASSRLS role regardless of FORCE — every tenant_isolation
+      # policy in this schema would otherwise be a silent no-op for every query
+      # the API itself makes. The owner/superuser role is for `migrate` only.
+      DATABASE_URL: postgresql+psycopg://vantor_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-vantor}
       # Spelled out here rather than inherited from `.env` on purpose. `.env` is
       # also what a native (non-Docker) run reads, and there `keycloak` is a name
       # that does not resolve — the API came up healthy and answered every
@@ -266,6 +289,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [backend, frontend]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]

@@ -4,7 +4,7 @@
 # Portfolio — the 10 products inside VANTOR
 
 **Status: `TESTED` — all 10 products now pass their core-path tests on the live stack
-(113 backend tests green, 35 frontend vitest green).** Full Phase-11 vendor-spec acceptance
+(376 backend tests green, 155 frontend vitest green).** Full Phase-11 vendor-spec acceptance
 suites are planned as Phase 11 gates.
 
 VANTOR consolidates **ten** products from the ProcurementAI portfolio into one modular

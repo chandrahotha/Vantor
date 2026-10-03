@@ -108,7 +108,79 @@ def test_audit_write_requires_tenant():
     db = _db()
     with pytest.raises(ValueError, match="tenant_id is required"):
         record_event(db, tenant_id="", actor="u", action="X", resource="r")
-    db.close()
+
+
+import pytest as _pytest  # noqa: E402  (grouped with the live-Postgres test below)
+
+
+def _token(pem: bytes, tenant: str) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    now = datetime.now(timezone.utc)
+    tok = jwt.encode(
+        {
+            "iss": "https://issuer.test/realms/vantor",
+            "aud": "vantor-web",
+            "sub": f"u-{tenant}",
+            "tenant_id": tenant,
+            "realm_access": {"roles": ["Buyer", "Procurement Manager"]},
+            "exp": now + timedelta(minutes=5),
+            "iat": now,
+        },
+        pem,
+        algorithm="RS256",
+        headers={"kid": "pg-kid"},
+    )
+    return {"Authorization": f"Bearer {tok}"}
+
+
+@_pytest.mark.pg
+def test_tenant_a_cannot_read_tenant_bs_row_through_the_real_app_connection(pg_client):
+    """The live, behavioural proof the suite was missing.
+
+    Every other Postgres-tier test either checks migration/model drift or a
+    *reference-integrity* guard (can tenant A's row point at tenant B's row).
+    None of them had ever asked the more basic question this one does: with
+    the application's own database role (not the migration owner), can tenant
+    A's request simply list a row tenant B created? Before migration
+    0026_app_role_least_privilege, the application connected as a Postgres
+    superuser, which Postgres never subjects to row-level security regardless
+    of FORCE ROW LEVEL SECURITY — every `tenant_isolation` policy in this
+    schema was a no-op for the app's own queries, and this test would have
+    passed anyway only because it was never run against the role that
+    mattered. It now runs through `pg_client`, which points the app at the
+    restricted `vantor_app` role.
+    """
+    from tests.pgsupport import purge_tenant
+
+    c, pem, tenant_a = pg_client
+    tenant_b = f"{tenant_a}-other"
+
+    created = c.post(
+        "/api/v1/suppliers", json={"code": "TENANT-B-ONLY", "name": "Only Tenant B"}, headers=_token(pem, tenant_b)
+    )
+    assert created.status_code == 201, created.text
+    supplier_id = created.json()["data"]["id"]
+
+    try:
+        listed_as_a = c.get("/api/v1/suppliers", headers=_token(pem, tenant_a)).json()["data"]
+        assert supplier_id not in [row["id"] for row in listed_as_a], (
+            "tenant A's listing included a supplier created by tenant B"
+        )
+
+        fetched_as_a = c.get(f"/api/v1/suppliers/{supplier_id}", headers=_token(pem, tenant_a))
+        assert fetched_as_a.status_code == 404, (
+            f"tenant A could fetch tenant B's supplier by id: {fetched_as_a.status_code} {fetched_as_a.text}"
+        )
+
+        listed_as_b = c.get("/api/v1/suppliers", headers=_token(pem, tenant_b)).json()["data"]
+        assert supplier_id in [row["id"] for row in listed_as_b], (
+            "tenant B lost visibility of its own row — this would hide a real bug, not just a leak"
+        )
+    finally:
+        purge_tenant(tenant_b)
 
 
 def test_no_unpinned_sessions_outside_request_cycle():
@@ -159,6 +231,7 @@ def test_pinned_session_pins_on_postgres(monkeypatch):
 
     class FakeSession:
         bind = FakeBind()
+        info: dict = {}
 
         def execute(self, stmt, params=None):  # type: ignore[no-untyped-def]
             executed.append(str(stmt))

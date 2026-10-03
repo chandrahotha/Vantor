@@ -10,7 +10,7 @@ the current repo, not aspirations.
 
 VANTOR is now a coherent self-hosted procurement OS: one backend graph across supplier,
 sourcing, contract, purchase, spend, notifications, audit and AI. Write paths exist in the
-UI (not only the API), the test suite is real (112 backend + 35 frontend), and CI gates
+UI (not only the API), the test suite is real (376 backend + 155 frontend), and CI gates
 actually gate something (typecheck, lint, vitest, pytest, alembic, OpenAPI drift,
 pip-audit, npm audit, Dependabot).
 

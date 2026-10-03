@@ -56,6 +56,7 @@ flowchart TD
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
 | 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
 | 0 | [`00-plan/audit-findings/MASTER_FINDINGS.md`](00-plan/audit-findings/MASTER_FINDINGS.md) | 45-item evidence-backed defect/risk register | VERIFIED |
+| 0 | [`00-plan/audit-findings/RE_AUDIT_2026-10-02.md`](00-plan/audit-findings/RE_AUDIT_2026-10-02.md) | Current live-reproduced findings, release-blocker matrix, release decision | VERIFIED |
 | 1 | [`01-product/requirements.md`](01-product/requirements.md) | PRD: modules, graph, non-negotiables | PLANNED |
 | 1 | [`01-product/portfolio.md`](01-product/portfolio.md) | **Canonical list of the 10 products** + per-product status | IN DEVELOPMENT |
 | 2 | [`02-architecture/system.md`](02-architecture/system.md) | Modular monolith, free topology | PLANNED |

@@ -8,13 +8,26 @@ repository here is the system of record it will score against.
 """
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TenantMixin, tenant_key, tenant_ref
 
 CONTRACT_STATUSES = {"draft", "review", "active", "expiring", "renewed", "expired", "terminated"}
 OBLIGATION_STATUSES = {"open", "done", "overdue", "waived"}
+
+
+def _in(column: str, allowed: set[str]) -> str:
+    """Render a status-domain CHECK from the single source of truth.
+
+    RA-008 (re-audit 2026-10-02): these two status enums were app-only domains
+    — the database would have happily stored a value no router could have
+    written. Same pattern as `app/models/purchase.py::_in`: sorted so the DDL
+    string is byte-identical on every build, matching what
+    `alembic/versions/0027_remaining_status_checks.py` creates.
+    """
+    values = ", ".join(f"'{s}'" for s in sorted(allowed))
+    return f"{column} in ({values})"
 
 
 class Contract(Base, TenantMixin):
@@ -35,6 +48,7 @@ class Contract(Base, TenantMixin):
         UniqueConstraint("tenant_id", "code", name="uq_contract_tenant_code"),
         Index("ix_contract_tenant_status", "tenant_id", "status"),
         Index("ix_contract_tenant_end", "tenant_id", "end_date"),
+        CheckConstraint(_in("status", CONTRACT_STATUSES), name="ck_contract_status"),
 
         # Composite, tenant-carrying links — this table is referenced by a composite link and itself linked by a composite reference.
         tenant_key("contracts"),
@@ -53,6 +67,7 @@ class ContractObligation(Base, TenantMixin):
 
     __table_args__ = (
         Index("ix_oblig_tenant_contract", "tenant_id", "contract_id"),
+        CheckConstraint(_in("status", OBLIGATION_STATUSES), name="ck_obligation_status"),
 
         # Composite, tenant-carrying links — this table is itself linked by a composite reference.
         tenant_ref("contract_obligations", "contract_id", "contracts"),

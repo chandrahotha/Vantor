@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pgsupport import (  # noqa: E402  (must follow the env defaults above)
     build_schema,
+    pg_app_url,
     pointed_at_postgres,
     purge_tenant,
     require_postgres,
@@ -61,6 +62,14 @@ def pg_client():
 
     with pointed_at_postgres():
         build_schema()
+
+        # `build_schema()` ran as the owner/migrator role (DDL needs it). The
+        # app itself — and so this TestClient — must run as the restricted
+        # `vantor_app` role instead, or RLS silently never applies to anything
+        # this fixture does, the same gap migration 0026 fixes everywhere else.
+        import os
+
+        os.environ["DATABASE_URL"] = pg_app_url()
 
         priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = priv.private_bytes(

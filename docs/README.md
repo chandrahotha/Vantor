@@ -38,8 +38,9 @@ docs/
 | 0 | Migration plan | PLANNED | [00-plan/MIGRATION_PLAN.md](00-plan/MIGRATION_PLAN.md) |
 | 0 | Session handoff | IMPLEMENTED | [00-plan/SESSION.md](00-plan/SESSION.md) |
 | 0 | Audit findings (45-item register) | VERIFIED | [00-plan/audit-findings/MASTER_FINDINGS.md](00-plan/audit-findings/MASTER_FINDINGS.md) |
-| 0 | Bug & risk register | LIVE — 141 tests, 0 open S1/S2 defects | [00-plan/BUGS.md](00-plan/BUGS.md) |
-| 0 | Scorecard | Brutal self-assessment — 4.6/10 as a product, 8/10 as engineering judgement | [00-plan/SCORECARD.md](00-plan/SCORECARD.md) |
+| 0 | Re-audit 2026-10-02 (live-reproduced findings, current release-blocker matrix) | VERIFIED | [00-plan/audit-findings/RE_AUDIT_2026-10-02.md](00-plan/audit-findings/RE_AUDIT_2026-10-02.md) |
+| 0 | Bug & risk register | LIVE — see [audit-findings/RE_AUDIT_2026-10-02.md](00-plan/audit-findings/RE_AUDIT_2026-10-02.md) for current substantive findings | [00-plan/BUGS.md](00-plan/BUGS.md) |
+| 0 | Scorecard | Defers to the current audit rather than restating a point-in-time score | [00-plan/SCORECARD.md](00-plan/SCORECARD.md) |
 | 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
 | 1 | **Portfolio (10 products)** | IN DEVELOPMENT | [01-product/portfolio.md](01-product/portfolio.md) |
 | 2 | System architecture | PLANNED | [02-architecture/system.md](02-architecture/system.md) |

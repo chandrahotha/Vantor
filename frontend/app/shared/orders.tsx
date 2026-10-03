@@ -79,17 +79,24 @@ export function OrdersPage() {
   }, [scrollTo, detail]);
 
   const load = useCallback(async (cur: string) => {
-    const r = await api<PO[]>(`/api/v1/purchase-orders?limit=15&cursor=${encodeURIComponent(cur)}`);
+    // The PO page, the supplier picker and the requisition picker are three
+    // independent reads — none depends on another's result — but this used to
+    // `await` them one at a time. That cost was paid on every Pager click, not
+    // just the first load, because the pickers are refreshed alongside the page
+    // so a supplier or requisition created elsewhere shows up without a reload.
+    const [r, s, req] = await Promise.all([
+      api<PO[]>(`/api/v1/purchase-orders?limit=15&cursor=${encodeURIComponent(cur)}`),
+      api<Supplier[]>("/api/v1/suppliers?limit=100&sort=name&order=asc"),
+      // Only an approved requisition can answer a PO — see
+      // `backend/app/routers/purchase.py::create_po` — so the picker only ever
+      // offers ones that will actually convert, instead of a 422 after the fact.
+      api<Requisition[]>("/api/v1/requisitions?status=approved&limit=100"),
+    ]);
     setRows(r.data || []);
     setMore(!!r.pagination?.hasMore);
     setNextCursor(r.pagination?.nextCursor || "");
     setCursor(cur);
-    const s = await api<Supplier[]>("/api/v1/suppliers?limit=100&sort=name&order=asc");
     setSuppliers(s.data || []);
-    // Only an approved requisition can answer a PO — see
-    // `backend/app/routers/purchase.py::create_po` — so the picker only ever
-    // offers ones that will actually convert, instead of a 422 after the fact.
-    const req = await api<Requisition[]>("/api/v1/requisitions?status=approved&limit=100");
     setRequisitions(req.data || []);
   }, []);
 

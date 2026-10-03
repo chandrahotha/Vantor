@@ -12,6 +12,8 @@ build/
 __pycache__/
 *.pyc
 .venv/
+.venv-audit/
+docker-compose.override.yml
 postgres-data/
 redis-data/
 minio-data/

@@ -43,18 +43,46 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from sqlalchemy.engine import make_url
 
 PG_TEST_URL = os.getenv("PG_TEST_DATABASE_URL", "").strip()
+
+#: Password migration 0026 sets on the restricted `vantor_app` role. A fixed
+#: test default keeps existing PG_TEST_DATABASE_URL-only setups working; CI
+#: and docker-compose set the real value via APP_DB_PASSWORD explicitly.
+APP_DB_TEST_PASSWORD = os.getenv("APP_DB_PASSWORD", "vantor-app-test-pw").strip()
 
 #: `backend/` — derived from this file, never from the process CWD.
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
 def pg_engine_url() -> str:
-    """The test URL with the driver prescribed, matching the app's resolution."""
+    """The migrator (owner/superuser) URL with the driver prescribed.
+
+    Used only for schema setup (`build_schema`) and the Alembic config — never
+    for the application's own queries. See `pg_app_url`.
+    """
     if PG_TEST_URL.startswith("postgresql://"):
         return PG_TEST_URL.replace("postgresql://", "postgresql+psycopg://", 1)
     return PG_TEST_URL
+
+
+def pg_app_url() -> str:
+    """The restricted `vantor_app` role's URL — what the running application
+    (and so the test client) actually connects as.
+
+    Derived from the migrator URL by swapping credentials rather than adding a
+    second required env var: same host/port/database, different role. Using
+    the owner/superuser role here would silently defeat the entire point of
+    this test tier, the same way every deployment path did before migration
+    0026_app_role_least_privilege — Postgres never applies row security to a
+    superuser or BYPASSRLS role, regardless of FORCE ROW LEVEL SECURITY.
+    """
+    url = make_url(pg_engine_url())
+    # Plain str(url) masks the password as "***" (SQLAlchemy's default repr
+    # safety) — render_as_string(hide_password=False) is required to get a
+    # connection string that can actually authenticate.
+    return url.set(username="vantor_app", password=APP_DB_TEST_PASSWORD).render_as_string(hide_password=False)
 
 
 def pg_alembic_config():  # type: ignore[no-untyped-def]
@@ -67,6 +95,11 @@ def pg_alembic_config():  # type: ignore[no-untyped-def]
     inside `backend/`.
     """
     from alembic.config import Config
+
+    # Migration 0026 reads APP_DB_PASSWORD directly from the environment (it
+    # cannot come from the connection URL, since it is setting a *different*
+    # role's password than the one `cfg` connects as).
+    os.environ.setdefault("APP_DB_PASSWORD", APP_DB_TEST_PASSWORD)
 
     cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
@@ -152,23 +185,57 @@ def purge_tenant(tenant: str) -> None:
 
     These tests were skipped in every environment that lacked
     PG_TEST_DATABASE_URL, so nothing had exercised this path before.
+
+    Must run through `pinned_session`, not a raw `Session(get_engine())`: the
+    restricted `vantor_app` role (migration 0026) is bound by RLS like any
+    other caller, so an unpinned session has no `app.tenant_id` and every
+    DELETE below would silently match zero rows — not an error, just a purge
+    that never purges anything, which is exactly the kind of silent no-op this
+    function's own history (above) was written to stop happening again.
+    `audit_events` is excluded deliberately: the restricted role has no DELETE
+    on it (immutability), and test-tenant audit rows are harmless to leave
+    behind.
     """
     from sqlalchemy import text
-    from sqlalchemy.orm import Session
 
-    from app.core.tenant import get_engine
+    from app.core.tenant import pinned_session
 
-    db = Session(get_engine())
+    db = pinned_session(tenant)
     try:
         tables = db.execute(text(
             "SELECT c.relname FROM pg_class c "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE c.relkind = 'r' AND n.nspname = 'public' "
+            "AND c.relname != 'audit_events' "
             "AND EXISTS (SELECT 1 FROM pg_attribute a "
             "            WHERE a.attrelid = c.oid AND a.attname = 'tenant_id')"
         )).scalars().all()
-        for table in reversed(tables):
-            db.execute(text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": tenant})
+        # `reversed(tables)` assumed `pg_class`'s unordered scan happens to come
+        # back in creation order — it doesn't reliably, and once this fixture
+        # covered tables with real FK edges between them (suppliers <-
+        # purchase_orders) a wrong-order DELETE raised ForeignKeyViolation and
+        # failed the test in teardown. Retrying in passes, dropping whichever
+        # tables fail this pass and trying them again next pass, is correct
+        # regardless of table order or how the dependency graph changes later.
+        remaining = list(tables)
+        for _ in range(len(remaining) + 1):
+            if not remaining:
+                break
+            next_remaining = []
+            for table in remaining:
+                savepoint = db.begin_nested()
+                try:
+                    db.execute(text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": tenant})
+                    savepoint.commit()
+                except Exception:
+                    savepoint.rollback()
+                    next_remaining.append(table)
+            if len(next_remaining) == len(remaining):
+                raise RuntimeError(
+                    f"purge_tenant made no progress on {next_remaining}; a real "
+                    "FK cycle or a non-FK error is blocking cleanup"
+                )
+            remaining = next_remaining
         db.commit()
     finally:
         db.close()
