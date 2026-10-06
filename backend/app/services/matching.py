@@ -155,10 +155,17 @@ def evaluate(*, contract: dict, po: dict, invoice: dict,
             if recv is not None and recv > ordered_qty:
                 why.append(f"received {recv} > ordered {ordered_qty}")
             # The load-bearing one: cumulative approved + current <= received.
-            if recv is not None:
+            # Enforced whenever the caller passed receipts data at all — the
+            # money path always does, and an empty map there means no goods
+            # have come in, so every invoiced line fails here rather than
+            # being waved through on an invariant that had nothing to compare
+            # against. The advisory `/contracts/{id}/match` passes none and is
+            # skipped, exactly as its own docstring records.
+            if received_quantities is not None:
+                got = int(recv or 0)
                 approved_so_far = int(prior_approved.get(line_id, 0) or 0)
-                if approved_so_far + qty > recv:
-                    why.append(f"cumulative invoiced {approved_so_far}+{qty} > received {recv}")
+                if approved_so_far + qty > got:
+                    why.append(f"cumulative invoiced {approved_so_far}+{qty} > received {got}")
             if why:
                 bad_qty.append(f"{line_id}: " + "; ".join(why))
         cell("quantities", "fail" if bad_qty else "pass",

@@ -143,6 +143,68 @@ def verify_callback(provider: str, timestamp: str, body: bytes, signature: str) 
     return expected
 
 
+def resolve_envelope_tenant(db: Session, *, provider: str, envelope_id: str) -> str:
+    """Resolve — and pin — the tenant a pending envelope belongs to.
+
+    The callback route is the only endpoint in the product that takes its DB
+    session without a tenant pin: the caller is the provider, not a VANTOR
+    user, so there is no verified JWT to take a tenant from. On PostgreSQL as
+    `vantor_app` (migration 0026, `NOBYPASSRLS`) row-level security therefore
+    applied to the lookup with `app.tenant_id` unset, `current_setting(...)`
+    answered NULL, and every correctly-signed callback was refused
+    `422 ESIGN_ENVELOPE_NOT_FOUND` for an envelope that existed — the only path
+    that honestly records a provider-confirmed signature was dead on the
+    deployment posture 0026 itself mandates, while staying green on SQLite,
+    which has no RLS.
+
+    The lookup is cross-tenant by design (the envelope is the provider's, and
+    which tenant it belongs to is exactly what this has to discover), so the
+    one-row discovery runs through the `SECURITY DEFINER` resolver function
+    (migration 0029) with the table owner's rights and nothing more. The
+    session is then pinned to the resolved tenant, so the locked lookup in
+    `apply_callback` runs with RLS satisfied and the row it finds is the row
+    the provider meant.
+
+    Returns the tenant id to pin. On engines without RLS (SQLite — the test
+    harness) this returns "" without touching anything, because there is
+    nothing to pin and the lookup below sees every row anyway.
+
+    Raises `CallbackError` for an unknown envelope (`ESIGN_ENVELOPE_NOT_FOUND`)
+    or an ambiguous one (`ESIGN_ENVELOPE_AMBIGUOUS`) — both 422s, and both only
+    reachable by a caller who has already passed the MAC.
+    """
+    envelope = (envelope_id or "").strip()
+    if not envelope:
+        # `apply_callback` refuses an empty envelope itself; nothing to resolve.
+        return ""
+    if db.bind.dialect.name != "postgresql":
+        return ""
+    from sqlalchemy import text
+
+    from ..core.tenant import _TENANT_INFO_KEY
+
+    row = db.execute(
+        text("SELECT match_count, tenant_id FROM app_esign_envelope_tenant(:p, :e)"),
+        {"p": provider, "e": envelope},
+    ).first()
+    if row is None:  # pragma: no cover - the SQL function always returns one row
+        raise CallbackError("ESIGN_ENVELOPE_NOT_FOUND", "No signature matches that envelope")
+    count, tenant = int(row[0] or 0), row[1]
+    if count == 0 or not tenant:
+        raise CallbackError("ESIGN_ENVELOPE_NOT_FOUND", "No signature matches that envelope")
+    if count > 1:
+        # Refuse rather than pick. A callback that matches two tenants' rows is
+        # either a provider bug or an attack, and choosing the first row would
+        # apply it to whichever tenant happened to be created first.
+        raise CallbackError(
+            "ESIGN_ENVELOPE_AMBIGUOUS",
+            "The envelope matches more than one signature; refusing to guess",
+        )
+    db.info[_TENANT_INFO_KEY] = str(tenant)
+    db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+    return str(tenant)
+
+
 def apply_callback(
     db: Session,
     *,

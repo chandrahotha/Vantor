@@ -353,15 +353,53 @@ def decide_approval_endpoint(aid: str, payload: DecideIn, request: Request, acto
 
     `ai:*` approvals are deliberately excluded: they are decided through
     `/ai/approvals/{id}/decide` so the copilot's HITL path stays explicit.
-    Nothing auto-executes on approval — the caller then acts through the
-    normal endpoint.
+
+    A purchase-order approval decided here runs the same money gate as
+    `POST /purchase-orders/{id}/approve` — the hard budget check, the tier
+    order and the row lock. The queue is the second way to decide the same
+    rows, and the budget gate existed only on the direct route: two POs each
+    within the ceiling could both be approved entirely through the queue and
+    then both sent, committing double the category's ceiling without either
+    approval ever testing it. An approval decision does not execute the
+    underlying action — the parent document's *status* moves with the decision
+    (that is `_sync_parent` below), and the caller then acts through the normal
+    endpoint.
     """
     _write(actor)
-    row = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == aid)).scalar_one_or_none()
+    # Locked, like every other decision path: two concurrent decisions of the
+    # same approval would otherwise both read `requested`, both pass, and
+    # last-write-wins the state while writing two audit events for one decision.
+    row = db.execute(select(Approval).where(Approval.tenant_id == actor.tenant_id, Approval.id == aid).with_for_update()).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Approval not found")
     if row.resource.startswith("ai:"):
         raise HTTPException(status_code=422, detail="AI approvals are decided through /ai/approvals/{id}/decide")
+    if row.resource == "purchase_order":
+        po = db.execute(select(PurchaseOrder).where(
+            PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == row.resource_id).with_for_update()).scalar_one_or_none()
+        if po is None:
+            raise HTTPException(status_code=404, detail="PO not found")
+        if po.status != "draft":
+            raise HTTPException(status_code=422, detail="Only draft POs can be approved")
+        # The same hard budget gate the direct route applies before any approval
+        # lands. No category => no budget gate applies ("" was the old sentinel
+        # — 0018 moved to NULL).
+        if po.category_id:
+            from ..routers.catalog import check_budget as _check_budget
+
+            _check_budget(db, tenant_id=actor.tenant_id, category_id=po.category_id,
+                          this_total=po.total_minor, currency=po.currency)
+        # The same tier order the direct route enforces: the *earliest*
+        # outstanding tier is the one that may be decided, so a finance
+        # approver cannot consume the manager's slot out of turn.
+        pend = list(db.execute(select(Approval).where(
+            Approval.tenant_id == actor.tenant_id, Approval.resource == "purchase_order",
+            Approval.resource_id == row.resource_id, Approval.status == "requested")).scalars())
+        step = next_pending(pend)
+        if step is not None and step.id != row.id:
+            raise HTTPException(status_code=422, detail={
+                "code": "APPROVAL_TIER_ORDER",
+                "message": f"Tier {step.tier} is outstanding and must be decided first"})
     try:
         new_status = decide_approval(db, tenant_id=actor.tenant_id, approver_sub=actor.sub,
                                      approver_roles=set(actor.roles or ()), approval=row,
@@ -397,7 +435,15 @@ def _sync_parent(db: Session, tenant_id: str, approval: Approval) -> str:
     if model is None:
         return ""
     if approval.status == "rejected":
-        decision = "rejected"
+        # `purchase_orders` has no `rejected` status (PO_STATUSES, and the
+        # database CHECK constraint refuses it) — writing one rolled the whole
+        # transaction back behind a 500 and the decision was lost with it. A
+        # rejected PO approval therefore leaves the PO in `draft`: the decision
+        # lives on the approval row and in the audit chain, and the document
+        # stays recoverable by cancelling it or requesting a fresh approval
+        # round. Requisitions and invoices do have a `rejected` status, so
+        # their decisions land on the document.
+        decision = "" if model is PurchaseOrder else "rejected"
     else:
         siblings = list(db.execute(select(Approval).where(
             Approval.tenant_id == tenant_id, Approval.resource == approval.resource,
@@ -473,6 +519,19 @@ def send_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: S
         raise HTTPException(status_code=404, detail="PO not found")
     if po.status != "approved":
         raise HTTPException(status_code=422, detail="Only approved POs can be sent")
+    # The hard budget gate runs here too, because this is where the money
+    # actually commits. It existed only on the approval route, and the
+    # commitment ledger row is written at *send* — so approved-but-unsent POs
+    # contributed nothing to the committed figure the gate reads: N POs each
+    # within the ceiling could all be approved, then all sent, and every send
+    # passed a ceiling none of them ever tested. The lock `check_budget` takes
+    # on the budget row serialises concurrent sends, so the second one re-reads
+    # `committed` *after* the first has posted rather than beside it.
+    if po.category_id:
+        from ..routers.catalog import check_budget as _check_budget
+
+        _check_budget(db, tenant_id=actor.tenant_id, category_id=po.category_id,
+                      this_total=po.total_minor, currency=po.currency)
     po.status = "sent"
     db.add(SpendTransaction(tenant_id=actor.tenant_id, created_by=actor.sub, updated_by=actor.sub,
                             kind="commitment", po_id=pid, supplier_id=po.supplier_id,
@@ -481,7 +540,8 @@ def send_po(pid: str, request: Request, actor: Actor = Depends(get_actor), db: S
     try:
         db.commit()
     except IntegrityError as exc:
-        # uq_spend_tenant_kind_po_inv. A second concurrent send of the same PO
+        # uq_spend_commitment_per_po (0028) — one commitment per (tenant, PO),
+        # carrying no nullable column. A second concurrent send of the same PO
         # cannot double-post the commitment; the database refuses it and we say
         # so, instead of a bare 500 from the global handler.
         db.rollback()
@@ -690,6 +750,16 @@ def create_invoice(pid: str, payload: InvIn, request: Request, actor: Actor = De
     po = db.execute(select(PurchaseOrder).where(PurchaseOrder.tenant_id == actor.tenant_id, PurchaseOrder.id == pid)).scalar_one_or_none()
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
+    # Goods can only arrive (and be receipted) against a PO that was sent, so an
+    # invoice can only be recorded against one in `sent` or `received`. Unchecked,
+    # an invoice against a `draft` or `cancelled` PO was accepted here and only
+    # surfaced at approval time — as a match over zero receipts that nevertheless
+    # posted money, on a buy that was never ordered out.
+    if po.status not in {"sent", "received"}:
+        raise HTTPException(status_code=422, detail={
+            "code": "INVOICE_PO_NOT_READY",
+            "message": f"Purchase order {po.code} is {po.status}; an invoice can only be recorded against a sent or received purchase order",
+            "details": {"poStatus": po.status}})
     # An invoice line must cite a line of *this* PO. Unvalidated, the bad id was
     # stored and only surfaced later as a three-way-match failure at approval
     # time — the write accepted a record that could never be paid.

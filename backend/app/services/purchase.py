@@ -166,6 +166,20 @@ def three_way_match(db: Session, *, tenant_id: str, po_id: str, invoice_id: str)
     ).scalar_one_or_none()
     if po is None:
         raise PurchaseError("MATCH_NO_PO", f"Purchase order {po_id} not found")
+    # A money guard, not a formality: an invoice may only become money against a
+    # purchase order that was actually sent to a supplier, because goods can only
+    # arrive (and be receipted) against a sent one. Unchecked, `create_invoice`
+    # accepted an invoice against a PO in *any* state — `draft`, `cancelled` —
+    # and approval then ran the match over zero receipts, posted an `actual`
+    # SpendTransaction, and booked the money against a buy that was never
+    # ordered out. `received` is the state a billable PO sits in; `sent` is the
+    # one it passes through on the way there.
+    if po.status not in {"sent", "received"}:
+        raise PurchaseError(
+            "MATCH_PO_STATE",
+            f"Purchase order {po.code} is {po.status}; only a sent or received purchase order can be invoiced",
+            {"poStatus": po.status},
+        )
 
     po_lines = list(db.execute(
         select(PurchaseOrderLine)
