@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# System Architecture — VANTOR
+# System Architecture - VANTOR
 
 **Status: `PLANNED`. Principle: modular monolith first, API-first for web + Android.**
 

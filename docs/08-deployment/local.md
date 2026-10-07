@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Local Deployment — VANTOR (free stack)
+# Local Deployment - VANTOR (free stack)
 
 **Status: `IMPLEMENTED` (compose file + images).**
 
@@ -29,7 +29,7 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
 # restart the backend.
 
 # S3-compatible object storage: no bundled container. MinIO withdrew its images
-# from Docker Hub and quay.io, so a `minio` service here could never start — see
+# from Docker Hub and quay.io, so a `minio` service here could never start - see
 # the comment above the `keycloak` service in docker-compose.yml. Leave
 # S3_ENDPOINT/S3_BUCKET blank in .env to use local-disk storage (UPLOAD_DIR)
 # instead, which is what the template ships; set all four S3_* vars against any
@@ -38,11 +38,11 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
 
 | Service | Port | Profile | Needed for |
 | --- | --- | --- | --- |
-| postgres | 5432 | — | primary store + RLS |
-| redis | 6379 | — | rate limiting, RQ queue, scheduler |
-| keycloak | 8080 | — | OIDC login |
-| keycloak-init | — | — | one-shot realm/role/client bootstrap; exits when done |
-| beat | — | — | the RQ scheduler (expiry roll, webhook drain, spend snapshot) |
+| postgres | 5432 | - | primary store + RLS |
+| redis | 6379 | - | rate limiting, RQ queue, scheduler |
+| keycloak | 8080 | - | OIDC login |
+| keycloak-init | - | - | one-shot realm/role/client bootstrap; exits when done |
+| beat | - | - | the RQ scheduler (expiry roll, webhook drain, spend snapshot) |
 | ollama | 11434 | `ai` | local LLM + `nomic-embed-text` |
 
 - **Keycloak is bootstrapped for you.** `keycloak` imports `deploy/keycloak/realm-vantor.json`
@@ -52,9 +52,9 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
   in to and no credential for the worker. To check what the realm ended up with, or to see why a
   grant is missing, read `docker compose logs keycloak-init`.
 - Sign-in is Keycloak, and only Keycloak. The web app has no demo mode, no persona picker and no
-  local credential path — a session exists if and only if the IdP returned a signed token carrying
+  local credential path - a session exists if and only if the IdP returned a signed token carrying
   a tenant, and the API refuses a forged one in every environment including development.
-- Object storage: no bundled MinIO (see above) — set `S3_*` against your own S3-compatible
+- Object storage: no bundled MinIO (see above) - set `S3_*` against your own S3-compatible
   endpoint and create the bucket there, or leave them blank to use local-disk storage.
 - Online AI instead of Ollama: no profile needed. Put a free key in `.env`
   (`OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `OPENCODE_ZEN_API_KEY`) and set
@@ -62,6 +62,6 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
   are never written to the audit log.
 - **The scheduler is a service, so check it is running.** `beat` arms `roll_expiry` daily,
   `drain_webhooks` every 30s and `spend_snapshot` hourly. If it is not up, contract expiry
-  rolling and spend rollups do not happen at all — the dashboard's live `expiring` query still
+  rolling and spend rollups do not happen at all - the dashboard's live `expiring` query still
   works, but the stored statuses do not move. `docker compose logs beat` is the place to look.
 - Staging/prod reuse same images; swap to managed Postgres/Redis/S3/OIDC via env only. Backups + restore drills, and the full production checklist: see `../09-operations/runbook.md`.

@@ -1,16 +1,16 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Refund Policy — VANTOR (DRAFT)
+# Refund Policy - VANTOR (DRAFT)
 
 > **This is an unreviewed draft, not a published legal document.** It has not
-> been reviewed by a lawyer. Every `[TO CONFIRM]` is a real gap — see
+> been reviewed by a lawyer. Every `[TO CONFIRM]` is a real gap - see
 > `LEGAL-INFO-REQUIRED.md`.
 
 ## When this document applies
 
 **There is nothing to refund under the self-hosted distribution model.**
-VANTOR's source code is free, Apache-2.0 licensed software — there is no
+VANTOR's source code is free, Apache-2.0 licensed software - there is no
 purchase price, subscription, or payment flow in this codebase to refund.
 
 This policy becomes relevant only if Digi Tracks introduces a paid offering
@@ -21,7 +21,7 @@ This policy becomes relevant only if Digi Tracks introduces a paid offering
 
 - What is refundable (e.g. unused subscription time) and what is not (e.g.
   professional-services hours already delivered). `[TO CONFIRM]`
-- The refund window (e.g. "within 14 days of purchase"). `[TO CONFIRM — do not
+- The refund window (e.g. "within 14 days of purchase"). `[TO CONFIRM - do not
   publish an invented period]`
 - How a refund is requested and the expected processing time.
   `[TO CONFIRM]`

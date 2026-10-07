@@ -1,29 +1,29 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Privacy Policy — VANTOR (DRAFT)
+# Privacy Policy - VANTOR (DRAFT)
 
 > **This is an unreviewed draft, not a published legal document.** It has not
 > been reviewed by a lawyer and must not be relied on until it has. Every
-> `[TO CONFIRM]` is a real gap — see `LEGAL-INFO-REQUIRED.md`.
+> `[TO CONFIRM]` is a real gap - see `LEGAL-INFO-REQUIRED.md`.
 
 **Effective date:** `[TO CONFIRM]`
 **Last updated:** `[TO CONFIRM]`
 
-## 1. Scope — read this first
+## 1. Scope - read this first
 
 VANTOR is distributed as **self-hosted, Apache-2.0 licensed software**
 (see `../../LICENSE`). When an organization downloads and runs VANTOR, **that
-organization — not Digi Tracks — controls the deployment and any data stored
+organization - not Digi Tracks - controls the deployment and any data stored
 in it** (suppliers, contracts, spend records, user accounts, etc.). Digi
 Tracks does not receive, host, or process that data merely because someone
 runs the software.
 
 This policy therefore covers two separate things:
 
-1. **Data Digi Tracks itself collects** — for example, through its contact
+1. **Data Digi Tracks itself collects** - for example, through its contact
    email, project website, or GitHub repository. See Section 2.
-2. **If Digi Tracks offers a hosted or managed version of VANTOR** — in which
+2. **If Digi Tracks offers a hosted or managed version of VANTOR** - in which
    case Digi Tracks would act as a data processor (or controller, depending on
    the arrangement) for the data an organization puts into that hosted
    instance. `[TO CONFIRM: does this offering exist today?]` If it does, this
@@ -31,7 +31,7 @@ This policy therefore covers two separate things:
 
 If you are an end user of a self-hosted VANTOR deployment, **the privacy
 policy that actually governs your data is whatever the organization running
-that deployment publishes** — not this document.
+that deployment publishes** - not this document.
 
 ## 2. Data Digi Tracks collects directly
 
@@ -72,7 +72,7 @@ Digi Tracks does not knowingly collect personal data from children.
 
 Digi Tracks may update this policy. Material changes will be reflected in
 `CHANGELOG.md` and the "Last updated" date above. `[TO CONFIRM: notice method
-for material changes — email, website banner, etc.]`
+for material changes - email, website banner, etc.]`
 
 ## 8. Contact
 

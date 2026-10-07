@@ -1,17 +1,17 @@
 <!-- vantor-brain-link -->
-> You are in the 🧠 **VANTOR Brain** — mirror index: [Docs index](README.md).
+> You are in the 🧠 **VANTOR Brain** - mirror index: [Docs index](README.md).
 
-# 🧠 VANTOR Brain — central knowledge index
+# 🧠 VANTOR Brain - central knowledge index
 
 > **Start here.** Every document in this repo links back here, and this brain links to every document. No orphan pages.
 > Mirror index: [`docs/README.md`](README.md) · Root: [`../README.md`](../README.md) · Roadmap: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
-> 🚀 **Live Portal on Vercel:** [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
+> 🚀 **Live Portal on Vercel:** [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
 
 ## How to read VANTOR in 5 minutes
 
 1. Vision + status → [`../README.md`](../README.md)
 2. **The 10 products** → [`01-product/portfolio.md`](01-product/portfolio.md) (canonical list)
-3. What we found → [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) (VERIFIED 2026-09-26: 5/5 repos, ~775 files — audit scope, not product count)
+3. What we found → [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) (VERIFIED 2026-09-26: 5/5 repos, ~775 files - audit scope, not product count)
 4. How 5 repos become 1 platform → [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md)
 5. Build order → [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
 6. Shared language → [`glossary.md`](glossary.md)
@@ -47,12 +47,12 @@ flowchart TD
     UI --> BRAND
 ```
 
-## Every document (bidirectional — each links back here)
+## Every document (bidirectional - each links back here)
 
 | # | Document | Answers | Status |
 |---|---|---|---|
 | 0 | [`../README.md`](../README.md) | What is VANTOR, quickstart, layout | IN DEVELOPMENT |
-| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0–11 with per-phase gaps + reporting rules | TESTED 3–4 |
+| 0 | [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) | Phases 0-11 with per-phase gaps + reporting rules | TESTED 3-4 |
 | 0 | [`00-plan/REPOSITORY_AUDIT.md`](00-plan/REPOSITORY_AUDIT.md) | 5-repo audit matrix (audit scope, not product count) | VERIFIED |
 | 0 | [`00-plan/MIGRATION_PLAN.md`](00-plan/MIGRATION_PLAN.md) | KEEP/ADAPT/MERGE/… plan | PLANNED |
 | 0 | [`00-plan/SESSION.md`](00-plan/SESSION.md) | Session handoff / resume guide | IMPLEMENTED |
@@ -74,10 +74,10 @@ flowchart TD
 | 7 | [`07-android/strategy.md`](07-android/strategy.md) | Kotlin/Compose plan | COMING SOON (API-ready) |
 | 8 | [`08-deployment/local.md`](08-deployment/local.md) + [`../docker-compose.yml`](../docker-compose.yml) | Free local stack | IMPLEMENTED compose |
 | 9 | [`09-operations/runbook.md`](09-operations/runbook.md) | Health/backup/incidents + RLS session discipline | IMPLEMENTED |
-| 10 | [`10-decisions/README.md`](10-decisions/README.md) | ADR index (001–006) | Accepted |
+| 10 | [`10-decisions/README.md`](10-decisions/README.md) | ADR index (001-006) | Accepted |
 | X | [`glossary.md`](glossary.md) | Ubiquitous language | IMPLEMENTED |
 
-Products 06–10 shipped as native modules (`sourcing/`, `spend/`, `suppliers/`, `ai/` — see
+Products 06-10 shipped as native modules (`sourcing/`, `spend/`, `suppliers/`, `ai/` - see
 [`01-product/portfolio.md`](01-product/portfolio.md)); their original vendored spec bundle has
 been retired now that the modules and this documentation set are the source of truth.
 

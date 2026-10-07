@@ -1,4 +1,4 @@
-# Link verifier — every markdown doc must connect to the Brain.
+# Link verifier - every markdown doc must connect to the Brain.
 # Run: python scripts/verify_brain_links.py
 import pathlib
 import sys

@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Database Architecture — VANTOR
+# Database Architecture - VANTOR
 
 **Status: `PLANNED`. Primary: PostgreSQL 16 + pgvector. No second primary DB without ADR.**
 
@@ -14,13 +14,13 @@
 ## Rules
 - Every row: `id (uuid), tenant_id/org_id, created_at/updated_at/created_by/updated_by`, FKs + check constraints + deliberate indexes (tenant first, then lifecycle/state, then time).
 - RLS policies enforce `tenant_id = current_setting('app.tenant_id')`; service role bypasses only in migrations; tests assert cross-tenant invisibility.
-- Migrations versioned, reversible, with seed only for reference data (roles, categories) — never fake suppliers/transactions.
+- Migrations versioned, reversible, with seed only for reference data (roles, categories) - never fake suppliers/transactions.
 - Backups: nightly pg_dump + WAL (prod managed PITR); restore drilled quarterly; retention + privacy controls documented in runbook.
 
 ## Per-tenant business timezone
 
 `organizations.timezone` holds an IANA zone for the tenant. It is **nullable and defaults to
-empty, which means "inherit"** — the column was added by migration `0023` and backfilled empty,
+empty, which means "inherit"** - the column was added by migration `0023` and backfilled empty,
 so an upgrade changes no existing row. Nullability is deliberate: a `NOT NULL` column with a
 default is a lock- and correctness-hostile edit on a live table.
 
@@ -34,17 +34,17 @@ tenants of a system whose users span countries.
 
 - **PostgreSQL verification is partial, and the boundary is not recorded.** RLS policy behaviour
   was proven against a genuine PostgreSQL 18 instance on 2026-09-26 with a non-superuser app
-  role — see runbook §7. The exact revision tested was not written down, so it cannot be assumed
+  role - see runbook §7. The exact revision tested was not written down, so it cannot be assumed
   to cover migrations added since. Re-verified on 2026-10-03 against the real
   `pgvector/pgvector:pg16` container in `docker compose up`'s own stack (not a disposable CI
-  container — the deployment's own Postgres, reached through a temporary host tunnel): the full
+  container - the deployment's own Postgres, reached through a temporary host tunnel): the full
   backend suite, PG tier included, **385 passed, 0 skipped, 0 failed**, through the restricted
   `vantor_app` role migration 0026 creates. The pgvector HNSW index (`ix_chunk_embedding_hnsw`),
   the partial unique indexes and the `FOR UPDATE SKIP LOCKED` drains are no longer "unverified on
-  a real engine" — same caveat as every dated verification in this project: it covers the revision
+  a real engine" - same caveat as every dated verification in this project: it covers the revision
   tested, not whatever is added after.
 - **The RLS test only covers the baseline migration.** It asserts `0001_baseline.py` defines its
   policies, but 13 later migrations also enable RLS and no test covers them. A new tenant table
   could ship without a policy and the suite would stay green.
 - `current_setting('app.tenant_id', true)` is called with the `missing_ok` flag so that an absent
-  setting yields NULL and therefore matches no rows — fail-closed rather than fail-open.
+  setting yields NULL and therefore matches no rows - fail-closed rather than fail-open.

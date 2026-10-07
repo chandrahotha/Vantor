@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Domain Model — VANTOR
+# Domain Model - VANTOR
 
 **Status: `PLANNED`. Full DDL lands in Phase 3 migrations.**
 

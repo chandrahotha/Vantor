@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# AI Evaluation — VANTOR
+# AI Evaluation - VANTOR
 
 **Status: `PLANNED`. No AI change ships without eval regression.**
 

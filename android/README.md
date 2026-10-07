@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [Brain](../docs/BRAIN.md) · [Docs index](../docs/README.md)
 
-# Android — VANTOR (Phase 9) — NOT STARTED
+# Android - VANTOR (Phase 9) - NOT STARTED
 
 **Status: `PLANNED`. There is deliberately no code here yet.**
 
@@ -13,7 +13,7 @@ same backend the web app already uses:
 - **First screens (approved baseline):** approvals inbox, alerts feed, PO detail, order
   receipts, supplier lookup. Anything else needs its own phase ticket.
 - **Do not commit secrets.** The app reads its config from the device keystore at runtime.
-- **Everything below ships through the API** (/api/v1) with real persistence — a mock-first
+- **Everything below ships through the API** (/api/v1) with real persistence - a mock-first
   approach is not accepted.
 
 When work starts, the first review will require: a runnable debug APK, on-device

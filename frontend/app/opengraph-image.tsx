@@ -3,13 +3,13 @@ import path from "node:path";
 
 import { ImageResponse } from "next/og";
 
-export const alt = "VANTOR — the intelligent procurement operating system";
+export const alt = "VANTOR - the intelligent procurement operating system";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const ACCENT_RAILS = ["#1B6CFF", "#22D3EE", "#10B981"];
 
-/** Social card, built from the REAL source art (vantor-icon-source.png — the
+/** Social card, built from the REAL source art (vantor-icon-source.png - the
  *  glossy V+orbit squircle), not from a hand-drawn redraw. This is what keeps
  *  Slack/LinkedIn/X previews on brand instead of off-brand. */
 export default async function OpengraphImage() {
@@ -52,7 +52,7 @@ export default async function OpengraphImage() {
             </div>
             <div style={{ fontSize: 26, color: "#94A3B8", marginTop: 22, maxWidth: 740, lineHeight: 1.4 }}>
               One open procurement OS: suppliers, sourcing, contracts, purchase, spend and an
-              evidence-cited AI copilot — self-host free.
+              evidence-cited AI copilot - self-host free.
             </div>
           </div>
         </div>

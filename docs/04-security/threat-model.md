@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Threat Model — VANTOR (STRIDE-lite)
+# Threat Model - VANTOR (STRIDE-lite)
 
 **Status: `PLANNED`. Review each release.**
 

@@ -1,10 +1,10 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Terms of Service — VANTOR (DRAFT)
+# Terms of Service - VANTOR (DRAFT)
 
 > **This is an unreviewed draft, not a published legal document.** It has not
-> been reviewed by a lawyer. Every `[TO CONFIRM]` is a real gap — see
+> been reviewed by a lawyer. Every `[TO CONFIRM]` is a real gap - see
 > `LEGAL-INFO-REQUIRED.md`.
 
 **Effective date:** `[TO CONFIRM]`
@@ -12,17 +12,17 @@
 ## 1. What these terms cover
 
 VANTOR is **self-hosted software distributed under the Apache License,
-Version 2.0** (see `../../LICENSE` — the license text itself is the binding
+Version 2.0** (see `../../LICENSE` - the license text itself is the binding
 grant; nothing here narrows it). These Terms cover:
 
 - Your use of the public VANTOR source repository, issue tracker, and any
   community channels Digi Tracks operates.
 - If Digi Tracks offers a hosted or managed version of VANTOR, your use of
-  that service. `[TO CONFIRM: does this offering exist? If so, Sections 5–7
+  that service. `[TO CONFIRM: does this offering exist? If so, Sections 5-7
   below need real terms, not placeholders.]`
 
 These Terms do **not** govern your relationship with any third party who
-deploys VANTOR for you — that relationship is between you and them.
+deploys VANTOR for you - that relationship is between you and them.
 
 ## 2. The software license
 
@@ -41,7 +41,7 @@ WARRANTIES OR CONDITIONS OF ANY KIND**, express or implied. Digi Tracks makes
 no guarantee that VANTOR is fit for any particular purpose, error-free, or
 secure for any specific use case. You are responsible for your own security
 review, configuration, and operational practices before deploying it,
-especially before exposing it to an untrusted network — see `../../SECURITY.md`
+especially before exposing it to an untrusted network - see `../../SECURITY.md`
 and `../04-security/architecture.md`.
 
 ## 4. Acceptable use (community channels)
@@ -52,7 +52,7 @@ content or restrict access for violations, abuse, spam, or unlawful activity.
 
 ## 5. Hosted / managed offering (if applicable)
 
-`[TO CONFIRM — this section is a placeholder and must not be published as-is
+`[TO CONFIRM - this section is a placeholder and must not be published as-is
 if no such offering exists.]` If Digi Tracks operates a hosted version of
 VANTOR, this section needs: service description, acceptable use specific to
 the hosted service, uptime/availability commitments (if any), support scope
@@ -61,7 +61,7 @@ data; Digi Tracks processes it per the Data Processing Agreement).
 
 ## 6. Payments and subscriptions (if applicable)
 
-`[TO CONFIRM — no payment or subscription system exists in this codebase as
+`[TO CONFIRM - no payment or subscription system exists in this codebase as
 of this writing. Do not publish pricing, billing cycle, or payment-provider
 terms without real information.]`
 
@@ -73,7 +73,7 @@ See `refund-policy.md`. `[TO CONFIRM]`
 
 VANTOR integrates with third-party and open-source components you choose to
 configure (a Postgres database, Redis, Keycloak, an S3-compatible object
-store, and optionally a third-party or self-hosted AI provider — see
+store, and optionally a third-party or self-hosted AI provider - see
 `../03-ai/architecture.md`). Your use of those components is governed by
 their own terms; Digi Tracks does not operate them for you under the
 self-hosted model and is not a party to your agreements with them.
@@ -104,7 +104,7 @@ Digi Tracks may update these Terms; material changes will be noted in
 
 ## 13. Contact
 
-`[TO CONFIRM: legal entity name and address]` — **digi.tracks@outlook.com**
+`[TO CONFIRM: legal entity name and address]` - **digi.tracks@outlook.com**
 
 ---
 

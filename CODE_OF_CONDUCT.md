@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
 
-# Code of Conduct — VANTOR
+# Code of Conduct - VANTOR
 
 We pledge a harassment-free experience for everyone regardless of background or identity.
 

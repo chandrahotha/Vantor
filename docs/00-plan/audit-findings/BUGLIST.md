@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
 
-# BUGLIST — VANTOR
+# BUGLIST - VANTOR
 
 Live register of every defect, risk and deliberate omission found during the
 remediation work. Recreated 2026-09-28 at the owner's request.
@@ -11,7 +11,7 @@ tenant isolation, or a silently disabled control. **S2** = wrong answer, strande
 security control that is absent. **S3** = performance, maintainability, honesty of a document.
 
 Every row states how it was established. A row marked *claimed* is what a document asserted and
-what the code actually does — those are the ones worth reading, because a false claim in a
+what the code actually does - those are the ones worth reading, because a false claim in a
 codebase is how the next engineer wastes a day. Nothing here is marked fixed without a
 regression test that fails without the fix.
 
@@ -20,14 +20,14 @@ this register.
 
 ---
 
-## S1 — money, tenant isolation, or a silently disabled control
+## S1 - money, tenant isolation, or a silently disabled control
 
 ### B-01 · Webhook drain defaulted its tenant scope to every tenant · **FIXED** `e9539bc`
 
 `services/integration.py::drain` was `drain(db, *, tenant_id: str = "", ...)` and applied the
 filter only `if tenant_id:`. An empty string therefore meant "no tenant filter", so a caller
-that omitted the argument would have sent **every** tenant's queued webhook payloads — order
-contents, contract values — to **every** tenant's registered endpoints.
+that omitted the argument would have sent **every** tenant's queued webhook payloads - order
+contents, contract values - to **every** tenant's registered endpoints.
 
 The secret is that the default looked safe and read as a no-op. No caller wanted it: the router
 has always passed the actor's tenant explicitly.
@@ -35,7 +35,7 @@ has always passed the actor's tenant explicitly.
 Fixed by making `tenant_id` required and moving the predicate into the statement's own
 where-clause. Tests: `tests/test_integrations.py::test_drain_never_touches_another_tenants_deliveries`
 and `::test_drain_requires_a_tenant_rather_than_defaulting_to_all_of_them`, both **mutation
-checked** — with the filter removed they fail.
+checked** - with the filter removed they fail.
 
 ### B-02 · The sourcing optimizer had no role check at all · **FIXED** `5e28b79`
 
@@ -44,8 +44,8 @@ not a read despite the docstring saying "read-only": it commits an `RFQ_OPTIMIZE
 and it returns the allocation that decides who wins a buy, next to `/rfqs/{id}/award`, which
 did require a sourcing role.
 
-Ungated, any authenticated tenant member — including a supplier-side account or a read-only
-account — could enumerate RFQs and harvest the recommendation for each.
+Ungated, any authenticated tenant member - including a supplier-side account or a read-only
+account - could enumerate RFQs and harvest the recommendation for each.
 
 Tests assert both directions: five role sets refused (read-only, supplier-side, legal, unknown,
 and the empty set, which must fail closed) and three admitted. Asserting only the 403 would have
@@ -58,7 +58,7 @@ serves**. The pages a user actually reads come from Next, a different origin. Th
 to protect the application UI was on the wrong host, and the app ran with no CSP whatsoever.
 
 Fixed in `frontend/next.config.mjs`. Allowed origins are derived from `NEXT_PUBLIC_API_URL` /
-`NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded — a pinned `localhost:8000` would have blocked
+`NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded - a pinned `localhost:8000` would have blocked
 the API call in every other deployment while looking correct in the source. HSTS is emitted only
 when the app is actually served over https. Test: `frontend/next.config.test.ts`, 7 cases.
 
@@ -119,8 +119,8 @@ things: two concurrent approvals cannot both clear one ceiling, the loser is tol
 committed figure rather than being left to infer it, and a category with no budget row is not
 gated (B-20).
 
-**The proof existed and still did not run.** `ci.yml` selected the Postgres tier by path —
-`pytest tests/test_pg_infrastructure.py` — and named only one of the two files, so the entire
+**The proof existed and still did not run.** `ci.yml` selected the Postgres tier by path -
+`pytest tests/test_pg_infrastructure.py` - and named only one of the two files, so the entire
 budget-atomicity proof, the one control whose job is to make an overspend impossible, had never
 once executed in CI. It now selects by marker (`pytest -m pg`), which both files carry and which
 exists for exactly this purpose, so a third Postgres file needs no edit to be included.
@@ -128,7 +128,7 @@ exists for exactly this purpose, so a third Postgres file needs no edit to be in
 ### B-08 · "Within 90 days" used one deployment-wide timezone · **FIXED** `1a591a6`
 
 A buyer at UTC-12 reaches their own 1 January twelve hours before a UTC server does, so the
-renewal notice fired a day early or late — and the tenants of a procurement system are normally
+renewal notice fired a day early or late - and the tenants of a procurement system are normally
 in different countries, so a single `CONTRACT_TIMEZONE` was wrong for nearly all of them.
 
 `organizations.timezone` (migration `0023`, backfilled empty so upgrading changes nothing) with
@@ -142,7 +142,7 @@ Tests: `test_contract_authority.py`.
 `app/core/security.py` carried three `if not settings.is_prod` branches, each of which returned a
 full Admin `Actor` instead of refusing:
 
-1. any token beginning `vantor-` (and a hardcoded list of dev/demo strings) — accepted with no
+1. any token beginning `vantor-` (and a hardcoded list of dev/demo strings) - accepted with no
    signature, no expiry and no issuer check, defaulting the tenant to `vantor-corp`;
 2. any token that failed to parse at all;
 3. any token whose `kid` was not in the JWKS.
@@ -159,17 +159,17 @@ removed names all three and the three root causes that made someone reach for th
 instinct to add them comes back if the causes come back.
 
 Tests: `test_auth.py::test_forged_tokens_are_401_in_test_env` and
-`::test_development_env_also_fails_closed` — deliberately one per environment, because a single
+`::test_development_env_also_fails_closed` - deliberately one per environment, because a single
 "non-prod" test would not have caught a branch that keyed on `is_prod` rather than on
 development.
 
 ### B-33 · The web app could mint an Admin session without the IdP · **FIXED**
 
-The frontend half of B-32, and it made the server-side bypass unnecessary — which is part of why
+The frontend half of B-32, and it made the server-side bypass unnecessary - which is part of why
 it survived. `lib/auth.ts` seeded a module-scope session whose token was the literal string
 `"vantor-corp-jwt-session"`, so the app rendered a signed-in shell before any identity existed
 and every API call carried a credential the backend correctly rejected. `components/SignInModal`
-— rendered by `Shell.tsx`, reachable from three places in the chrome — let anyone type a name and
+- rendered by `Shell.tsx`, reachable from three places in the chrome - let anyone type a name and
 pick a role from a dropdown, "Admin" included, and called `switchPersona()` to build a session
 from that string alone.
 
@@ -177,7 +177,7 @@ Now: a session exists if and only if the IdP returned a signed token carrying a 
 are in-memory only and are never restored from storage, because an access token has a fifteen
 minute life and a stale one surfaces as a 401 that reads like a bug in the app. The persona list
 and the modal are gone, and `authboot.test.tsx` asserts the *absence* of an identity at module
-load — the previous implementation would have passed any test that only checked the shell
+load - the previous implementation would have passed any test that only checked the shell
 renders.
 
 ### B-34 · The API client fabricated a bearer token when none was set · **FIXED**
@@ -188,7 +188,7 @@ This is the same bypass as B-32 in a single line, and it is the reason the front
 provably fixed by deleting `SignInModal`: if the boot ever failed to register a getter, every
 request went out carrying a fabricated credential rather than none. Against the B-32 backend that
 was a silent full-Admin request; against the fixed backend it is a 401 on everything. The default
-is now `getSession()?.token` and nothing else — **no unauthenticated request is ever sent.**
+is now `getSession()?.token` and nothing else - **no unauthenticated request is ever sent.**
 
 ### B-35 · The default `OIDC_ISSUER` did not match the `iss` in the token · **FIXED**
 
@@ -213,10 +213,10 @@ the `127.0.0.1` value.
 `Promise.allSettled` over the five panels, keeping the panel name and throwing away the reason, so
 a total outage reported:
 
-    Notice — some live panels could not reach backend: spend, contracts, rfq:sent, rfq:response, purchase orders.
+    Notice - some live panels could not reach backend: spend, contracts, rfq:sent, rfq:response, purchase orders.
 
 Five failures, zero causes, and no way to distinguish a 401 from a 503 from a backend that was not
-running — so the message could not be acted on without a devtools session. It now carries the
+running - so the message could not be acted on without a devtools session. It now carries the
 status, the code and the request id per panel, which is what the backend's own log line is keyed
 on, so a report can be matched to a log entry instead of guessed at.
 
@@ -226,21 +226,21 @@ configuration string; B-36 was the reason nobody could see that.
 ### B-41 · The worker crashed on boot, so nothing consumed what the scheduler armed · **FIXED**
 
 `worker/worker.py` built its queues from a real `Redis.from_url(REDIS_URL)` and then constructed
-the worker as `Worker(queues).work()` — queues passed, connection not. In the pinned rq 1.16.2
+the worker as `Worker(queues).work()` - queues passed, connection not. In the pinned rq 1.16.2
 that is a crash on boot, not a default:
 
     rq/worker.py:147   connection = self._set_connection(connection)
     rq/worker.py:298   if connection is None: connection = get_current_connection()
     rq/worker.py:300   current_socket_timeout = connection.connection_pool.connection_kwargs...
 
-`get_current_connection()` resolves inside rq's fork-based work-horse. In the parent process —
-which is where an entrypoint runs — there is no current fork, so it answers `None` and the next
+`get_current_connection()` resolves inside rq's fork-based work-horse. In the parent process -
+which is where an entrypoint runs - there is no current fork, so it answers `None` and the next
 line dereferences it. `AttributeError: 'NoneType' object has no attribute 'connection_pool'`,
 before a single job is fetched.
 
 Filed as S1 because it is a silently disabled control rather than a crash report. The compose
 stack comes up, `beat` cheerfully logs `scheduled roll_expiry at …`, and the contract expiry roll
-and the webhook drain — the two jobs the whole worker exists for — never run. Nothing in the
+and the webhook drain - the two jobs the whole worker exists for - never run. Nothing in the
 system reports the failure: the control is simply absent, and its absence looks identical to a
 quiet night. It is B-34's exact shape one file over, and it survived the same way, by never being
 run: no CI job imported `worker/` at all.
@@ -253,8 +253,8 @@ run: no CI job imported `worker/` at all.
              default: vantor drain_webhooks (every 5s) (beat:drain_webhooks:358123484)
              AttributeError: module 'os' has no attribute 'fork'      # <- the real defect, after the fix
 
-`tests/test_worker.py` pins both halves. The crash is reproduced with **no Redis at all** — it
-happens on `rq/worker.py:300`, before any socket opens — so the regression runs in every
+`tests/test_worker.py` pins both halves. The crash is reproduced with **no Redis at all** - it
+happens on `rq/worker.py:300`, before any socket opens - so the regression runs in every
 environment including CI's worker job. Constructing a real `rq.Worker` *does* need Redis
 (`rq/worker.py:205` calls `connection.client_setname(...)`), so those assertions skip without
 `RQ_TEST_REDIS_URL` and the CI job provides one; a regression that only runs where a dependency
@@ -268,8 +268,8 @@ the execution was not. It runs in a Linux container in every real deployment.
 
 `app/core/security.py` refuses a token that carries no tenant (`403 Token carries no tenant`),
 and the `tenant_id` claim is mapped by a **client-scoped** mapper from the user attribute of the
-same name. The `vantor-service` client — the worker's documented identity, the one compose
-provisions — carried only the audience mapper, and `provision.py` granted its service account
+same name. The `vantor-service` client - the worker's documented identity, the one compose
+provisions - carried only the audience mapper, and `provision.py` granted its service account
 roles but never set a `tenant_id` attribute on it. So the client-credentials token, the path
 every document describes, carried no tenant and the API refused **every worker operation**:
 the expiry roll and the webhook drain could not run on it at all.
@@ -278,7 +278,7 @@ Filed as S1 because it is a silently disabled control, and it is B-32's shape in
 escape hatch (`SERVICE_API_TOKEN`, a token minted by hand, which does carry a tenant) worked, so
 the scheduled jobs ran on the path nobody documents while the documented path was never exercised.
 Nothing caught it because `test_realm_parity.py` asserted the tenant mapper on `vantor-web` only,
-and every other test mints its own JWT with a tenant — assertions about the mock, not about the
+and every other test mints its own JWT with a tenant - assertions about the mock, not about the
 system, which is the exact sentence VNT-052's audience finding is written in.
 
 **Established structurally at both ends, and fixed at both:**
@@ -290,16 +290,16 @@ system, which is the exact sentence VNT-052's audience finding is written in.
 
 `test_realm_parity.py::test_tenant_is_in_the_service_token_too` asserts the mapper on the
 worker's client, that it maps from the stamped attribute, and that it applies to the access
-token — the version of `test_tenant_is_in_the_token` that would have caught this.
+token - the version of `test_tenant_is_in_the_token` that would have caught this.
 
-**Residual, stated:** the live service flow was not re-verified against a real Keycloak here —
+**Residual, stated:** the live service flow was not re-verified against a real Keycloak here -
 the live realm's admin and client credentials do not match `.env`, so the client-credentials
 grant could not be completed. It runs in CI's realm shape and is asserted structurally; the
 first live run is the thing that proves it.
 
 ---
 
-## S2 — wrong answer, stranded user, or an absent control
+## S2 - wrong answer, stranded user, or an absent control
 
 ### B-09 · `frontend/README.md` claimed zero tests and no dark mode · **FIXED** `af787e`
 
@@ -352,37 +352,37 @@ Duplicate keys across turns caused incorrect updates.
 BYOK now has a real picker and the key rides in the `X-Vantor-Provider-Key` header, never in a
 JSON body or a log.
 
-### B-16 · The rate limiter was tenant-wide and failed open · **FIXED** `e81429f` — status corrected 2026-09-28
+### B-16 · The rate limiter was tenant-wide and failed open · **FIXED** `e81429f` - status corrected 2026-09-28
 
 Now scoped per tenant and per peer address, and the fail mode is a validated setting
 (`RATE_LIMIT_FAIL_MODE`, `open`|`closed`, refused at startup read on anything else).
 
 This row stood at PARTIAL while its own text described a resolved state. The sentence it closed
-with — "Redis down still means no limiting unless the fail-closed mode is set" — was false, and
+with - "Redis down still means no limiting unless the fail-closed mode is set" - was false, and
 had been since the in-process backstop landed: the default is *degraded to per-process limiting*,
 not *no limiting*, which is a different answer to the same question and the one an operator
 responding to a Redis outage needs. `app/core/ratelimit.py` states it; the row now does too.
 
-### B-17 · Nothing scheduled the worker · **FIXED** — in two parts, and the second was found by running it
+### B-17 · Nothing scheduled the worker · **FIXED** - in two parts, and the second was found by running it
 
 There was no beat or cron sidecar in `docker-compose.yml`, so `roll_expiry` and `spend_snapshot`
 ran only when a human ran `worker/enqueue.py`. **Contract expiry rolling and spend rollups were
 not automatic in any environment**, including local compose. This row stood open for months
-because the missing thing was documented rather than absent — the runbook said the worker had to
+because the missing thing was documented rather than absent - the runbook said the worker had to
 be triggered by hand, which read as a decision.
 
-**Part one — the scheduler.** `worker/beat.py` is now a real service against the pinned rq
+**Part one - the scheduler.** `worker/beat.py` is now a real service against the pinned rq
 1.16.2 (B-34), and `docker compose up` starts it. That is the row's own fix, and on its own it
 was worth nothing, because of part two.
 
-**Part two — the consumer.** `worker/worker.py` ended with `Worker(queues).work()`, passing the
+**Part two - the consumer.** `worker/worker.py` ended with `Worker(queues).work()`, passing the
 queues but not the connection. In rq 1.16.2 that is a crash on boot, not a default (B-41). The
 `worker` container exited immediately, so everything `beat.py` scheduled piled up in
 `rq:queue:default` with nobody to consume it. The two defects are one defect: a scheduler that
 arms jobs nobody runs. Neither was visible from reading, because `test_beat.py` never built a
 Worker and there was no CI job that imported the worker at all.
 
-Found by execution, not by review — the two of them run against a real Redis:
+Found by execution, not by review - the two of them run against a real Redis:
 
     beat:  scheduled roll_expiry / drain_webhooks / spend_snapshot
     redis: rq:queue:default LLEN 21     # armed, then promoted, and left to rot
@@ -396,18 +396,18 @@ the scheduler's arming/promotion chain is proven against genuine Redis rather th
 calls `os.fork()`, which does not exist on Windows, so the dequeue was observed and the execution
 was not. It runs in a Linux container in every real deployment.
 
-### B-18 · The worker drains only its own tenant · **FIXED** — one identity per tenant, closed 2026-09-28
+### B-18 · The worker drains only its own tenant · **FIXED** - one identity per tenant, closed 2026-09-28
 
 Both worker operations go through tenant-scoped routes, so a service token scoped to tenant A
 delivers A's webhooks only. In a multi-tenant deployment one worker does not cover the rest.
 
-This was deliberately *not* "fixed" by removing a tenant filter — that closes it by creating a
+This was deliberately *not* "fixed" by removing a tenant filter - that closes it by creating a
 deliberately cross-tenant identity, the opposite of B-04. It is closed the other way: the worker's
 identity is now per tenant, and nothing about it is cross-tenant.
 
 * `SERVICE_TENANT` (default `vantor-corp`) is stamped onto the service-account user by
   `deploy/keycloak/provision.py`, where the `tenant_id` claim mapper reads it from. Before B-43
-  the claim did not exist at all and the worker could not call the API on any path — see B-43.
+  the claim did not exist at all and the worker could not call the API on any path - see B-43.
 * A multi-tenant deployment provisions one identity per tenant (client + secret +
   `SERVICE_TENANT`) and runs one worker container each. The scheduler's grid is absolute
   epoch-time, so N `beat` instances converge on the same buckets rather than doubling them.
@@ -418,7 +418,7 @@ identity is now per tenant, and nothing about it is cross-tenant.
 provisioned, but N workers against N tenants were not run here. The single-tenant case is the
 one the compose stack ships.
 
-### B-19 · Replay window on the e-sign callback is a timestamp, not a consumed nonce · **FIXED** — closed 2026-09-28
+### B-19 · Replay window on the e-sign callback is a timestamp, not a consumed nonce · **FIXED** - closed 2026-09-28
 
 The inbound HMAC over timestamp and body uses a fixed tolerance rather than a nonce store, so a
 signature inside the `REPLAY_WINDOW_S` window can be replayed. The window is real and unchanged:
@@ -427,7 +427,7 @@ stops a capture being replayed *later*.
 
 **The acceptance for the remaining window was asserted in prose and turned out to be half
 false.** It rested on the handler being "idempotent on the envelope id". The state transition
-was idempotent — a replay writes no second signature row and cannot change a terminal status.
+was idempotent - a replay writes no second signature row and cannot change a terminal status.
 The *provenance* was not: `apply_callback` stamped `verified_at` on every callback that agreed
 with the current state, so a replayed capture overwrote the record of when the provider
 originally confirmed that envelope. On an e-signature row that column is the provenance of a
@@ -435,7 +435,7 @@ legal claim, and it was being rewritten by an attacker who had merely observed a
 
 Fixed to stamp only on the transition, and covered by
 `test_esign_provider.py::test_a_replay_inside_the_window_cannot_transition_state_twice`, which
-asserts the row count, the status *and* that `verifiedAt` is unchanged — the version of this
+asserts the row count, the status *and* that `verifiedAt` is unchanged - the version of this
 check that would have failed against the old code.
 
 **Still open, deliberately:** a MAC captured within the window is still accepted rather than
@@ -446,16 +446,16 @@ not that it is absent.
 
 **The above paragraph is now historical.** The nonce store exists, and it is smaller than the
 register feared: the consumed digest lives on the signature row itself, which is already the
-nonce's scope — one open envelope per provider is that table's uniqueness constraint — so there
+nonce's scope - one open envelope per provider is that table's uniqueness constraint - so there
 is no second table and no second lookup. `contract_signatures.last_callback_digest` (migration
 `0025_signature_callback_nonce`, backfilled NULL so upgrading changes nothing) holds the digest
 of the last accepted callback; a re-send matches it and is refused `409 ESIGN_REPLAY` *before*
 the terminal-state check, so the answer is what happened rather than a consequence of it. A
-provider retrying with a fresh timestamp has a new digest and is accepted — asserted in both
+provider retrying with a fresh timestamp has a new digest and is accepted - asserted in both
 directions, and the replay test is mutation-checked. The window is still real and unchanged;
 the residual above is closed.
 
-### B-20 · A category with no budget row is unchecked · **FIXED** — closed 2026-09-28
+### B-20 · A category with no budget row is unchecked · **FIXED** - closed 2026-09-28
 
 `check_budget` returned `{"checked": False}` and the approval proceeded when no budget exists for
 (category, period). That is the intended reading of "no ceiling set", but it is a silent pass on
@@ -464,17 +464,17 @@ a money control and an operator could reasonably expect the opposite. Verified i
 
 The choice is now `BUDGET_UNSET_POLICY`: `allow` (the default, today's behaviour, so the change
 is not silent) or `block`, which turns the missing row into a `422 BUDGET_UNSET` naming the
-category and the period. The policy is a validated field on `Settings` — a typo such as
+category and the period. The policy is a validated field on `Settings` - a typo such as
 `BUDGET_UNSET_POLICY=BLOCK` is refused at startup read rather than silently behaving as whichever
 the call-site comparison picked. Tests in `tests/test_budget_policy.py` assert both directions,
 the ceiling under `block`, the uncategorised path, and the refusal of a misconfigured value; the
 block branch is mutation-checked.
 
 **Residual, stated:** a purchase order with no category assigned bypasses the gate in both modes
-— there is no (category, period) to look up. The strict mode governs the missing row, not the
+- there is no (category, period) to look up. The strict mode governs the missing row, not the
 missing category, and `test_global_parity.py` asserts the uncategorised path is unchanged.
 
-### B-21 · No browser-level frontend testing · **OPEN — environment**
+### B-21 · No browser-level frontend testing · **OPEN - environment**
 
 106 vitest tests are unit and component level in jsdom. There is no Playwright, so there is no
 end-to-end journey, no automated accessibility audit and no visual regression.
@@ -486,7 +486,7 @@ end-to-end journey, no automated accessibility audit and no visual regression.
 `backend/tests/pgsupport.py` resolved `Config("alembic.ini")` and `script_location = "alembic"`
 against the process working directory, and `test_the_models_links_are_exactly_the_migrated_ones`
 walked `Path("alembic/versions")` the same way. Both were correct from `backend/` and both were
-wrong from the repository root — which is exactly how CI invokes the fast tier
+wrong from the repository root - which is exactly how CI invokes the fast tier
 (`python -m pytest backend/tests -q`). The test that needs no database is marked `pg` but is not
 gated on Postgres, so it ran in the fast tier and failed there:
 
@@ -504,28 +504,28 @@ from the artifacts by `scripts/doc_counts.py --check`.
 
 ---
 
-## S3 — maintainability, performance, honesty
+## S3 - maintainability, performance, honesty
 
-### B-22 · Three type imprecisions · **FIXED** `4148472` — and the "known false positives" note is gone
+### B-22 · Three type imprecisions · **FIXED** `4148472` - and the "known false positives" note is gone
 
 One name bound to both a `tuple` and a `list` in mutually exclusive branches of `security.py`;
 `_claim` annotated as returning `object` when it always returns an `IdempotencyKey`; a CORS
 dedupe relying on `set.add` returning `None` inside a boolean `or`.
 
 This row previously closed with "three mypy findings remain and are false positives, left
-unsilenced" — the stated reason mypy is deliberately not a CI gate, since a gate that reports
+unsilenced" - the stated reason mypy is deliberately not a CI gate, since a gate that reports
 known false positives trains people to route around it. That note is now wrong twice over: the
 findings moved as the composite-FK work landed, and four *real* imprecisions arrived in their
 place, all of which are now fixed rather than excused:
 
 * `invoices.po_id` is nullable, and `three_way_match` / `_mark_po_invoiced` both take `str`.
-  Nothing enforced that at the call site. It was accidentally safe — `PurchaseOrder.id == None`
+  Nothing enforced that at the call site. It was accidentally safe - `PurchaseOrder.id == None`
   renders as `id IS NULL`, matches no row, and the match failed with `MATCH_NO_PO "Purchase
-  order None not found"` — a 422 on the one path whose job is deciding whether an invoice may
+  order None not found"` - a 422 on the one path whose job is deciding whether an invoice may
   become money, naming an id the caller never sent. `_require_po_id` now states the invariant
   and returns `INVOICE_NO_PO`.
 * `invoice_lines.po_line_id` is nullable and was being used as a `dict[str, str]` key in the
-  price baseline. Also accidentally safe — the very next line skipped a `None` description — and
+  price baseline. Also accidentally safe - the very next line skipped a `None` description - and
   now explicit.
 
 `mypy backend/app` reports **0 errors across 69 files** and `ruff check backend` is clean, both
@@ -538,26 +538,26 @@ The cursor pager was written 4×, the boot block 5×, the raw grid 9×. This was
 to adding write paths safely.
 
 `components/ui.tsx` now exports the pager, the grid, the stat/metric cards, the boot boundary and
-the Grade-5 set — `Button`, `IconButton`, `Segmented`, `Drawer`, `ConfirmDialog`, `ToastProvider`
-/`useToast`, `MetricCard`, `Progress`, `FilterBar`, `Timeline` — covered by
+the Grade-5 set - `Button`, `IconButton`, `Segmented`, `Drawer`, `ConfirmDialog`, `ToastProvider`
+/`useToast`, `MetricCard`, `Progress`, `FilterBar`, `Timeline` - covered by
 `components/grade5.test.tsx`. The rule the set is built around: colour is never the only signal,
 so tone lives in a class and the meaning always lives in text.
 
 Two things that were not in the original list and were fixed alongside it:
 
 * **The persona sign-in surface.** `components/SignInModal.tsx`, live in `Shell.tsx`, let anyone
-  type a name and choose a role — "Admin" was an option — and minted a client-side session
+  type a name and choose a role - "Admin" was an option - and minted a client-side session
   without ever contacting the IdP. Removed, along with every CSS rule that styled it, so the
   styling for a client-side identity control is not left sitting in the stylesheet waiting to
   be pasted back. `grade5.test.tsx` asserts both.
-* **The dead typeface tokens.** See B-24; the same failure mode — a stylesheet that renders
+* **The dead typeface tokens.** See B-24; the same failure mode - a stylesheet that renders
   correctly while describing a product that does not exist.
 
 **Residual, by design:** migration to the new primitives is partial. The pages that carry write
 paths (RFQ, copilot approvals, the dashboard, the shell chrome) use them; the remaining read-only
 pages still use their original raw markup. This is cosmetic and carries no control implication.
 
-### B-24 · Declared fonts are not shipped · **FIXED — but the first fix made the document true and the stylesheet false** `B-42`
+### B-24 · Declared fonts are not shipped · **FIXED - but the first fix made the document true and the stylesheet false** `B-42`
 
 `--font-ui: var(--font-inter), …` and `--font-mono: var(--font-jetbrains), …` had no
 `@font-face`, no `next/font` and no webfont file anywhere in `public/`. An undefined custom
@@ -567,7 +567,7 @@ ship.
 
 **The repair was wrong in an instructive way, and is recorded here rather than quietly
 corrected.** The tokens were changed to name the raw system stack. That made the *token* honest
-— and left the actual product wrong, because `layout.tsx` does pull Inter and JetBrains Mono
+- and left the actual product wrong, because `layout.tsx` does pull Inter and JetBrains Mono
 through `next/font` and applies them to `<html>`. So two webfonts were downloaded on every page
 load, neither was ever rendered, `globals.css`'s own header comment claimed the opposite ("no
 raw system fallbacks pretending to be the brand fonts"), and `frontend/README.md` said the fonts
@@ -579,7 +579,7 @@ and all three documents are correct at once.
 
 `grade5.test.tsx` guards **both** directions, which is the part the first fix was missing:
 
-* every custom property the font tokens reference resolves — declared in `globals.css`, loaded by
+* every custom property the font tokens reference resolves - declared in `globals.css`, loaded by
   an `@font-face`, or emitted by `next/font` (asserted against `layout.tsx`);
 * the tokens **do** name the fonts `next/font` provides, so a webfont cannot go back to being
   dead weight.
@@ -594,7 +594,7 @@ both `openGraph.images` and `icons.icon`.
 
 The file is gone and the identity is the generated set: `scripts/build_brand_icons.py` produces
 the V+orbit on a navy squircle for the OS-level icons (which render on unknown backgrounds) and
-a background-less mark for in-app use — 11 PNGs in `frontend/public/icons/`, all present and all
+a background-less mark for in-app use - 11 PNGs in `frontend/public/icons/`, all present and all
 referenced from `app/layout.tsx` and `public/manifest.webmanifest`.
 
 ### B-26 · Image digests are unresolved · **FIXED**
@@ -631,7 +631,7 @@ The tokens now reference the variables `next/font` emits, with the system stack 
 the shipped font is the rendered font. `grade5.test.tsx` asserts both directions, because the
 guard that already existed could not see this: it checked that every referenced custom property
 *resolves*, and the system stack resolves perfectly. What it did not check is whether the webfont
-was used. Mutation-checked — reverting the tokens fails the new test and leaves the old one green,
+was used. Mutation-checked - reverting the tokens fails the new test and leaves the old one green,
 which is exactly the case that shipped.
 
 ### B-37 · Migration `0024` crashed in `upgrade()` against the migration-runner test · **FIXED**
@@ -644,13 +644,13 @@ iterable` and the three migration tests errored on the fixture.
 
 Changed to `.mappings()`, matching `_preflight()` in `0020`, which reads `pg_constraint` the same
 way and is the established convention in this chain. Worth noting: this was a test double being
-narrower than the real driver, not a bug in the migration's SQL — but matching the sibling
+narrower than the real driver, not a bug in the migration's SQL - but matching the sibling
 migration is the cheaper and more consistent fix than widening the double.
 
 ### B-38 · The schema-drift test depended on test ordering · **FIXED**
 
 `test_database_matches_metadata` calls `alembic check` but did not use the `pg_client` fixture, so
-it never built the schema — it relied on whichever Postgres-backed test happened to run before it.
+it never built the schema - it relied on whichever Postgres-backed test happened to run before it.
 `pytest-randomly` reorders, so it passed or failed depending on the seed, and on an empty test
 database `alembic check` refuses with "Target database is not up to date", which reads as schema
 drift for a schema that was never created.
@@ -661,12 +661,12 @@ when something else happens to have run first is not a check.
 ### B-39 · The Postgres test database could be left stamped at head with no tables · **FIXED**
 
 Related to B-38 and found while fixing it. The test database was found stamped at
-`0024_match_run_price_case_links` — the head — while containing *zero* tables, so `build_schema()`
+`0024_match_run_price_case_links` - the head - while containing *zero* tables, so `build_schema()`
 was a permanent no-op and every Postgres test failed on `relation "budgets" does not exist`. The
 stamp was the only thing left; the schema it claimed to describe was not there, and nothing in
 the fixture detects that, because `alembic` trusts its own version table.
 
-Not caused by the test suite — the fast tier and the Postgres tier do not contaminate each other,
+Not caused by the test suite - the fast tier and the Postgres tier do not contaminate each other,
 verified by running the full suite with the Postgres tier enabled. It came from ad-hoc probing
 against the same database, which is what the footgun below is about.
 
@@ -690,7 +690,7 @@ If Keycloak on port 8080 was offline or unauthenticated, the user was stranded o
 Every one of those removes the symptom by removing the identity provider. `login()` no longer
 contacted an IdP; the app rendered a signed-in shell on startup; the dashboard invented spend,
 contract, RFQ and PO figures when the API failed. The redirect stopped because there was no longer
-anything to redirect to. The user got a working-looking product that was not connected to anything —
+anything to redirect to. The user got a working-looking product that was not connected to anything -
 and, because B-32 was live at the same time, an API that accepted a `vantor-*` string as a full
 Admin.
 
@@ -699,7 +699,7 @@ frontend: `keycloak-js` is back, `check-sso` runs with the hidden iframe enabled
 never navigated without an explicit click, `AuthScreen` has exactly one **Continue with Vantor
 ID** button, and `useBoot` cannot reach `ok` without a token from the IdP carrying a tenant. The
 B-28 regression test is `authboot.test.tsx`, which asserts the *absence* of an identity at module
-load — a test that only checked the shell renders would have passed against the fabricated
+load - a test that only checked the shell renders would have passed against the fabricated
 session, which is the version that shipped.
 
 ### B-29 · UI aesthetics and component styling · **the styling is real; two of its claims were not**
@@ -714,7 +714,7 @@ row are not:
 * **"All 10 palette combinations re-validated and passing contrast gates"** is true and still is;
   `check_palette_layer.py` runs in CI and covers all five palettes in both modes.
 
-### B-30 · Documentation accuracy and test count drift · **FIXED — and the fix itself drifted**
+### B-30 · Documentation accuracy and test count drift · **FIXED - and the fix itself drifted**
 
 `frontend/README.md` contained outdated statements about fonts and shared components, while
 `README.md` reported hand-written test counts that had gone stale. The counts are now derived by
@@ -723,7 +723,7 @@ row are not:
 The part worth recording is what happened next: within one session the docs had drifted again
 (335/146 against a real 343/150), and `frontend/README.md` still documented the deleted
 `SignInModal` persona picker, an "Enterprise Identity & Role Delegation" stack, and the removed
-Demo Mode quickstart. A gate that is not run is not a gate — the same sentence this register uses
+Demo Mode quickstart. A gate that is not run is not a gate - the same sentence this register uses
 about B-07. It is run now, in the `docs` job, and it failed on the next push until the documents
 were corrected.
 
@@ -737,7 +737,7 @@ development mode, causing React's devtools error overlay to report
 `eval() is not supported in this environment`.
 
 Fixed by:
-1. Memoising the init on the singleton — `initOnce(kc, options)` in `frontend/lib/auth.ts`
+1. Memoising the init on the singleton - `initOnce(kc, options)` in `frontend/lib/auth.ts`
    returns the in-flight promise on a second call and the resolved value afterwards, and
    `resetKeycloak()` clears the memo so a genuine retry gets a fresh instance. A failed init
    clears it too, so a failure cannot poison the singleton.
@@ -745,7 +745,7 @@ Fixed by:
    carried it did not survive a later rewrite of `lib/auth.ts`, which put the boot back on a bare
    `kc.init()` from its effect. Nothing caught it: the keycloak-js test double does not enforce
    one-init-per-instance, so the whole suite stayed green while the bug was live. It is now
-   asserted directly —
+   asserted directly -
    `authboot.test.tsx::initialises the IdP once even when StrictMode mounts the boot twice`,
    which renders the boot inside `<StrictMode>` and fails if `init` is called twice.
 3. In `frontend/next.config.mjs`, dynamically adding `'unsafe-eval'` to `script-src` only when
@@ -767,19 +767,19 @@ Fixed by conditioning token refresh on an active, non-bypass authentication prov
 The sidebar brand container rendered with CSS invert filters and non-sticky positioning, clipping during sidebar navigation scroll.
 Fixed by establishing a sticky full-width brand header (`position: sticky; top: 0; z-index: 20;`), using the crisp full Vantor brand mark, and styling pagination controls (Prev = Red, Next = Green).
 
-### B-46 · Every document upload failed out of the box; the one deployment doc describing this exact stack was also wrong about which auth it uses · **FIXED** — closed 2026-10-03
+### B-46 · Every document upload failed out of the box; the one deployment doc describing this exact stack was also wrong about which auth it uses · **FIXED** - closed 2026-10-03
 
 Two compounding defects found by actually uploading a file through the running compose stack rather than reading the code and assuming it worked:
 
-1. **`S3_ENDPOINT=http://minio:9000` shipped in both `.env` and `.env.example`, pointing at a service `docker-compose.yml` does not define.** MinIO withdrew its images from Docker Hub and quay.io (recorded in a comment above the `keycloak` service), so whoever removed the `minio` service forgot to blank the `S3_*` defaults that pointed at it. `get_storage()` sees `s3_endpoint` and `s3_bucket` both set and picks the S3 driver unconditionally — it has no way to know the host is unreachable until it tries. Every upload therefore failed with `httpx.ConnectError`, caught and reported honestly as `DOC_STORAGE_UNAVAILABLE` (503) rather than silently losing bytes — the *reporting* was correct, the *configuration* was not. Confirmed via the real audit trail: `select action, reason from audit_events where action='DOCUMENT_STORAGE_FAILED'` returned `reason='ConnectError'` on this exact deployment. Fixed by blanking `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` in both files, which makes `get_storage()` fall through to local-disk storage (`UPLOAD_DIR=/srv/uploads`, already correctly volume-mounted in compose) — verified by uploading a real file through the live API afterward and confirming the bytes landed on disk at the tenant-sharded path.
-2. **`docs/08-deployment/local.md` claimed "Sign-in is Keycloak, and only Keycloak... no demo mode, no persona picker"** for this exact compose stack, and told readers to run `docker compose --profile storage up -d minio` — a profile and service that do not exist in `docker-compose.yml`. Root cause: `.env.example` never set `AUTH_MODE` at all, so despite this stack provisioning a full Keycloak realm, the backend's documented default (`local`, passwordless, single-tenant — see root `README.md`) was silently what every fresh clone actually got, Keycloak running alongside and unused. Fixed by setting `AUTH_MODE=oidc` explicitly in `.env.example` so this stack's default behaviour matches what this specific doc describes, and correcting the doc's MinIO instructions to match reality (no bundled container; bring your own S3-compatible endpoint, or leave `S3_*` blank for local-disk storage).
+1. **`S3_ENDPOINT=http://minio:9000` shipped in both `.env` and `.env.example`, pointing at a service `docker-compose.yml` does not define.** MinIO withdrew its images from Docker Hub and quay.io (recorded in a comment above the `keycloak` service), so whoever removed the `minio` service forgot to blank the `S3_*` defaults that pointed at it. `get_storage()` sees `s3_endpoint` and `s3_bucket` both set and picks the S3 driver unconditionally - it has no way to know the host is unreachable until it tries. Every upload therefore failed with `httpx.ConnectError`, caught and reported honestly as `DOC_STORAGE_UNAVAILABLE` (503) rather than silently losing bytes - the *reporting* was correct, the *configuration* was not. Confirmed via the real audit trail: `select action, reason from audit_events where action='DOCUMENT_STORAGE_FAILED'` returned `reason='ConnectError'` on this exact deployment. Fixed by blanking `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` in both files, which makes `get_storage()` fall through to local-disk storage (`UPLOAD_DIR=/srv/uploads`, already correctly volume-mounted in compose) - verified by uploading a real file through the live API afterward and confirming the bytes landed on disk at the tenant-sharded path.
+2. **`docs/08-deployment/local.md` claimed "Sign-in is Keycloak, and only Keycloak... no demo mode, no persona picker"** for this exact compose stack, and told readers to run `docker compose --profile storage up -d minio` - a profile and service that do not exist in `docker-compose.yml`. Root cause: `.env.example` never set `AUTH_MODE` at all, so despite this stack provisioning a full Keycloak realm, the backend's documented default (`local`, passwordless, single-tenant - see root `README.md`) was silently what every fresh clone actually got, Keycloak running alongside and unused. Fixed by setting `AUTH_MODE=oidc` explicitly in `.env.example` so this stack's default behaviour matches what this specific doc describes, and correcting the doc's MinIO instructions to match reality (no bundled container; bring your own S3-compatible endpoint, or leave `S3_*` blank for local-disk storage).
 
-### B-47 · Every foreign key in the product rendered as a bare UUID; invoices had no way to be rejected or paid from the UI · **FIXED** — closed 2026-10-03
+### B-47 · Every foreign key in the product rendered as a bare UUID; invoices had no way to be rejected or paid from the UI · **FIXED** - closed 2026-10-03
 
 Two gaps found by clicking through every screen as a user rather than trusting that a passing test suite means the product is finished:
 
-1. **Every list and detail screen that referenced a supplier, category, or document showed the raw id (or an 8-character truncation of one) instead of its name — including one real bug this surfaced: `spend/intelligence`'s `concentration.topSupplier` held the raw supplier *id* under a field name that reads as a display name, so the single-source-risk banner rendered a bare UUID inline in a sentence meant to warn a human.** Root cause: no endpoint resolved a foreign key to its referenced row's name; the frontend had no shared component for "link to another entity" and so never asked for one. Fixed with a tenant-scoped batch name-resolver (`backend/app/services/names.py` — one query per entity type per request, not one per row) wired into contracts, purchase orders, RFQ quotes/awards/optimizer allocations, spend cube/leakage/price-cases, and the supplier list; the approvals queue's `GET /approvals` now also resolves `resourceCode` so a pending decision reads "PO-2026-04" instead of `purchase_order 9d0101d3`. The frontend gained one `EntityLink` component (`frontend/components/ui.tsx`) that every cross-entity reference now renders through, and the supplier 360 page gained its missing reverse-links: a supplier's contracts, purchase orders and invoices, previously visible only by going to three other pages and searching. Verified live: created a real supplier/contract/PO through the running API and screenshotted the resolved names and working reverse-links, not just the unit tests.
-2. **The invoice lifecycle was real in the backend and dead in the UI.** `POST /invoices/{id}/reject` (releases the received quantity for re-billing, requires a written reason) and `POST /invoices/{id}/pay` (records settlement against the ledger entry already posted at approval, requires a payment reference) have existed since VNT-018 with full lifecycle enforcement (`INVOICE_FLOW`, the DB CHECK constraint, SoD, audit events) — and no button anywhere called either one. An invoice could be created and approved and then simply had nowhere left to go: `rejected` and `paid` were reachable states with zero UI path to them. There was also no way to list, search or open an invoice independent of its parent PO — the only read path was nested three deep under `GET /purchase-orders/{id}`. Fixed by adding `GET /invoices` and `GET /invoices/{id}` (keyset-paginated, filterable by `supplierId`/`poId`, same shape as every other list endpoint) and, in `frontend/app/shared/orders.tsx`, Reject and Mark Paid controls on each invoice row — Reject opens a required-reason box (same pattern as the approvals queue), Mark Paid opens a required-reference box — both wired to the real endpoints. Verified live end-to-end through the running UI, signed in as two different local personas to satisfy the real segregation-of-duties check (buyer creates and receives, approver decides): built two purchase orders through to a received invoice, approved and paid one (`PO → invoiced`, invoice badge → `paid`, "Mark paid" button gone, Decision column reads "settled"), rejected the other with a written reason (invoice badge → `rejected`, PO reverts to `received` with "Next: record invoice" — the released quantity is re-billable, exactly as the backend docstring says it should be).
+1. **Every list and detail screen that referenced a supplier, category, or document showed the raw id (or an 8-character truncation of one) instead of its name - including one real bug this surfaced: `spend/intelligence`'s `concentration.topSupplier` held the raw supplier *id* under a field name that reads as a display name, so the single-source-risk banner rendered a bare UUID inline in a sentence meant to warn a human.** Root cause: no endpoint resolved a foreign key to its referenced row's name; the frontend had no shared component for "link to another entity" and so never asked for one. Fixed with a tenant-scoped batch name-resolver (`backend/app/services/names.py` - one query per entity type per request, not one per row) wired into contracts, purchase orders, RFQ quotes/awards/optimizer allocations, spend cube/leakage/price-cases, and the supplier list; the approvals queue's `GET /approvals` now also resolves `resourceCode` so a pending decision reads "PO-2026-04" instead of `purchase_order 9d0101d3`. The frontend gained one `EntityLink` component (`frontend/components/ui.tsx`) that every cross-entity reference now renders through, and the supplier 360 page gained its missing reverse-links: a supplier's contracts, purchase orders and invoices, previously visible only by going to three other pages and searching. Verified live: created a real supplier/contract/PO through the running API and screenshotted the resolved names and working reverse-links, not just the unit tests.
+2. **The invoice lifecycle was real in the backend and dead in the UI.** `POST /invoices/{id}/reject` (releases the received quantity for re-billing, requires a written reason) and `POST /invoices/{id}/pay` (records settlement against the ledger entry already posted at approval, requires a payment reference) have existed since VNT-018 with full lifecycle enforcement (`INVOICE_FLOW`, the DB CHECK constraint, SoD, audit events) - and no button anywhere called either one. An invoice could be created and approved and then simply had nowhere left to go: `rejected` and `paid` were reachable states with zero UI path to them. There was also no way to list, search or open an invoice independent of its parent PO - the only read path was nested three deep under `GET /purchase-orders/{id}`. Fixed by adding `GET /invoices` and `GET /invoices/{id}` (keyset-paginated, filterable by `supplierId`/`poId`, same shape as every other list endpoint) and, in `frontend/app/shared/orders.tsx`, Reject and Mark Paid controls on each invoice row - Reject opens a required-reason box (same pattern as the approvals queue), Mark Paid opens a required-reference box - both wired to the real endpoints. Verified live end-to-end through the running UI, signed in as two different local personas to satisfy the real segregation-of-duties check (buyer creates and receives, approver decides): built two purchase orders through to a received invoice, approved and paid one (`PO → invoiced`, invoice badge → `paid`, "Mark paid" button gone, Decision column reads "settled"), rejected the other with a written reason (invoice badge → `rejected`, PO reverts to `received` with "Next: record invoice" - the released quantity is re-billable, exactly as the backend docstring says it should be).
 
 ### B-48 · Mypy detected dialect access on optional db.bind union · **FIXED**
 
@@ -821,12 +821,12 @@ incorrectly is worse than one that reports none, because the next person trusts 
 | **No MinIO / no S3-compatible object store exercised end to end.** | Document upload and retrieval are covered at the API level against a local filesystem stand-in. |
 | **Single-region, single-tenant-at-a-time data.** | Cross-region behaviour, and any concurrency beyond the two connections the budget test opens, are unverified. |
 | **RLS policy behaviour** | Proven on genuine PostgreSQL 18, but the revision that was run against was not recorded, so it cannot be assumed to cover anything added since. The RLS and cross-tenant tests in the `pg` tier do run now. |
-| **`os.fork()` does not exist on Windows.** | B-41: arming and promotion of scheduled jobs are proven against a real Redis and the dequeue is observed, but rq's work-horse fork — the last link — could not be executed here. It runs in a Linux container in every real deployment. |
+| **`os.fork()` does not exist on Windows.** | B-41: arming and promotion of scheduled jobs are proven against a real Redis and the dequeue is observed, but rq's work-horse fork - the last link - could not be executed here. It runs in a Linux container in every real deployment. |
 
 **Resolved and previously misreported as blocked:** PostgreSQL (a real pgvector/pgvector:pg16
 container runs the `pg`-marked tier, **9 tests**, re-verified here from both the repository root
-and `backend/`), the Docker engine (running — `docker compose config` validates, and the worker
-stack was run against a real Redis), network access for digests, and a live Keycloak — a real
+and `backend/`), the Docker engine (running - `docker compose config` validates, and the worker
+stack was run against a real Redis), network access for digests, and a live Keycloak - a real
 realm with a real `admin` user, verified by completing the full authorization-code + PKCE flow
 and then exchanging the resulting token against the API.
 
@@ -846,7 +846,7 @@ Stated precisely, because the honest answer is more useful than a yes.
 - **The whole backend suite in one run, Postgres tier included: 355 tests, 0 failures.**
 - Worker: **38 tests** (34 without a Redis, 4 more with one), `ruff check worker` clean.
 - The scheduler against a real Redis: arms, promotes, and a `Worker` dequeues a real
-  `beat:drain_webhooks:*` job. Execution needs `os.fork()` and is the one unproven link — B-41.
+  `beat:drain_webhooks:*` job. Execution needs `os.fork()` and is the one unproven link - B-41.
 - Frontend: **150 vitest tests across 11 suites**, `tsc --noEmit` 0 errors, `eslint` 0 errors and
   0 warnings, `next build` 19 routes. Rebranded to Hyper Cobalt `#0038FF` + Skin Sand `#FFD8B8`
   (`docs/05-frontend/design-system.md`); the palette gate passes for all five palettes in both
@@ -859,7 +859,7 @@ Stated precisely, because the honest answer is more useful than a yes.
 **Previously established, unchanged:**
 
 - The API imports and boots. `GET /api/v1/health` returns **200** with a real envelope.
-- The full application is exercised by the suite above with no mocks in the auth or money paths —
+- The full application is exercised by the suite above with no mocks in the auth or money paths -
   every API test mints a real RS256 JWT and verifies it through the real JWKS path.
 - Alembic migration `0022` verified on SQLite upgrade/downgrade via regression test (B-05 fixed).
 - RLS policy coverage verified structurally across all 40 tables in all 24 migrations (B-06 fixed).
@@ -869,11 +869,11 @@ Stated precisely, because the honest answer is more useful than a yes.
 **Resolved and previously misreported as unproved:** "the app has not been run as a composed
 system" was itself wrong as of 2026-10-03. `docker compose up -d --build` was run end to end on
 this machine: `postgres`, `redis`, `keycloak`, `keycloak-db`, `backend` and `frontend` all reached
-`healthy`, the migrate job ran and exited 0, and the full backend suite — 385 tests, PG tier
-included — passed against that exact running Postgres through a temporary host tunnel (see
+`healthy`, the migrate job ran and exited 0, and the full backend suite - 385 tests, PG tier
+included - passed against that exact running Postgres through a temporary host tunnel (see
 `docs/02-architecture/database.md`). `keycloak-init` failed on this run, but not from a code
 defect: this machine's `keycloak-db` volume already held an admin user bootstrapped by an earlier
-session's `.env`, and Keycloak only applies `KC_BOOTSTRAP_ADMIN_PASSWORD` to an empty database —
+session's `.env`, and Keycloak only applies `KC_BOOTSTRAP_ADMIN_PASSWORD` to an empty database -
 every subsequent boot ignores it if the realm already has an admin. A genuinely fresh clone with
 no prior volumes does not hit this; it is a local-state artifact of repeated testing on one
 machine, not a deploy defect, and clearing the stale `keycloak-db-data` volume was left to the
@@ -882,11 +882,11 @@ destruction here, correctly).
 
 **Still not proved:**
 
-- A *truly first-ever* `docker compose up` on an empty set of named volumes — this run reused an
+- A *truly first-ever* `docker compose up` on an empty set of named volumes - this run reused an
   existing (if stale) `postgres`/`redis` volume pair for everything except `keycloak-init`, so the
   from-nothing path (fresh `postgres` init, fresh `keycloak` realm import, migrate running against
   a database that has never seen a single table) is still inferred from the individual pieces
   rather than witnessed in one run.
-- `GET /api/v1/ready` correctly returns **503** on an unmigrated database — the app reports it is
+- `GET /api/v1/ready` correctly returns **503** on an unmigrated database - the app reports it is
   not ready rather than lying, which is the intended behaviour.
 

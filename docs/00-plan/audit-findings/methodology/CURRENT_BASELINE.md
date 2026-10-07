@@ -11,7 +11,7 @@
 - Backend Python application: `backend/app`
 - Frontend: `frontend/app`, `frontend/components`, `frontend/lib`
 - Worker: `worker`
-- Migrations: `backend/alembic/versions` — **23 migrations** (`0001`–`0023`, plus `__init__.py`).
+- Migrations: `backend/alembic/versions` - **23 migrations** (`0001`-`0023`, plus `__init__.py`).
   One linear chain, single head, `upgrade` and `downgrade` on each, gated by
   `scripts/audit_migrations.py`. RLS policy behaviour was proven against genuine PostgreSQL 18 on
   2026-09-26 (runbook §7), but the revision tested was not recorded and no PostgreSQL is available

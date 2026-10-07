@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# API Architecture — VANTOR
+# API Architecture - VANTOR
 
 **Status: `PLANNED`. Base: `/api/v1/...`, OpenAPI published from code.**
 
@@ -14,7 +14,7 @@
 `/auth/*, /orgs, /suppliers, /categories, /sourcing-projects, /rfqs, /quotes, /awards, /contracts, /requisitions, /purchase-orders, /receipts, /invoices, /spend, /savings, /approvals, /workflows, /documents, /ai/conversations, /notifications, /integrations, /webhooks, /audit-events`
 
 ## AI tools (typed, permission-checked)
-`search_suppliers get_supplier compare_suppliers create_rfq get_rfq analyze_quotes compare_quotes analyze_contract get_contract_obligations calculate_savings find_spend_anomalies request_approval get_purchase_orders get_supplier_performance generate_report` — all logged as `AI_TOOL_EXECUTED` with evidence refs.
+`search_suppliers get_supplier compare_suppliers create_rfq get_rfq analyze_quotes compare_quotes analyze_contract get_contract_obligations calculate_savings find_spend_anomalies request_approval get_purchase_orders get_supplier_performance generate_report` - all logged as `AI_TOOL_EXECUTED` with evidence refs.
 
 ## Contract source
 `api/openapi.yaml` generated at build; breaking changes require migration notes + version bump. Full reference published in Phase 3.

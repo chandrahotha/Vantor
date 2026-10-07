@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# AI Safety — Prompt-Injection Defense — VANTOR
+# AI Safety - Prompt-Injection Defense - VANTOR
 
 **Status: `PLANNED`. All uploads/emails/supplier content = untrusted.**
 

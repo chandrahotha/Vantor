@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](BRAIN.md) · [Docs index](README.md)
 
-# Glossary — VANTOR ubiquitous language
+# Glossary - VANTOR ubiquitous language
 
 **Status: `IMPLEMENTED`. Single definition source; all docs use these terms.**
 

@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# ADR Index — VANTOR
+# ADR Index - VANTOR
 
 | ADR | Decision | Status |
 |---|---|---|

@@ -1,11 +1,11 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
 
-# Changelog — VANTOR
+# Changelog - VANTOR
 
 All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
 
-## [0.8.0] — 2026-10-07
+## [0.8.0] - 2026-10-07
 
 ### Added
 
@@ -22,12 +22,12 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 - **OpenAPI 3.1 specification contract parity (B-52).** Replaced obsolete placeholder in `api/openapi.yaml` with full generated specification matching `api/openapi.json`.
 - **Sourcing quote award gate (B-51).** Enforced `_assert_evaluable` under lock and required evaluated quote status prior to awarding.
 
-## [Unreleased] — 2026-09-30
+## [Unreleased] - 2026-09-30
 
 ### Added
 
 - **Passwordless local auth (`AUTH_MODE=local`, default).** The API becomes its own
-  issuer — a persisted RSA keypair, RS256 sessions, same verification path as OIDC.
+  issuer - a persisted RSA keypair, RS256 sessions, same verification path as OIDC.
   `POST /api/v1/auth/session` needs no credentials, trading *who may ask for a
   session* for the ability to run with no identity service at all. Keycloak
   (`AUTH_MODE=oidc`) is unchanged and still available. `backend/tests/test_local_auth.py`
@@ -46,13 +46,13 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Removed
 
-- `frontend/public/silent-check-sso.html` and the `keycloak-js` dependency — no longer
+- `frontend/public/silent-check-sso.html` and the `keycloak-js` dependency - no longer
   needed now that sign-in does not require an iframe round-trip to an identity provider.
 
 ### Fixed
 
 - **Audit chain false positives.** `record_event` selected the newest row by
-  `occurred_at DESC, id DESC` while `verify_chain` walked `ASC` — and `id` is a random
+  `occurred_at DESC, id DESC` while `verify_chain` walked `ASC` - and `id` is a random
   UUID, so two events in the same microsecond made the two orderings disagree and the
   chain report itself broken after nothing but legitimate activity. `occurred_at` is now
   strictly monotonic per tenant, and verification follows `prev_hash → hash` links
@@ -64,11 +64,11 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   Next.js image optimizer at nowhere near its rendered size; resized to match and served
   `unoptimized` as a static asset.
 
-## [Unreleased] — 2026-09-27
+## [Unreleased] - 2026-09-27
 
 ### Added
 
-- **`docs/00-plan/BUGS.md` — the bug & risk register.** One live document for every known
+- **`docs/00-plan/BUGS.md` - the bug & risk register.** One live document for every known
   defect, risk and deliberate omission, graded S1 (money, tenant isolation, or a silently
   disabled control) / S2 (wrong answer or stranded user) / S3 (performance, maintainability),
   each with the reason it matters, the fix, and the regression test that fails without it.
@@ -117,12 +117,12 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   truncated to a pointer matching no record.
 - **The unread feed truncated itself and could dead-end**, reporting `hasMore: false` with rows
   remaining, and shipping `hasMore: true` with no cursor.
-- **The notification badge was unbounded** — every broadcast row as a full entity, no limit, on
+- **The notification badge was unbounded** - every broadcast row as a full entity, no limit, on
   a 30s poll. Capped, and `unreadCapped` is reported rather than quietly truncating.
 - **The same webhook could fire twice** (no unique constraint on `url`), and N dead endpoints
   pinned the request for 10s × N. Duplicates collapse to `skipped_duplicate`; a 20s budget
   records the rest as `deferred`.
-- **The optimizer's explainability was discarded** — the UI read only `.length`, so a share-cap
+- **The optimizer's explainability was discarded** - the UI read only `.length`, so a share-cap
   violation was invisible on a page whose copy promises a capped split. Reasons, costs and
   violations are now rendered.
 - **Price-evaluate reported a reason it never received** (always "no history"), and declared an
@@ -145,7 +145,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 ### Changed
 
 - **The worker is no longer an administrator.** Its service account held `Super Admin`,
-  `Procurement Admin` and `Procurement Manager` — purely because the contract expiry roll
+  `Procurement Admin` and `Procurement Manager` - purely because the contract expiry roll
   required `Super Admin` and the webhook drain required the operations roles. There is now a
   `Service Identity` realm role covering exactly those two operations, granted to the worker
   and to no human, and deliberately not a subset of any human role. The secret behind the old
@@ -156,7 +156,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 - **"Within 90 days" is now evaluated in the buyer's own timezone.** It used one
   deployment-wide `CONTRACT_TIMEZONE`, which is correct for exactly one customer. A buyer at
   UTC-12 reaches their own 1 January twelve hours before a UTC server does, so the renewal
-  notice fired a day early or late — and the tenants of a procurement system are normally in
+  notice fired a day early or late - and the tenants of a procurement system are normally in
   different countries. Migration `0023_tenant_timezone` adds `organizations.timezone` (empty
   means "inherit", so upgrading changes nothing); resolution is tenant → `CONTRACT_TIMEZONE` →
   UTC, and an unusable zone at any level falls through rather than stalling the nightly roll.
@@ -173,7 +173,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Fixed
 
-- **`POST /rfqs/{id}/optimize` had no role check at all** — the only endpoint in `sourcing`
+- **`POST /rfqs/{id}/optimize` had no role check at all** - the only endpoint in `sourcing`
   that skipped `_write`. It commits an audit event and returns the allocation that decides who
   wins a buy, so any authenticated tenant member, including a supplier-side or read-only
   account, could enumerate RFQs and harvest that recommendation. Now gated, with tests from
@@ -201,16 +201,16 @@ Recorded so the next reader does not repeat the work:
   looks correctly filtered but is not tenant-scoped. 133 carry a tenant predicate; of the four
   that do not, three delegate to a correct helper and one was the `drain()` bug above.
   Modify/delete statements were audited the same way and are clean.
-- **Money arithmetic** — every division and rounding in the money paths, and the direction of
+- **Money arithmetic** - every division and rounding in the money paths, and the direction of
   each. A non-positive price baseline raises rather than dividing by zero, and the budget check
   takes a row lock on the budget before reading the aggregate, so two concurrent approvals
   cannot both pass.
 
 ---
 
-## [Unreleased] — 2026-09-27
+## [Unreleased] - 2026-09-27
 
-### Added — the "10/10" push. This is what moved the scorecard.
+### Added - the "10/10" push. This is what moved the scorecard.
 
 - **Every link is now a real foreign key.** 39 constraints across 37 tables,
   enforced at the database, tenant-scoped (`tenant_id, id` composite so no FK can
@@ -224,18 +224,18 @@ Recorded so the next reader does not repeat the work:
   blocked by test results. The previous `policy` job actively *failed* on push
   and PR.
 - **`tests/test_pg_infrastructure.py` + `tests/conftest.py::pg_client`**: real
-  Postgres tier — the one thing that can prove RLS, FKs and `VARCHAR` limits all
+  Postgres tier - the one thing that can prove RLS, FKs and `VARCHAR` limits all
   hold at once. Skips silently on SQLite; CI has a `postgres` service so it runs.
 - **`tests/test_contract_openapi.py`**: response-shape drift caught at the schema
   level. Every property the frontend reads is asserted against the committed
   `api/openapi.json`, so the next contract mismatches surface as a test failure.
 - **`baseline_for` per-line caching** (`BaselineCache`) and **one grouped query**
-  for `sourcing.comparison` + `approval pending tiers` — three O(N) table reads
+  for `sourcing.comparison` + `approval pending tiers` - three O(N) table reads
   collapsed into bounded work.
 - **Budget gate** now reads from `spend_transactions` (kind `commitment`) with
   `created_at` measured at send time, not at PO creation.
 - **Approval queue** (`GET /approvals`, `POST /approvals/{id}/decide`), reusing
-  the same `decide_approval` used by the copilot — so SoD, tier order and the
+  the same `decide_approval` used by the copilot - so SoD, tier order and the
   audit trail are enforced identically by both.
 - **Optimizer explainability**: the frontend renders per-supplier `reason` +
   `share_bp` + `cost_minor` + the policy violations inline, and clears the plan
@@ -270,7 +270,7 @@ Recorded so the next reader does not repeat the work:
 - **One bad SSE frame destroyed a good answer.** The copilot's parse step now
   guards `JSON.parse`, keeps the complete answer, surfaces `notes` and
   `requires_human_review`, batches deltas, and calls `reader.cancel()` on leave
-  — plus the new evidence-frame-enforcement assertion: a stream that ends
+  - plus the new evidence-frame-enforcement assertion: a stream that ends
   without an evidence frame is not an answer.
 - **`/ai/providers` no longer emits a shape the copilot read as objects**,
   the copilot has an auth gate like every other page, and **nav now has all 13
@@ -279,7 +279,7 @@ Recorded so the next reader does not repeat the work:
 - **`price-cases` pagination**, **documents quarantine leak**,
   **`documents.resource_id` truncation → 422**, **concurrent price evaluation
   could 500**, **budget gate charged the wrong month**.
-- **The CI secret guard could never pass** — its pattern appeared literally in
+- **The CI secret guard could never pass** - its pattern appeared literally in
   the workflow command. Replaced by `scripts/check_secrets.py`, which scans
   tracked files only, and self-tests on 16 strings including an assertion it
   does not flag its own source.
@@ -299,9 +299,9 @@ Recorded so the next reader does not repeat the work:
 
 ---
 
-## [Unreleased] — 2026-09-26
+## [Unreleased] - 2026-09-26
 
-### Fixed — a green badge that was not green
+### Fixed - a green badge that was not green
 
 - **The test suite collected zero tests.** `backend/tests/test_global_parity.py` shipped with an
   `IndentationError`, so `pytest` aborted at collection and exited non-zero while the README, ROADMAP
@@ -313,22 +313,22 @@ Recorded so the next reader does not repeat the work:
   `next` 14.2.35 → 16.3.6, `react` 18.3.1 → 19.3.0, `postcss` → 8.5.28 (pinned via `overrides`),
   `cryptography` 44 → 50.0.1, `PyJWT` 2.10.1 → 2.15.0, `python-multipart` 0.0.20 → 0.0.32,
   `pytest` 8.3.4 → 9.1.1, `pytest-asyncio` 0.24 → 1.4.0.
-- **Added `.github/dependabot.yml`**, which did not exist — so there was no version-update PRs and no
+- **Added `.github/dependabot.yml`**, which did not exist - so there was no version-update PRs and no
   scheduled scanning at all. Now covers pip (backend, worker, root) and npm (frontend) and GitHub
   Actions, weekly, with security packages grouped.
 - **`npm run lint` did nothing.** `next lint` was declared with no ESLint installed and no config, so
   four `eslint-disable` comments were inert and dead code passed "typecheck". Now ESLint 9 with a flat
   config, and `lint` is a real gate in CI.
-- **`POST /documents/{id}/extract` had no role check.** Any authenticated tenant member — including
-  `Read Only` — could trigger extraction, which mutates document status and rewrites chunk rows.
+- **`POST /documents/{id}/extract` had no role check.** Any authenticated tenant member - including
+  `Read Only` - could trigger extraction, which mutates document status and rewrites chunk rows.
   Now gated by the same `_write()` roles as upload, and returns 200 (not 201) because a quarantine is
   a real outcome, not a created resource.
 
-### Fixed — security holes SQLite could not see
+### Fixed - security holes SQLite could not see
 
 - **Idempotency was silently broken in production.** `core/idempotency.py` opened sessions with a raw
   `get_session_factory()()`. On Postgres the RLS `WITH CHECK` on `idempotency_keys` rejects the
-  insert, and a broad `except` swallowed the error — so replay protection did nothing while tests
+  insert, and a broad `except` swallowed the error - so replay protection did nothing while tests
   passed on SQLite. Both sites now use a new `core.tenant.pinned_session()` helper.
 - **Streamed AI completions were never audited.** The same raw-session bug in `routers/ai.py` meant
   `AI_COMPLETED` inserts were rejected by the `audit_events` RLS policy and discarded by
@@ -342,12 +342,12 @@ Recorded so the next reader does not repeat the work:
 - **Notification read state was shared, not per-recipient.** A broadcast row (`user_sub=""`) is one
   row seen by the whole tenant, so the first person to click "mark read" silenced the alert for
   everyone. Added a `read_by` JSON column for per-recipient broadcast state.
-- **`notifications.read_at` had zero headroom** — `String(32)` storing an `isoformat()` value that is
+- **`notifications.read_at` had zero headroom** - `String(32)` storing an `isoformat()` value that is
   exactly 32 characters. Any format change was one commit from a 500. Widened to 40.
 - **Notification cursors were tenant-scoped but not user-scoped**, letting a caller page relative to
   another user's row. The cursor lookup now requires the row be visible to the caller.
 
-### Fixed — numbers the product got wrong
+### Fixed - numbers the product got wrong
 
 - **Cross-currency totals.** `GET /spend/summary` summed minor units across every currency and the
   dashboard formatted the result with whichever supplier sorted first. The API now returns
@@ -367,7 +367,7 @@ Recorded so the next reader does not repeat the work:
   variable was unset, while every other call fell back to localhost. Now uses the shared `API_URL`.
 - **The copilot's SSE request sent no `Authorization` header** and would have 401'd on every prompt.
 
-### Added — write paths (the UI was read-only)
+### Added - write paths (the UI was read-only)
 
 Previously 16 of 75 API operations were reachable from a browser. Now roughly 30:
 
@@ -376,32 +376,32 @@ Previously 16 of 75 API operations were reachable from a browser. Now roughly 30
 - **Suppliers:** create, with search / sort / cursor paging against the API.
 - **Documents:** upload, extract text, keyword search across extracted chunks.
 - **Governance** (new page): audit trail with hash prefixes, live chain verification, categories,
-  catalog items, and budget ceilings — the budget gate is now reachable without curl.
+  catalog items, and budget ceilings - the budget gate is now reachable without curl.
 - **Copilot:** real SSE frame consumer, provider status readout, and an explicit note that the
   response arrived complete rather than token-streamed.
 
-### Added — shared UI primitives
+### Added - shared UI primitives
 
 `DataTable`, `Pager`, `StatCard`, `Skeleton`, `LiveRegion` and `useBoot` replace the hand-written
 copies that had drifted: the cursor pager existed 4×, the Keycloak boot 5× (with divergent error
-copy), the raw grid 9× and the stat card 8×. `useBoot` also fixes a real bug — the previous boot
+copy), the raw grid 9× and the stat card 8×. `useBoot` also fixes a real bug - the previous boot
 blocks called `kc.init()` twice under `reactStrictMode`.
 
-### Added — accessibility and resilience
+### Added - accessibility and resilience
 
 - Table captions, `scope="col"`, and `aria-sort` on the active sort column (previously glyph-only).
 - `aria-live` regions for async results; the copilot transcript is a `role="log"`.
 - `aria-modal`, `aria-controls` and `aria-activedescendant` on the command palette; nav matches are
   derived rather than stored, removing a setState cascade.
-- `error.tsx`, `loading.tsx` and `not-found.tsx` route boundaries — none existed.
+- `error.tsx`, `loading.tsx` and `not-found.tsx` route boundaries - none existed.
 - `sr-only` utility and labelled skeletons (`aria-busy` + status role).
 
-### Added — SEO and discoverability
+### Added - SEO and discoverability
 
 - Per-route `title` / `description` / `canonical` via server wrappers; root template `%s · VANTOR`.
 - `SoftwareApplication` + `Organization` JSON-LD with the real feature list, AGPL licence and
   `offers: 0` (free and self-hosted, not a priced SaaS).
-- Social card generated at build time as a real 1200×630 PNG via `next/og` — the previous
+- Social card generated at build time as a real 1200×630 PNG via `next/og` - the previous
   `openGraph.images` pointed at an SVG, which Slack, LinkedIn and X do not render.
 - Generated `icon` (32) and `apple-icon` (180) PNGs, plus a web app manifest with shortcuts.
 - The real VANTOR brand set shipped to `public/`; `public/logo.svg` was the Digi Tracks company mark.
@@ -421,7 +421,7 @@ blocks called `kc.init()` twice under `reactStrictMode`.
   README and roadmap now points at it. `masterdoc.md` carries a scope note explaining that its
   "five repositories" is the audit scope, not the product count.
 
-## [0.1.0] — 2026-09-25 — Docs-first scaffold [PLANNED]
+## [0.1.0] - 2026-09-25 - Docs-first scaffold [PLANNED]
 
 ### Added
 - Public repo skeleton: README, LICENSE (Apache-2.0), SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, `.env.example`, `.gitignore`, `docker-compose.yml` (free stack), CI workflow

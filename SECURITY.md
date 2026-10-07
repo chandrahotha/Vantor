@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
 
-# Security Policy — VANTOR
+# Security Policy - VANTOR
 
 **Status: enforced.** The controls below are implemented and covered by the automated
 suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspirational.
@@ -10,7 +10,7 @@ suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspiration
 
 | Version | Supported |
 |---|---|
-| `main` | Best effort — this is a pre-`1.0` project; see `CHANGELOG.md` for what has shipped |
+| `main` | Best effort - this is a pre-`1.0` project; see `CHANGELOG.md` for what has shipped |
 | Future `1.x` releases | Security patches documented in CHANGELOG |
 
 ## Reporting a vulnerability
@@ -19,19 +19,19 @@ suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspiration
 - Email privately: **digi.tracks@outlook.com** (Digi Tracks).
 - Include: affected version/commit, reproduction steps, impact, suggested mitigation.
 - Expect acknowledgement within 72 hours. There is no dedicated security team or SLA
-  behind this project today — triage timing is best-effort until that changes.
+  behind this project today - triage timing is best-effort until that changes.
 
 ## Guaranteed controls (Definition of Done)
 
 - Two auth modes, one verification path: `AUTH_MODE=local` (default) makes the
-  API its own issuer — RS256 tokens, no identity service, but **passwordless**
+  API its own issuer - RS256 tokens, no identity service, but **passwordless**
   (anyone who can reach the deployment is the operator; single-container/SQLite
   use only). `AUTH_MODE=oidc` requires Keycloak + MFA with short-lived JWT and
   rotating refresh tokens. Both modes verify the same way: a forged or
   foreign-signed token is a 401 either way.
 - RBAC + resource-level authz + `tenant_id` RLS on every query
 - Machine identities least-privilege by construction (see below)
-- Tenant-aware cache/search/storage/logs/AI context — cross-tenant tests mandatory
+- Tenant-aware cache/search/storage/logs/AI context - cross-tenant tests mandatory
 - TLS everywhere, encryption at rest (managed disk/KMS in prod), secret manager (never `.env` in git)
 - Validated uploads (type/size), object storage only, malware-scan hook, OCR sandboxing
 - Rate limiting, security headers, CORS allowlist, CSRF where cookies used
@@ -43,7 +43,7 @@ suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspiration
 
 A CSP delivered by one origin does **not** apply to documents served by another.
 VANTOR runs the API and the web app on separate origins, and the pages a user
-actually reads are served by Next — so the API's policy, however strict, was
+actually reads are served by Next - so the API's policy, however strict, was
 never governing the application UI. Both hosts therefore set their own:
 
 | Host | Where | Notes |
@@ -60,7 +60,7 @@ directive weaker than the API's. Everything else is held tight: `default-src
 no-referrer` and a restrictive `Permissions-Policy`.
 
 Allowed origins in the app's policy are **derived** from `NEXT_PUBLIC_API_URL` and
-`NEXT_PUBLIC_KEYCLOAK_URL`, not hardcoded — a pinned `localhost:8000` would have
+`NEXT_PUBLIC_KEYCLOAK_URL`, not hardcoded - a pinned `localhost:8000` would have
 blocked the API call in every other deployment while looking correct in the source.
 HSTS and `upgrade-insecure-requests` are emitted only when the app is actually
 served over https, so the configuration does not claim a protection it is not

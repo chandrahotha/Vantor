@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Security Architecture — VANTOR
+# Security Architecture - VANTOR
 
 **Status: `PLANNED`. Enforced from Phase 3.**
 

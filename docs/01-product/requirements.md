@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Product Requirements — VANTOR
+# Product Requirements - VANTOR
 
 **Status: `IN DEVELOPMENT`. Tagline: Value. Intelligence. Control.**
 
@@ -12,14 +12,14 @@ it does not restate how many there are.
 ## 1. Users & roles
 Super Admin, Org Admin, Procurement Admin/Manager, Buyer, Category/Supplier Manager, Finance/Legal Reviewer, Approver, Auditor, Supplier User, Read-Only. Configurable permissions + spending limits + approval authority (see security arch).
 
-## 2. Modules (must all work through real backend — no fakes per §2)
+## 2. Modules (must all work through real backend - no fakes per §2)
 
 - **Supplier intelligence:** discovery, profiles, onboarding, qualification, verification, risk, scorecards, performance, certs, geo/capability/capacity/lead-time, documents, history.
 - **Strategic sourcing:** projects, RFI/RFQ/RFP, requirements, invitations, responses, quote collection/normalization/comparison, bid analysis, criteria, events, negotiation, award recommendation.
 - **Contract intelligence:** repository, upload (PDF/DOCX/XLSX/CSV/images/scans), OCR, extraction (clauses/obligations/terms), classification, comparison, renewal/expiry alerts, risk + policy-deviation detection.
 - **Cost intelligence:** spend by category/supplier/BU, price variance, leakage, maverick spend, savings (negotiated/realized), consolidation + benchmark opportunities.
 - **Procurement operations:** requisitions, POs, approvals, workflows, invoices, receiving, exceptions, policies, matrices, notifications.
-- **Procurement AI:** copilot, supplier research, RFQ/quote/contract/spend analysis, anomaly detection, recommendations, NL querying, report generation — all evidence-cited with human review gates.
+- **Procurement AI:** copilot, supplier research, RFQ/quote/contract/spend analysis, anomaly detection, recommendations, NL querying, report generation - all evidence-cited with human review gates.
 
 ## 3. Procurement Graph
 `Supplier→Category→Product/Service→Requirement→RFQ/RFP→Response→Quote→Negotiation→Award→Contract→Requisition→PO→Receipt→Invoice→Spend→Performance→Risk→Savings`. Every entity links to neighbors (e.g., Supplier→Contracts→RFQs→Quotes→POs→Invoices→Spend→Risk).
@@ -50,16 +50,16 @@ the aggregate as currency-agnostic.
 
 ## 6. Current state against these requirements
 
-Honest summary — see `../00-plan/ROADMAP.md` for the per-phase breakdown.
+Honest summary - see `../00-plan/ROADMAP.md` for the per-phase breakdown.
 
 | Requirement group | State |
 |---|---|
 | §2 supplier, sourcing, contract, cost, operations modules | `TESTED` via the API |
-| §2 procurement AI | `IN DEVELOPMENT` — typed tools + HITL real; streaming overstated, evidence always empty |
-| §2 document intelligence (OCR/extract/classify) | `IN DEVELOPMENT` — ~30%; no OCR, embed, or semantic search |
-| §2 notifications | `TESTED` — per-recipient read state, polling delivery |
+| §2 procurement AI | `IN DEVELOPMENT` - typed tools + HITL real; streaming overstated, evidence always empty |
+| §2 document intelligence (OCR/extract/classify) | `IN DEVELOPMENT` - ~30%; no OCR, embed, or semantic search |
+| §2 notifications | `TESTED` - per-recipient read state, polling delivery |
 | §3 procurement graph | `TESTED` in the data model; not surfaced as a UI graph |
 | §4 non-negotiables | `TESTED` for API paths; **violated in the UI** (see `../05-frontend/design-system.md` gaps) |
-| §5 i18n / multi-currency | `IN DEVELOPMENT` — money math is correct, dashboard aggregation is not |
-| §5 a11y | `IN DEVELOPMENT` — focus ring, skip link, ARIA roles present; no focus trap in the palette, no `aria-live`, no route-change focus management |
-| §5 perf budgets | `NOT MET` — no frontend test runner, no budget enforcement |
+| §5 i18n / multi-currency | `IN DEVELOPMENT` - money math is correct, dashboard aggregation is not |
+| §5 a11y | `IN DEVELOPMENT` - focus ring, skip link, ARIA roles present; no focus trap in the palette, no `aria-live`, no route-change focus management |
+| §5 perf budgets | `NOT MET` - no frontend test runner, no budget enforcement |

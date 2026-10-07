@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# ADR-001 — Modular monolith first
+# ADR-001 - Modular monolith first
 
 - Context: 5 repos merging; team small; no load data justifying distributed system.
 - Decision: single deployable API with strict module boundaries (`../02-architecture/system.md`).

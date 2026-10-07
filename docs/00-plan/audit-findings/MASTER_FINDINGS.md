@@ -73,20 +73,20 @@ What can be stated from the code as it stands today:
 | The web app serves its own Content-Security-Policy | `frontend/next.config.mjs`; `frontend/next.config.test.ts` |
 | Webhook delivery cannot cross a tenant boundary | `app/services/integration.py` (`drain`, required `tenant_id`); `backend/tests/test_integrations.py` |
 | The sourcing optimizer is role-gated | `app/routers/sourcing.py`; `backend/tests/test_contract_authority.py` |
-| Budget checks serialise against concurrent approvals **by construction** | `app/routers/catalog.py` takes `with_for_update` on the budget row before reading the aggregate — but see the caveat below: the concurrency *proof* does not exist |
+| Budget checks serialise against concurrent approvals **by construction** | `app/routers/catalog.py` takes `with_for_update` on the budget row before reading the aggregate - but see the caveat below: the concurrency *proof* does not exist |
 | Money paths raise on a non-positive baseline rather than dividing by zero | `app/services/price_intel.py`, `app/services/should_cost.py` |
 
-Blocked on the environment rather than on the code — these are the findings that cannot be
+Blocked on the environment rather than on the code - these are the findings that cannot be
 closed by writing more code here, and calling them fixed would be false:
 
-- **VNT-035** (mutable image tags) — the digest *structure* is gated in CI; the values need one
+- **VNT-035** (mutable image tags) - the digest *structure* is gated in CI; the values need one
   networked `python scripts/pin_digests.py` run.
-- **VNT-040** (untested production-critical paths) — needs a real browser for E2E, accessibility
+- **VNT-040** (untested production-critical paths) - needs a real browser for E2E, accessibility
   and visual regression, and a real PostgreSQL for the concurrency proofs. Neither exists in the
   development environment. The tests are present and skipped, not absent and green.
-- **VNT-016** (pgvector) — the column, HNSW index and dimension validation exist and are
+- **VNT-016** (pgvector) - the column, HNSW index and dimension validation exist and are
   exercised on SQLite; no PostgreSQL has run migration 0022, and none is available here.
-- **VNT-034 / VNT-036** — need a production compose profile and a self-contained Keycloak
+- **VNT-034 / VNT-036** - need a production compose profile and a self-contained Keycloak
   bootstrap, both of which touch deployment topology rather than application code.
 
 Two claims in the code were false and are now corrected, recorded here because a wrong claim is
@@ -101,5 +101,5 @@ worse than a missing one:
 
 Two further defects were found by auditing *after* this register was written, so they have no
 VNT number: the sourcing optimizer had no role gate, and the webhook drain defaulted its tenant
-scope to every tenant. Both are fixed, and the drain's tests were mutation-checked — with the
+scope to every tenant. Both are fixed, and the drain's tests were mutation-checked - with the
 filter removed they fail, so they detect the regression rather than describing the fix.

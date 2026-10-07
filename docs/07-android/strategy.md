@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Android Strategy — VANTOR
+# Android Strategy - VANTOR
 
 **Status: `PLANNED` (Phase 9). API-first: same `/api/v1` backend, no second backend.**
 

@@ -1,7 +1,7 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Production Readiness — Audit Report
+# Production Readiness - Audit Report
 
 **Status: `IN DEVELOPMENT`.** Written against the post-fix state on `main`. Scores are
 the current repo, not aspirations.
@@ -21,7 +21,7 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
 
 ## 2. Critical issues found and fixed in this session
 
-1. **CI was a "green badge that never ran"** — `test_global_parity.py` had an
+1. **CI was a "green badge that never ran"** - `test_global_parity.py` had an
    `IndentationError`; pytest collected zero tests while README and CHANGELOG claimed
    a passing suite. Fixed, and CI now fails on that class of regression.
 2. **47 Dependabot alerts** across npm (Next.js RCEs) and pip (cryptography/PyJWT/
@@ -31,10 +31,10 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
    idempotency middleware and the SSE audit path were silently rejected by Postgres RLS.
    Introduced `pinned_session()` and a source-scanning regression test (sqlite can't express
    the invariant, so it is tested structurally).
-4. **`/ai/stream` was theatre** — a blocking call sliced into 120-char frames. Now real
+4. **`/ai/stream` was theatre** - a blocking call sliced into 120-char frames. Now real
    provider-side streaming for ollama/OpenAI, explicit disabled path, `streamed` flagged
    honestly on every frame, audited.
-5. **Broadcast notification read state was one row for the whole tenant** — one reader
+5. **Broadcast notification read state was one row for the whole tenant** - one reader
    silenced everyone's alert. Now per-recipient.
 6. **Cross-currency spend totals** were summed into one number and labelled with the first
    supplier's currency. `/spend/summary` now returns per-currency breakdowns, and both the
@@ -56,13 +56,13 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
   verify valid → cross-tenant invisible.
 - Budget hard-gate blocks over-ceiling approvals (`BUDGET_EXCEEDED`). Verified.
 - HITL approvals can't be filed via the copilot (test `test_copilot_cannot_execute_hitl_tools`).
-- Unknown rules documented as such — no invented defaults.
+- Unknown rules documented as such - no invented defaults.
 
 ## 4. Database & API audit
 
 - 13 tenant tables, all RLS-guarded; tenant context is set via transaction-local
   `app.tenant_id` in `get_db`/`pinned_session`.
-- Alembic chain 0001–0015, single head, `check` + `upgrade head` + `downgrade -1` run
+- Alembic chain 0001-0015, single head, `check` + `upgrade head` + `downgrade -1` run
   weekly in CI on Postgres.
 - OpenAPI: 77 operations; drift fails the build.
 - Idempotency with body binding is required for every mutating path.
@@ -73,7 +73,7 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
   error/loading/not-found boundaries.
 - DataTable is the shared primitive (caption, scope, aria-sort), Pager is shared,
   StatCard is shared. No duplicate grids.
-- Brand is one identity now — `public/icons/*` from canonical art, OG from the same art.
+- Brand is one identity now - `public/icons/*` from canonical art, OG from the same art.
 
 ## 6. Code cleanup report
 
@@ -99,7 +99,7 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
 - OTEL / Prometheus / Grafana dashboards and a real restore drill remain Phase 10 work.
 - Android Phase 9: placeholder only, per plan.
 - The 47 GitHub Dependabot *alert records* will clear on the next scan that re-resolves the
-  updated manifests — the dependency pins and SBOM are already clean.
+  updated manifests - the dependency pins and SBOM are already clean.
 
 ## 9. Deployment checklist (minimum viable)
 
@@ -107,5 +107,5 @@ A 98 claim would be exactly the kind of false statement this task set out to eli
 2. Confirm `GET /api/v1/ready` is `ready: true` (migrations applied).
 3. Confirm `/api/v1/ops/metrics` returns 401 without a role and 200 with Auditor.
 4. Run `python backend/scripts/load_test.py` on staging.
-5. Set `APP_ENV=production` and real env secrets (placeholders refuse to boot — verified).
+5. Set `APP_ENV=production` and real env secrets (placeholders refuse to boot - verified).
 6. Backup: `scripts/backup.ps1`; verify restore with `scripts/restore.ps1` before going live.

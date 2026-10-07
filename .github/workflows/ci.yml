@@ -1,19 +1,19 @@
 name: ci
 
 # CI/CD Policy:
-# 1. Runs on scheduled cadence once per week (Mondays 05:17 UTC, ~4 runs/month) and manual workflow_dispatch.
-# 2. Push/PR triggers are reserved and commented below to avoid expensive always-on runs during current phase.
-# 3. Lightweight verification pipeline prioritizes: install -> typecheck -> lint -> critical tests -> production build.
-# 4. Expansion paths (heavy Postgres containers, Redis daemon, Playwright E2E) are modularized and ready
-#    to be activated for full PR/push gates without re-architecting the workflow.
-# 5. Local verification is available via `powershell scripts/verify_all.ps1` or `bash scripts/verify_all.sh`.
+# 1. Fully active for public repository: triggers on every push and pull_request to main,
+#    as well as scheduled cadence (Mondays 05:17 UTC) and manual workflow_dispatch.
+# 2. Complete verification pipeline: secret scanning -> config validation -> docs verification ->
+#    typecheck -> lint -> critical tests (pytest + vitest) -> production Next.js build.
+# 3. Expansion paths (PostgreSQL containers, Alembic migration verification, Playwright E2E)
+#    are modularized and run via workflow_dispatch with full_suite=true.
+# 4. Local verification is available via `powershell scripts/verify_all.ps1` or `bash scripts/verify_all.sh`.
 
 on:
-  # Uncomment to enable full push/PR CI gates when ready:
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   schedule:
     - cron: "17 5 * * 1" # Mondays 05:17 UTC (~4 runs/month)
   workflow_dispatch:

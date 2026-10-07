@@ -1,19 +1,19 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../BRAIN.md) · [Docs index](../README.md)
 
-# Portfolio — the 10 products inside VANTOR
+# Portfolio - the 10 products inside VANTOR
 
-**Status: `TESTED` — all 10 products now pass their core-path tests on the live stack
+**Status: `TESTED` - all 10 products now pass their core-path tests on the live stack
 (376 backend tests green, 166 frontend vitest green).** Full Phase-11 vendor-spec acceptance
 suites are planned as Phase 11 gates.
 
 VANTOR consolidates **ten** products from the ProcurementAI portfolio into one modular
 monolith. Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
-realised as the AI/HITL/approval substrate the others call. Explore all 10 products interactively on Vercel: [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/).
+realised as the AI/HITL/approval substrate the others call. Explore all 10 products interactively on Vercel: [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/).
 
 > **Why ten and not five.** The original brief and the Phase 0 audit scope were
-> **five private repositories** — products 01–05 (see `../00-plan/REPOSITORY_AUDIT.md`).
-> Products 06–10 arrived later and now ship as native modules. Any doc that still
+> **five private repositories** - products 01-05 (see `../00-plan/REPOSITORY_AUDIT.md`).
+> Products 06-10 arrived later and now ship as native modules. Any doc that still
 > says "five products" is describing the *audit scope*, not the product.
 
 ## The ten (verified state)
@@ -33,20 +33,20 @@ realised as the AI/HITL/approval substrate the others call. Explore all 10 produ
 
 ## What each status means
 
-- `TESTED` — the module's core path is implemented and covered by the backend suite
+- `TESTED` - the module's core path is implemented and covered by the backend suite
   (`backend/tests/`), with no mock data, and the UI path exists for its primary flows.
   Phase 0/3/4 gates are `PASSING` (see `../00-plan/ROADMAP.md`).
-- `IN DEVELOPMENT` — no longer used for the products table. Reserved for Phase 11
+- `IN DEVELOPMENT` - no longer used for the products table. Reserved for Phase 11
   vendor acceptance suites (the spec's own golden matrices) and UI wave 2 polish.
 - Nothing in VANTOR is `PRODUCTION READY`. Phase 10 owns that gate.
 
 ## What is deliberately not claimed
 
 - **No product is "done".** No entry above may be read as a shipped feature.
-- **Documents 06–10 have no OCR/embed/analyze/evidence/review stage yet** — the Phase 5
+- **Documents 06-10 have no OCR/embed/analyze/evidence/review stage yet** - the Phase 5
   pipeline is partial (`validate → store → extract → chunk` are real; OCR, embedding,
   semantic index, analysis, evidence and review are absent). See `../00-plan/ROADMAP.md` Phase 5.
-- **`/api/ai/stream` is SSE-framed, not provider-streamed** — the upstream call completes
+- **`/api/ai/stream` is SSE-framed, not provider-streamed** - the upstream call completes
   before the first frame. README keeps "live-LLM streaming" in the not-done list.
 - **The UI exposes 16 of 75 API operations.** Write paths (RFQ create/award, PO
   approve/send/receipt/invoice, catalog, budgets, integrations, audit) are API-only today.
@@ -73,7 +73,7 @@ realised as the AI/HITL/approval substrate the others call. Explore all 10 produ
 
 ## Portfolio rule (inherited, still binding)
 
-Products integrate only through typed, versioned APIs and exported schemas — no sibling
+Products integrate only through typed, versioned APIs and exported schemas - no sibling
 source imports, no direct sibling DB reads. VANTOR satisfies this structurally: one
 modular monolith, strict module boundaries ([ADR-001](../10-decisions/ADR-001-modular-monolith.md)),
 typed AI tools ([ADR-004](../10-decisions/ADR-004-typed-ai-tools.md)). Within a module,

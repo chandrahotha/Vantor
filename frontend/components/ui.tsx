@@ -451,7 +451,7 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
         <div className="authscreen-badge">PROCUREMENT OS</div>
         <h1 className="authscreen-title">VANTOR</h1>
         <p className="authscreen-sub">
-          Suppliers, sourcing, contracts, orders and spend — in one place.
+          Suppliers, sourcing, contracts, orders and spend - in one place.
         </p>
 
         {failed ? (

@@ -1,12 +1,12 @@
 <!-- vantor-brain-link -->
 > 🧠 **Vantor Brain:** [BRAIN.md](../docs/BRAIN.md) · [Docs index](../docs/README.md)
 
-# Worker — VANTOR
+# Worker - VANTOR
 
 **Status: RQ + Redis, 4 job functions, 3 of them on a schedule.**
 This is the smallest module in the repo and the least finished.
 
-Jobs never duplicate API rules — they call the API with a service token
+Jobs never duplicate API rules - they call the API with a service token
 (Keycloak client-credentials) or run DBInfra-light maintenance. No fake realtime:
 every job result is a real row or audit event.
 
@@ -16,7 +16,7 @@ Queues: `default` (expiry roll, spend rollups, webhook drain), `documents`
 ## Scheduling: `beat.py`, one mechanism
 
 `beat.py` is a compose service in its own right, so Ops can see the scheduler and
-the workers independently. It is the *only* scheduler in the stack — there is no
+the workers independently. It is the *only* scheduler in the stack - there is no
 system crontab and no second enqueuer, so a job has exactly one path to being
 queued.
 
@@ -32,7 +32,7 @@ becoming a tight loop against the database.
 It is written against the **pinned** rq 1.16.2, whose actual surface is
 `RQScheduler(queues, connection, interval=...)` plus `work()` /
 `enqueue_scheduled_jobs()`. The previous version called
-`RQScheduler(queue_name=...)` and `scheduler.schedule(...)` — neither exists in
+`RQScheduler(queue_name=...)` and `scheduler.schedule(...)` - neither exists in
 that version, so the service died on boot and no recurring job had ever run
 (B-34).
 
@@ -41,11 +41,11 @@ cannot be declared once and forgotten. `BeatScheduler` re-arms each schedule on
 every scheduler tick, inside the same loop that promotes due jobs, so there is
 one process and one lifecycle rather than a second heartbeat that could die and
 leave the schedule silently decaying. The unit tests in `worker/tests/` cover
-this with a fake queue and registry — no Redis required.
+this with a fake queue and registry - no Redis required.
 
 **No duplicate work.** Job ids are `beat:<name>:<bucket>`, where the bucket is
 the absolute epoch-time interval, not a counter. Re-arming the same bucket is a
-no-op in Redis, so restarting `beat` — or running a second instance — never
+no-op in Redis, so restarting `beat` - or running a second instance - never
 queues a second copy of a job that is already pending. Because the grid is
 absolute, a scheduler that was down for an hour re-arms onto the existing
 schedule instead of shifting every future run by the length of the outage.
@@ -83,7 +83,7 @@ environment was a fully administrative token.
 The worker's delivery loop goes through the tenant-scoped HTTP route, so it drains
 the tenant its own token belongs to. In a genuinely multi-tenant deployment a
 single worker will not deliver the other tenants' webhooks. This is a limit of the
-worker's design, not a leak — and it is deliberately *not* papered over by giving
+worker's design, not a leak - and it is deliberately *not* papered over by giving
 the worker a cross-tenant scope, which would undo the least privilege above. A
 cross-tenant drain needs its own explicitly cross-tenant identity and entry point.
 
