@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status.** Backend: 386 pytest collected, 9 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 38 tests collected, 34 passing, 4 skipped.
+**Status.** Backend: 386 pytest collected, 9 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations. Web: 166 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 38 tests collected, 34 passing, 4 skipped.
 
 Not `PRODUCTION READY`, and two qualifications matter more than the counts:
 

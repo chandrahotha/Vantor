@@ -92,8 +92,19 @@ function isLive(s: Session | null): s is Session {
 export function restoreSession(): Session | null {
   if (current) return current;
   try {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("demo") === "true") {
+        return signInDemo();
+      }
+    }
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      if (typeof window !== "undefined" && localStorage.getItem("vantor.demo") === "true") {
+        return signInDemo();
+      }
+      return null;
+    }
     const parsed = JSON.parse(raw) as Session;
     if (!isLive(parsed)) {
       localStorage.removeItem(STORAGE_KEY);

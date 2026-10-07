@@ -517,6 +517,24 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
             </div>
           </button>
         </div>
+
+        <div style={{ marginTop: "14px", textAlign: "center" }}>
+          <button
+            type="button"
+            onClick={enterDemo}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.65)",
+              fontSize: "13px",
+              cursor: "pointer",
+              textDecoration: "underline",
+              padding: "4px 8px",
+            }}
+          >
+            Explore in Demo Mode (Preview without backend) ✨
+          </button>
+        </div>
       </div>
     </main>
   );
