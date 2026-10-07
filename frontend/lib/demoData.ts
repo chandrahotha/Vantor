@@ -498,6 +498,7 @@ export function getDemoResponse<T>(path: string, _init?: unknown): { data: T; pa
       return { data: { ok: true } as unknown as T, pagination: null, requestId: reqId };
     }
     const notifs = [
+      { id: "notif-0", kind: "system", title: "Live Vercel Deployment Active", body: "Exploring VANTOR at https://vantor-os.vercel.app/ in standalone demo mode.", link: "https://vantor-os.vercel.app/", read: false, createdAt: new Date().toISOString() },
       { id: "notif-1", kind: "contract", title: "Contract Renewal Approaching", body: "TransOcean Cargo contract CNT-2026-003 expires in 18 days.", link: "/contracts", read: false, createdAt: new Date(Date.now() - 3600000).toISOString() },
       { id: "notif-2", kind: "approval", title: "PO Approval Pending", body: "Purchase order PO-2026-101 requires executive sign-off.", link: "/approvals", read: false, createdAt: new Date(Date.now() - 7200000).toISOString() },
       { id: "notif-3", kind: "rfq", title: "New RFQ Response", body: "Apex Logistics submitted quote for RFQ-2026-042.", link: "/rfqs", read: true, createdAt: new Date(Date.now() - 86400000).toISOString() },

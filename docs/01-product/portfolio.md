@@ -9,7 +9,7 @@ suites are planned as Phase 11 gates.
 
 VANTOR consolidates **ten** products from the ProcurementAI portfolio into one modular
 monolith. Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
-realised as the AI/HITL/approval substrate the others call.
+realised as the AI/HITL/approval substrate the others call. Explore all 10 products interactively on Vercel: [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/).
 
 > **Why ten and not five.** The original brief and the Phase 0 audit scope were
 > **five private repositories** — products 01–05 (see `../00-plan/REPOSITORY_AUDIT.md`).

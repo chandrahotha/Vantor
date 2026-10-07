@@ -3,8 +3,11 @@
 
 # VANTOR — Intelligent Procurement Operating System
 
+🚀 **Live Interactive Demo:** [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
+
+[![Live Demo: Vercel](https://img.shields.io/badge/demo-vantor--os.vercel.app-black.svg?logo=vercel)](https://vantor-os.vercel.app/)
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 376 backend + 155 frontend](https://img.shields.io/badge/tests-376%20backend%20%2B%20155%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 376 backend + 166 frontend](https://img.shields.io/badge/tests-376%20backend%20%2B%20166%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 98 operations](https://img.shields.io/badge/API-98%20operations-blue.svg)](api/openapi.json)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -16,6 +19,7 @@
 
 > **Value. Intelligence. Control.**
 > Built by **Digi Tracks**. For enquiries: **digi.tracks@outlook.com**.
+> Explore live on Vercel: **[VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/)**.
 
 VANTOR is a unified, production-grade procurement operating system merging **ten** procurement products into one coherent platform.
 

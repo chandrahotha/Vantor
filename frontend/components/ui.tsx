@@ -518,14 +518,14 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
           </button>
         </div>
 
-        <div style={{ marginTop: "14px", textAlign: "center" }}>
+        <div style={{ marginTop: "14px", textAlign: "center", display: "flex", flexDirection: "column", gap: "6px" }}>
           <button
             type="button"
             onClick={enterDemo}
             style={{
               background: "none",
               border: "none",
-              color: "rgba(255, 255, 255, 0.65)",
+              color: "rgba(255, 255, 255, 0.75)",
               fontSize: "13px",
               cursor: "pointer",
               textDecoration: "underline",
@@ -534,6 +534,18 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
           >
             Explore in Demo Mode (Preview without backend) ✨
           </button>
+          <a
+            href="https://vantor-os.vercel.app/"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              color: "rgba(147, 197, 253, 0.85)",
+              fontSize: "12px",
+              textDecoration: "none",
+            }}
+          >
+            Vercel: vantor-os.vercel.app ↗
+          </a>
         </div>
       </div>
     </main>

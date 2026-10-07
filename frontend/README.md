@@ -3,12 +3,16 @@
 
 # Frontend — VANTOR Web
 
+🚀 **Live Interactive Deployment:** [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
+
 **Status: `IN DEVELOPMENT` — 15 routes, 166 vitest green across 13 test suites.**
 
 Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code + PKCE), ESLint 9 flat config, design tokens per `../docs/05-frontend/design-system.md`.
 
 Rules: real API data only (envelope `{data,pagination,error,requestId}`), explicit empty/error
 states, no localStorage token leaks, no fake sessions, no placeholder charts.
+
+Features an automated standalone Demo Mode: visitors to [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/) can explore every procurement workspace, approvals queue, spend cube, contract obligations, and AI copilot offline without a backend running.
 
 ## Run
 

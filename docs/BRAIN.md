@@ -5,6 +5,7 @@
 
 > **Start here.** Every document in this repo links back here, and this brain links to every document. No orphan pages.
 > Mirror index: [`docs/README.md`](README.md) · Root: [`../README.md`](../README.md) · Roadmap: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md)
+> 🚀 **Live Portal on Vercel:** [VANTOR — Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
 
 ## How to read VANTOR in 5 minutes
 

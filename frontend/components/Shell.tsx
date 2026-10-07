@@ -242,7 +242,10 @@ export default function Shell({ children, user }: { children: ReactNode; user?: 
               </button>
             </div>
           )}
-          <div className="foot-links">
+          <div className="foot-links" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <a href="https://vantor-os.vercel.app/" target="_blank" rel="noreferrer" style={{ color: "var(--primary, #3b82f6)", fontWeight: 600 }}>
+              ▲ vantor-os.vercel.app
+            </a>
             <a href="https://github.com/chandrahotha/Vantor" target="_blank" rel="noreferrer">
               Source · Apache-2.0
             </a>
