@@ -19,7 +19,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { fetchPersonas, getSession, keepFresh, restoreSession, setSession, signIn, subscribeSession, type Persona } from "../lib/auth";
+import { fetchPersonas, getSession, keepFresh, restoreSession, setSession, signIn, signInDemo, subscribeSession, type Persona } from "../lib/auth";
 import { setRefreshFn, setTokenGetter, setUnauthorizedHandler } from "../lib/api";
 import Shell from "./Shell";
 
@@ -437,6 +437,11 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
     }
   }
 
+  function enterDemo() {
+    signInDemo(persona || undefined);
+    onSignedIn?.();
+  }
+
   return (
     <main className="authscreen">
       <div className="authscreen-card" role="status">
@@ -454,6 +459,27 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
             <span className="authscreen-alert-icon" aria-hidden="true">!</span>
             <span className="authscreen-alert-content">
               <span className="authscreen-alert-msg">{failed}</span>
+              <button
+                type="button"
+                onClick={enterDemo}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  marginTop: "10px",
+                  padding: "8px 14px",
+                  backgroundColor: "rgba(59, 130, 246, 0.25)",
+                  border: "1px solid rgba(147, 197, 253, 0.5)",
+                  borderRadius: "6px",
+                  color: "#ffffff",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <span>✨</span>
+                <span>Continue in Demo Mode (No backend needed) →</span>
+              </button>
             </span>
           </div>
         ) : null}

@@ -34,6 +34,8 @@
 // replace it with the dev fallback and send every request to an address the
 // browser cannot reach outside the machine that built the image.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { getDemoSession, setDemoFlag, isDemoSession } from "./demoData";
+export { isDemoSession };
 const STORAGE_KEY = "vantor.session";
 /** Re-issue this far ahead of expiry, so a long-lived tab never blocks on it. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
@@ -179,8 +181,16 @@ export async function signIn(persona?: string): Promise<Session> {
   return session;
 }
 
+export function signInDemo(persona?: string): Session {
+  const session = getDemoSession(persona);
+  setSession(session);
+  setDemoFlag(true);
+  return session;
+}
+
 export function logout(): void {
   setSession(null);
+  setDemoFlag(false);
 }
 
 /** Keep the session from lapsing while a tab is open.
