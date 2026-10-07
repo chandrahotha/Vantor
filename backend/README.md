@@ -3,7 +3,7 @@
 
 # Backend — VANTOR
 
-**Status: `TESTED` — 98 API operations across 84 paths, 385 pytest collected.** Not `PRODUCTION READY`
+**Status: `TESTED` — 98 API operations across 84 paths, 386 pytest collected.** Not `PRODUCTION READY`
 (Phase 10 gate, see `../docs/00-plan/ROADMAP.md`).
 
 Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic**, Postgres + RLS primary, RQ + Redis
@@ -27,13 +27,13 @@ python -m pytest tests -q
 
 ## Gates
 
-- **384 tests collected** (376 pass, 8 skip for want of PostgreSQL), no mocks in the auth or money
+- **386 tests collected** (377 pass, 9 skip for want of PostgreSQL), no mocks in the auth or money
   paths. Every API test mints a real RS256 JWT and verifies it through the real JWKS path;
   `unittest.mock` appears nowhere in the suite.
 - Tenant isolation: application filters **and** the RLS backstop.
   `test_no_unpinned_sessions_outside_request_cycle` fails the build if any code opens a session
   without `pinned_session()` — SQLite cannot catch that class of bug, so it is checked structurally.
-- Alembic chain 0001–0023 is linear with a single head; CI runs `upgrade head` → `check` →
+- Alembic chain 0001–0029 is linear with a single head; CI runs `upgrade head` → `check` →
   `downgrade -1` → `upgrade head` on real Postgres.
 - No fake auth, no mock data, no hardcoded tenants — fail-closed 401/403.
 
@@ -49,15 +49,12 @@ python -m pytest tests -q
   the test DB is SQLite and has no RLS. The policy was proven against genuine PostgreSQL 18 once,
   on 2026-09-26 (see `../docs/09-operations/runbook.md` §7), but that run's revision was not
   recorded and no PostgreSQL is available in the current environment.
-- **The RLS test only covers the baseline migration.** It checks that `0001_baseline.py` defines
-  its policies; the 13 later migrations that also enable RLS are uncovered, so a new tenant table
-  could ship with no policy and the suite would stay green.
-- **The budget row lock is unproven under concurrency.** `check_budget` takes
-  `with_for_update` on the budget row before reading the aggregate, which is the right mechanism,
-  but the concurrency test the docstring once referred to does not exist and SQLite renders no
-  `FOR UPDATE`. Treat the ceiling as enforced by construction, not verified.
-- **`check_budget` is per (category, period).** A tenant that spends in a category with no budget
-  row set is unchecked — `{"checked": false}` is returned and the approval proceeds.
+- **`test_tenant_isolation.py` structurally validates all migrations (0001–0029)**,
+  asserting that every table created across the migration tree enforces RLS and has a tenant_isolation policy.
+- **Budget concurrency proof is implemented in `tests/test_pg_concurrency.py`**, run against PostgreSQL
+  under the `pg` marker. Under SQLite, `FOR UPDATE` is a no-op so concurrency proofs require the PG tier.
+- **`check_budget` policy is configurable via `BUDGET_UNSET_POLICY` (`allow` or `block`)**. When a
+  category has no budget row, the configured policy deterministically permits or rejects the commitment.
 - **Document OCR is still absent.** `validate → store → extract → chunk → embed → audit` are
   real; a scanned PDF with no text layer is quarantined, not OCR'd.
 - **Storage is driver-selected, not local-only.** `STORAGE_DRIVER=filesystem|s3` exists and the

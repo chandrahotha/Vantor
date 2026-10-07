@@ -398,11 +398,14 @@ def award(rfq_id: str, payload: AwardIn, request: Request, actor: Actor = Depend
         raise HTTPException(status_code=409, detail="RFQ already awarded")
     if r.status != "evaluated":
         raise HTTPException(status_code=422, detail="RFQ must be evaluated before award")
+    # Qualification and quote completeness can change after evaluation. Re-run
+    # the gate under the RFQ lock so an award cannot rely on stale eligibility.
+    _assert_evaluable(db, actor.tenant_id, r)
     q = db.execute(select(Quote).where(Quote.tenant_id == actor.tenant_id, Quote.id == payload.quote_id, Quote.rfq_id == rfq_id)).scalar_one_or_none()
     if q is None:
         raise HTTPException(status_code=422, detail="Quote does not belong to this RFQ")
-    if q.status == "rejected":
-        raise HTTPException(status_code=422, detail="Rejected quotes cannot be awarded")
+    if q.status != "evaluated":
+        raise HTTPException(status_code=422, detail="Only an evaluated quote can be awarded")
     # Server-computed total from lines (never trust client).
     lines = list(db.execute(select(QuoteLine).where(QuoteLine.tenant_id == actor.tenant_id, QuoteLine.quote_id == q.id)).scalars())
     server_total = sum(l.line_total_minor for l in lines)

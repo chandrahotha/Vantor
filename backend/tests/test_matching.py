@@ -157,6 +157,9 @@ def test_api_run_stored_and_scoped():
                 "lines": [{"description": "Widget", "quantity": 10, "unit_price_minor": 50000}]}, headers=h()).json()["data"]["id"]
     pod = c.get(f"/api/v1/purchase-orders/{po}", headers=h()).json()["data"]
     plid = pod["lines"][0]["id"]
+    assert c.post(f"/api/v1/purchase-orders/{po}/approve", headers=h(sub="u2", roles=("Procurement Manager", "Approver"))).status_code == 200
+    assert c.post(f"/api/v1/purchase-orders/{po}/approve", headers=h(sub="u3", roles=("Finance Approver", "Approver"))).status_code == 200
+    assert c.post(f"/api/v1/purchase-orders/{po}/send", headers=h()).status_code == 200
     inv = c.post(f"/api/v1/purchase-orders/{po}/invoices", json={"code": "INV-M",
                 "lines": [{"po_line_id": plid, "quantity": 10, "unit_price_minor": 50000}]}, headers=h())
     assert inv.status_code == 201, inv.text

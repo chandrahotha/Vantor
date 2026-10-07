@@ -167,13 +167,16 @@ def test_cursor_must_be_visible_to_caller(client):
 
 def _seed_broadcasts(c, pem, tenant, count):
     """Insert `count` broadcast rows already read by both readers."""
+    from datetime import datetime, timedelta, timezone
     from app.core.tenant import pinned_session
     from app.models.notification import Notification
 
+    base = datetime.now(timezone.utc)
     db = pinned_session(tenant)
     try:
         for i in range(count):
             db.add(Notification(tenant_id=tenant, created_by="seed", updated_by="seed",
+                                created_at=base + timedelta(seconds=i + 1),
                                 user_sub="", kind="SEED", title=f"seed {i}", body="",
                                 link="", read_at="", read_by=["alice", "bob"]))
         db.commit()

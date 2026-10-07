@@ -335,6 +335,9 @@ def test_quote_and_invoice_lines_must_belong_to_their_parent(client):
     # invoice line must reference a line of *this* PO
     po = c.post("/api/v1/purchase-orders", json={"code": "PO-Q", "supplier_id": sup, "currency": "USD",
               "lines": [{"description": "Bolt", "quantity": 10, "unit_price_minor": 100}]}, headers=h).json()["data"]["id"]
+    mgr_h = _h(pem, sub="mgr_approv", roles=("Procurement Manager", "Approver"))
+    assert c.post(f"/api/v1/purchase-orders/{po}/approve", headers=mgr_h).status_code == 200
+    assert c.post(f"/api/v1/purchase-orders/{po}/send", headers=h).status_code == 200
     bad_inv = c.post(f"/api/v1/purchase-orders/{po}/invoices", json={"code": "INV-Q",
                      "lines": [{"po_line_id": "not-a-po-line", "quantity": 1, "unit_price_minor": 100}]}, headers=h)
     assert bad_inv.status_code == 422

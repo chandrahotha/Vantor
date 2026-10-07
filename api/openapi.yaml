@@ -1,12 +1,4448 @@
 openapi: 3.1.0
 info:
   title: Vantor API
-  version: 0.1.0-planned
-  description: Placeholder — full OpenAPI generated from backend in Phase 3. All routes under /api/v1.
+  version: 0.8.0-one-stop
 paths:
   /api/v1/health:
     get:
-      summary: Liveness
+      tags:
+      - platform
+      summary: Health
+      operationId: health_api_v1_health_get
       responses:
         '200':
-          description: OK
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Health Api V1 Health Get
+  /api/v1/ops/metrics:
+    get:
+      tags:
+      - platform
+      summary: Ops Metrics
+      description: "Perf counters for this process. Auditor/Super Admin only \u2014\
+        \ a request-count\nby tenant is a real information-leak surface, so it is\
+        \ role-gated, not public.\nSums are per-process; a multi-replica deploy needs\
+        \ a collector (Phase 10)."
+      operationId: ops_metrics_api_v1_ops_metrics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Ops Metrics Api V1 Ops Metrics Get
+      security:
+      - HTTPBearer: []
+  /api/v1/ops/metrics.prom:
+    get:
+      tags:
+      - platform
+      summary: Ops Metrics Prometheus
+      description: "Prometheus exposition for this process. Same role gate as the\
+        \ JSON variant\n\u2014 scrapes still need a service principal, because a request\
+        \ count by tenant is\na real information-leak surface.\n\nVNT-033. The body\
+        \ used to be assembled by hand here, and it was invalid: every\nline was emitted\
+        \ as `vantor_http_requests_total {class=\"5xx\"} 0`, and the\nexposition format\
+        \ does not allow whitespace between the metric name and the\nlabel set. Prometheus\
+        \ rejects the *whole document* on that, so the endpoint\nreturned 200 with\
+        \ a body no scraper would accept \u2014 a scrape that looked\nhealthy and\
+        \ recorded nothing. The renderer now lives beside the counters it\nrenders,\
+        \ and escapes label values, because an unescaped quote in a label also\ncosts\
+        \ every metric rather than one."
+      operationId: ops_metrics_prometheus_api_v1_ops_metrics_prom_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/ready:
+    get:
+      tags:
+      - platform
+      summary: Ready
+      operationId: ready_api_v1_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/auth/session:
+    post:
+      tags:
+      - auth
+      summary: Create Session
+      description: "Start a local session.\n\nDeliberately unauthenticated \u2014\
+        \ that is what \"passwordless\" means here. The\nroute is refused outright\
+        \ when `AUTH_MODE` does not include `local`, so a\ndeployment that has moved\
+        \ to a real identity provider cannot be walked past\nby calling this endpoint;\
+        \ it answers 404, not 401, because in that\nconfiguration the route genuinely\
+        \ does not exist as a way in.\n\n`persona` picks which named local identity\
+        \ the token is issued for (see\n`GET /auth/personas`). It does not change\
+        \ what the token permits \u2014 there is\none operator and every persona holds\
+        \ the full configured role set \u2014 it\nchanges `sub`, so a requester and\
+        \ an approver can be recorded as distinct\nidentities and segregation-of-duties\
+        \ checks can actually be satisfied by\nthe one physical operator switching\
+        \ hats."
+      operationId: create_session_api_v1_auth_session_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/SessionIn'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Session Api V1 Auth Session Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/personas:
+    get:
+      tags:
+      - auth
+      summary: List Personas
+      description: 'Named local identities `POST /auth/session` will accept.
+
+
+        404s under `AUTH_MODE=oidc` for the same reason `/auth/session` does: in
+
+        that configuration this is not a way to sign in, so it does not exist.'
+      operationId: list_personas_api_v1_auth_personas_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Personas Api V1 Auth Personas Get
+  /api/v1/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Whoami
+      description: Who the presented token says you are, and what it lets you do.
+      operationId: whoami_api_v1_auth_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Whoami Api V1 Auth Me Get
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/config:
+    get:
+      tags:
+      - auth
+      summary: Auth Config
+      description: 'What sign-in methods this deployment offers.
+
+
+        The web app reads this before it renders the sign-in screen, so the button
+
+        it shows matches what the server will actually accept. Hardcoding that in
+
+        the client is how the old build ended up offering a Keycloak redirect in a
+
+        deployment with no Keycloak.'
+      operationId: auth_config_api_v1_auth_config_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Auth Config Api V1 Auth Config Get
+  /api/v1/me:
+    get:
+      tags:
+      - identity
+      summary: Me
+      operationId: me_api_v1_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Me Api V1 Me Get
+      security:
+      - HTTPBearer: []
+  /api/v1/integrations/types:
+    get:
+      tags:
+      - integrations
+      summary: Types
+      operationId: types_api_v1_integrations_types_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Types Api V1 Integrations Types Get
+      security:
+      - HTTPBearer: []
+  /api/v1/integrations:
+    get:
+      tags:
+      - integrations
+      summary: List Integrations
+      description: "List the adapters this tenant has registered.\n\nThis route did\
+        \ not exist. The Integrations screen has always called\n`GET /api/v1/integrations`\
+        \ on load, inside the `Promise.all` that also\nfetches the adapter types and\
+        \ the delivery log \u2014 so the whole page failed\nfor every user, on every\
+        \ visit, and rendered its error state with three\nempty tables behind it.\
+        \ Nothing caught it: the route is typed `any` on the\nclient, the backend\
+        \ tests only covered routes that exist, and no test\ncompared the two. `frontend/lib/contract.test.ts`\
+        \ now does.\n\n`secret_ref` is returned because it is a vault *pointer* (`env:NAME`)\
+        \ and\nnever a secret \u2014 POST refuses anything else \u2014 and an operator\
+        \ needs to see\nwhich reference an adapter was wired to."
+      operationId: list_integrations_api_v1_integrations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Integrations Api V1 Integrations Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - integrations
+      summary: Register
+      operationId: register_api_v1_integrations_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegrationIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Register Api V1 Integrations Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/webhooks/endpoints:
+    get:
+      tags:
+      - integrations
+      summary: List Endpoints
+      description: "List registered receivers.\n\nAlso missing. `POST /webhooks/test`\
+        \ takes an `endpoint_id`, and there was no\nroute that could tell a caller\
+        \ what those ids are \u2014 so the one control on\nthe screen that exercises\
+        \ a receiver could not be given a valid argument\nfrom the UI at all."
+      operationId: list_endpoints_api_v1_webhooks_endpoints_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Endpoints Api V1 Webhooks Endpoints Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - integrations
+      summary: Add Endpoint
+      description: 'Register a webhook receiver.
+
+
+        VNT-007. The URL is validated *here*, at the point a tenant supplies it,
+
+        rather than being stored and discovered to be a cloud-metadata address on
+        the
+
+        first delivery. `resolve=False` for the syntactic checks and a real
+
+        resolution for the address policy: a URL that will not resolve is refused
+
+        now, while the operator can still fix DNS, instead of producing a permanent
+
+        `dead` row per event.'
+      operationId: add_endpoint_api_v1_webhooks_endpoints_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Add Endpoint Api V1 Webhooks Endpoints Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/webhooks/deliveries:
+    get:
+      tags:
+      - integrations
+      summary: Deliveries
+      operationId: deliveries_api_v1_webhooks_deliveries_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Deliveries Api V1 Webhooks Deliveries Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/webhooks/deliveries/{did}/replay:
+    post:
+      tags:
+      - integrations
+      summary: Replay Delivery
+      description: Return a dead-lettered delivery to the queue.
+      operationId: replay_delivery_api_v1_webhooks_deliveries__did__replay_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: did
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Did
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Replay Delivery Api V1 Webhooks Deliveries  Did  Replay
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/webhooks/drain:
+    post:
+      tags:
+      - integrations
+      summary: Drain Queue
+      description: 'Attempt due deliveries now. The worker calls this on a schedule;
+        an
+
+        operator can call it after fixing a receiver, without waiting for the tick.'
+      operationId: drain_queue_api_v1_webhooks_drain_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Drain Queue Api V1 Webhooks Drain Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/webhooks/test:
+    post:
+      tags:
+      - integrations
+      summary: Test Ping
+      description: 'Deliver one signed ping synchronously so a tenant can verify their
+        receiver.
+
+
+        The body is the same shape the queue signs, and the retry accounting is the
+
+        same, so a green ping means the queue will also deliver.'
+      operationId: test_ping_api_v1_webhooks_test_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Test Ping Api V1 Webhooks Test Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/notifications:
+    get:
+      tags:
+      - notifications
+      summary: List Notifs
+      operationId: list_notifs_api_v1_notifications_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: unread
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Unread
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Notifs Api V1 Notifications Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/notifications/unread-count:
+    get:
+      tags:
+      - notifications
+      summary: Unread Count
+      operationId: unread_count_api_v1_notifications_unread_count_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Unread Count Api V1 Notifications Unread Count Get
+      security:
+      - HTTPBearer: []
+  /api/v1/notifications/{nid}/read:
+    post:
+      tags:
+      - notifications
+      summary: Mark Read
+      operationId: mark_read_api_v1_notifications__nid__read_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: nid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Nid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Mark Read Api V1 Notifications  Nid  Read Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/audit-events:
+    get:
+      tags:
+      - audit
+      summary: List Events
+      operationId: list_events_api_v1_audit_events_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Action
+      - name: resource
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Resource
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Events Api V1 Audit Events Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/audit-events/verify:
+    get:
+      tags:
+      - audit
+      summary: Verify
+      operationId: verify_api_v1_audit_events_verify_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Verify Api V1 Audit Events Verify Get
+      security:
+      - HTTPBearer: []
+  /api/v1/catalog/items:
+    get:
+      tags:
+      - catalog
+      summary: List Items
+      operationId: list_items_api_v1_catalog_items_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: category_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Category Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Items Api V1 Catalog Items Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - catalog
+      summary: Create Item
+      operationId: create_item_api_v1_catalog_items_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Item Api V1 Catalog Items Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/budgets:
+    post:
+      tags:
+      - catalog
+      summary: Set Budget
+      operationId: set_budget_api_v1_budgets_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BudgetIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Set Budget Api V1 Budgets Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/catalog/categories:
+    get:
+      tags:
+      - catalog
+      summary: List Categories
+      operationId: list_categories_api_v1_catalog_categories_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Categories Api V1 Catalog Categories Get
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - catalog
+      summary: Create Category
+      operationId: create_category_api_v1_catalog_categories_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Category Api V1 Catalog Categories Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/ai/negotiate:
+    post:
+      tags:
+      - ai
+      summary: Negotiate
+      description: "10 Negotiation Simulator: deterministic rehearsal. Labeled simulation\
+        \ \u2014\nnever touches live RFQs, quotes, or orders."
+      operationId: negotiate_api_v1_ai_negotiate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NegoIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Negotiate Api V1 Ai Negotiate Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/ai/providers:
+    get:
+      tags:
+      - ai
+      summary: Providers
+      description: "Configured + selectable providers. Never reveals a key \u2014\
+        \ only whether\none is present, and whether the caller must bring its own."
+      operationId: providers_api_v1_ai_providers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Providers Api V1 Ai Providers Get
+      security:
+      - HTTPBearer: []
+  /api/v1/ai/complete:
+    post:
+      tags:
+      - ai
+      summary: Run Complete
+      operationId: run_complete_api_v1_ai_complete_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Run Complete Api V1 Ai Complete Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/ai/tools/{name}:
+    post:
+      tags:
+      - ai
+      summary: Run Tool
+      operationId: run_tool_api_v1_ai_tools__name__post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              title: Args
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Run Tool Api V1 Ai Tools  Name  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ai/approvals/{approval_id}/decide:
+    post:
+      tags:
+      - ai
+      summary: Decide Approval
+      description: 'HITL decision on an AI-filed approval. Approving here records
+        consent;
+
+        the caller then performs the action through the normal API (nothing auto-executes).'
+      operationId: decide_approval_api_v1_ai_approvals__approval_id__decide_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Approval Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/app__routers__ai__DecideIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Decide Approval Api V1 Ai Approvals  Approval Id  Decide
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ai/stream:
+    post:
+      tags:
+      - ai
+      summary: Run Stream
+      description: 'Provider-side streaming with optional tool grounding: distinguishes
+        real
+
+        token streaming from the disabled fallback, and cites tool rows as evidence.'
+      operationId: run_stream_api_v1_ai_stream_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/suppliers:
+    get:
+      tags:
+      - suppliers
+      summary: List Suppliers
+      operationId: list_suppliers_api_v1_suppliers_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: created_at
+          title: Sort
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          title: Order
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Suppliers Api V1 Suppliers Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - suppliers
+      summary: Create Supplier
+      operationId: create_supplier_api_v1_suppliers_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Supplier Api V1 Suppliers Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}:
+    get:
+      tags:
+      - suppliers
+      summary: Get Supplier
+      operationId: get_supplier_api_v1_suppliers__supplier_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Supplier Api V1 Suppliers  Supplier Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - suppliers
+      summary: Update Supplier
+      operationId: update_supplier_api_v1_suppliers__supplier_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierPatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Update Supplier Api V1 Suppliers  Supplier Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/contacts:
+    get:
+      tags:
+      - suppliers
+      summary: List Contacts
+      operationId: list_contacts_api_v1_suppliers__supplier_id__contacts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Contacts Api V1 Suppliers  Supplier Id  Contacts
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - suppliers
+      summary: Add Contact
+      operationId: add_contact_api_v1_suppliers__supplier_id__contacts_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Add Contact Api V1 Suppliers  Supplier Id  Contacts
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/scorecard:
+    post:
+      tags:
+      - suppliers
+      summary: Post Scorecard
+      operationId: post_scorecard_api_v1_suppliers__supplier_id__scorecard_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScorecardIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Post Scorecard Api V1 Suppliers  Supplier Id  Scorecard
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - suppliers
+      summary: Get Scorecard
+      operationId: get_scorecard_api_v1_suppliers__supplier_id__scorecard_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Scorecard Api V1 Suppliers  Supplier Id  Scorecard
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/certifications:
+    get:
+      tags:
+      - suppliers
+      summary: List Certs
+      operationId: list_certs_api_v1_suppliers__supplier_id__certifications_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Certs Api V1 Suppliers  Supplier Id  Certifications
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - suppliers
+      summary: Add Cert
+      operationId: add_cert_api_v1_suppliers__supplier_id__certifications_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Add Cert Api V1 Suppliers  Supplier Id  Certifications
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/certifications/{cert_id}/verify:
+    post:
+      tags:
+      - suppliers
+      summary: Verify Cert
+      description: "Verify a certification.\n\nVNT-025. Three things were missing\
+        \ and each of them is a control:\n\n* **Authority.** The role was a generic\
+        \ write role, so a `Buyer` verified\n  the certificates of their own supplier.\
+        \ Verification is now a distinct\n  capability.\n* **Segregation of duties.**\
+        \ There was none: the project's own test had the\n  submitting identity call\
+        \ `/verify` and get 200. The submitter is refused.\n* **Evidence.** The document\
+        \ behind the certification was never opened. It is\n  now loaded, and it must\
+        \ be readable in this tenant and not quarantined \u2014\n  otherwise \"verified\"\
+        \ meant \"the row said so\", which is the definition of a\n  rubber stamp.\n\
+        * **Currency.** A certification whose `valid_until` has passed cannot be\n\
+        \  verified. Verifying an expired document is worse than refusing to verify\
+        \ a\n  current one."
+      operationId: verify_cert_api_v1_suppliers__supplier_id__certifications__cert_id__verify_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      - name: cert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Cert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Verify Cert Api V1 Suppliers  Supplier Id  Certifications  Cert
+                  Id  Verify Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/qualification:
+    get:
+      tags:
+      - suppliers
+      summary: Get Qual
+      operationId: get_qual_api_v1_suppliers__supplier_id__qualification_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Qual Api V1 Suppliers  Supplier Id  Qualification
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/qualification/submit:
+    post:
+      tags:
+      - suppliers
+      summary: Submit Qual
+      operationId: submit_qual_api_v1_suppliers__supplier_id__qualification_submit_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Submit Qual Api V1 Suppliers  Supplier Id  Qualification
+                  Submit Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/suppliers/{supplier_id}/qualification/decide:
+    post:
+      tags:
+      - suppliers
+      summary: Decide Qual
+      description: "Decide a supplier qualification.\n\nVNT-026. The decision used\
+        \ to be guarded by the flat supplier write set, so\n`Buyer`, `Category Manager`\
+        \ and `Supplier Manager` could all qualify a\nsupplier \u2014 including the\
+        \ supplier's own manager. Authority is now a distinct\n`decide_qual` capability.\n\
+        \nTwo further controls the audit named, both added because a qualified supplier\n\
+        can bid on a contract:\n\n* A rejection needs a written reason. `reason` defaulted\
+        \ to `\"\"` and nothing\n  rejected the empty case, so a supplier could be\
+        \ refused with no explanation\n  recorded anywhere.\n* The evidence is re-checked\
+        \ at decision time, not only at submission. The\n  submission-time check is\
+        \ in `submit_qual`; repeating it here is what stops a\n  certification being\
+        \ withdrawn between submission and decision."
+      operationId: decide_qual_api_v1_suppliers__supplier_id__qualification_decide_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: supplier_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Supplier Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/app__routers__suppliers__DecideIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Decide Qual Api V1 Suppliers  Supplier Id  Qualification
+                  Decide Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs:
+    get:
+      tags:
+      - sourcing
+      summary: List Rfqs
+      operationId: list_rfqs_api_v1_rfqs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: created_at
+          title: Sort
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          title: Order
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Rfqs Api V1 Rfqs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - sourcing
+      summary: Create Rfq
+      operationId: create_rfq_api_v1_rfqs_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfqIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Rfq Api V1 Rfqs Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}:
+    get:
+      tags:
+      - sourcing
+      summary: Get Rfq
+      operationId: get_rfq_api_v1_rfqs__rfq_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Rfq Api V1 Rfqs  Rfq Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}/status:
+    patch:
+      tags:
+      - sourcing
+      summary: Move Rfq
+      operationId: move_rfq_api_v1_rfqs__rfq_id__status_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfqStatusIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Move Rfq Api V1 Rfqs  Rfq Id  Status Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}/quotes:
+    post:
+      tags:
+      - sourcing
+      summary: Submit Quote
+      operationId: submit_quote_api_v1_rfqs__rfq_id__quotes_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Submit Quote Api V1 Rfqs  Rfq Id  Quotes Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}/comparison:
+    get:
+      tags:
+      - sourcing
+      summary: Comparison
+      operationId: comparison_api_v1_rfqs__rfq_id__comparison_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Comparison Api V1 Rfqs  Rfq Id  Comparison Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}/award:
+    post:
+      tags:
+      - sourcing
+      summary: Award
+      operationId: award_api_v1_rfqs__rfq_id__award_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AwardIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Award Api V1 Rfqs  Rfq Id  Award Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/rfqs/{rfq_id}/optimize:
+    post:
+      tags:
+      - sourcing
+      summary: Optimize
+      description: '06 optimizer: cheapest feasible split across evaluated quotes
+        (read-only).'
+      operationId: optimize_api_v1_rfqs__rfq_id__optimize_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rfq_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rfq Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OptimizeIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Optimize Api V1 Rfqs  Rfq Id  Optimize Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts:
+    get:
+      tags:
+      - contracts
+      summary: List Contracts
+      operationId: list_contracts_api_v1_contracts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: created_at
+          title: Sort
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          title: Order
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      - name: expiring
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Expiring
+      - name: supplierId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Supplierid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Contracts Api V1 Contracts Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - contracts
+      summary: Create Contract
+      operationId: create_contract_api_v1_contracts_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Contract Api V1 Contracts Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}:
+    get:
+      tags:
+      - contracts
+      summary: Get Contract
+      operationId: get_contract_api_v1_contracts__contract_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Contract Api V1 Contracts  Contract Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/status:
+    patch:
+      tags:
+      - contracts
+      summary: Move Contract
+      description: 'Move a contract through its lifecycle.
+
+
+        VNT-022: this used to be guarded by the same flat write set as drafting, so
+
+        `Buyer` and `Supplier Manager` could take a contract to `active`. The
+
+        authority is now derived from the *destination* status, so activating needs
+
+        activation authority and moving into legal review needs legal authority.'
+      operationId: move_contract_api_v1_contracts__contract_id__status_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractStatusIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Move Contract Api V1 Contracts  Contract Id  Status
+                  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/obligations:
+    post:
+      tags:
+      - contracts
+      summary: Add Obligation
+      operationId: add_obligation_api_v1_contracts__contract_id__obligations_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObligationIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Add Obligation Api V1 Contracts  Contract Id  Obligations
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/roll-expiry:
+    post:
+      tags:
+      - contracts
+      summary: Roll Expiry
+      description: 'Derive `expiring` from end dates. Idempotent, and clock-injectable.
+
+
+        VNT-024. This used to call `date.today()` inline behind a broad write gate,
+
+        so any of the seven write roles could trigger a bulk status change and the
+
+        date logic was untestable without a freezegun. Both are fixed: authority is
+
+        `expire` (a service identity, not a tenant click), and the date is a parameter
+
+        so a test can move the clock.
+
+
+        Idempotency is structural rather than incidental: the query only considers
+
+        contracts that are currently `active`, so a second run moves nothing.'
+      operationId: roll_expiry_api_v1_contracts_roll_expiry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: as_of
+        in: query
+        required: false
+        schema:
+          type: string
+          description: ISO date to evaluate against; defaults to today
+          default: ''
+          title: As Of
+        description: ISO date to evaluate against; defaults to today
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Roll Expiry Api V1 Contracts Roll Expiry Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/sign:
+    post:
+      tags:
+      - contracts
+      summary: Sign Contract
+      description: "Record a sign-off.\n\nVNT-022/023. Two defects, both fixed here.\n\
+        \n*Authority*: this was guarded by the flat write set, so a `Buyer` could\
+        \ sign.\nIt now requires `sign` authority, and the drafter is excluded by\n\
+        segregation of duties \u2014 the person who wrote the terms does not get to\
+        \ bind\nthem.\n\n*Verification*: an `esign` row used to be written as a completed\
+        \ signature\nfrom nothing more than a caller-supplied provider name and envelope\
+        \ id, and\nthe response said 201. There was no column in which the provider's\
+        \ answer\ncould even be recorded. An e-sign is now created `pending` and the\
+        \ contract\nis **not** treated as signed; it becomes signed only when the\
+        \ provider\nconfirms, either by the inbound callback below or by `POST .../sign/verify`."
+      operationId: sign_contract_api_v1_contracts__contract_id__sign_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Sign Contract Api V1 Contracts  Contract Id  Sign
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/signatures/provider-callback:
+    post:
+      tags:
+      - contracts
+      summary: Provider Signature Callback
+      description: "An e-sign provider's answer, authenticated by HMAC.\n\nThis is\
+        \ the path where the *provider* states that an envelope was signed, and\n\
+        the only one where the platform can honestly record a verified e-signature.\n\
+        `POST /contracts/{id}/sign/verify` is the same transition performed by a\n\
+        trusted human; both write a signature row, and `verified_via` records which\n\
+        one produced it.\n\nUnauthenticated by design \u2014 the caller is the provider,\
+        \ not a VANTOR user \u2014 so\nthe request is authenticated by the MAC instead.\
+        \ Three consequences, all\ndeliberate:\n\n* **No user session, so `get_actor`\
+        \ is not used.** Requiring one would mean\n  the provider had to hold a VANTOR\
+        \ user's token, which is exactly the\n  confusion this endpoint exists to\
+        \ avoid.\n* **Every refusal is the same shape.** An unknown envelope and a\
+        \ bad\n  signature produce the same status and comparable wording, so the\
+        \ endpoint\n  cannot be used to discover which envelope ids exist.\n* **It\
+        \ is rate limited like any other unauthenticated request.** The limiter\n\
+        \  counts traffic it cannot attribute against the peer address rather than\n\
+        \  skipping it, which is what makes an unauthenticated endpoint safe to\n\
+        \  expose at all.\n\nThe provider's shared secret is read from the environment\
+        \ (`env:`-style\nreference only, never stored) and a provider with no secret\
+        \ configured is\nrefused \u2014 \"not configured\" must never mean \"verification\
+        \ skipped\"."
+      operationId: provider_signature_callback_api_v1_contracts_signatures_provider_callback_post
+      parameters:
+      - name: provider
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+          title: Provider
+      - name: tenant_id
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Tenant Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Provider Signature Callback Api V1 Contracts Signatures
+                  Provider Callback Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/sign/verify:
+    post:
+      tags:
+      - contracts
+      summary: Verify Signature
+      description: "Apply a provider's confirmation to an open e-signature.\n\nThis\
+        \ is the **operator-attested** path, not the verified one. A legal\nreviewer\
+        \ with `sign` authority is asserting what the provider said; the\nplatform\
+        \ is not checking with the provider at all. That is a legitimate and\nsometimes\
+        \ necessary thing to do \u2014 a provider can be unreachable, or a\nmigration\
+        \ can leave envelopes whose confirmations were never delivered \u2014 but\n\
+        it is a different claim from \"the provider confirmed this\", and until\n\
+        VNT-023's second half it was recorded identically.\n\nSo the row is stamped\
+        \ `verified_via = 'manual_reconciliation'`, the audit\nevent says so, and\
+        \ `ck_signature_esign_verified_via` refuses a signed e-sign\nrow with no provenance\
+        \ at all. A verified provider callback is the other\nroute: `POST /contracts/signatures/provider-callback`.\n\
+        \nIt is a first-class endpoint rather than an out-of-band adapter call because\n\
+        the provider's answer has to land on the right row, and the only thing that\n\
+        can identify that row reliably is the envelope id the tenant registered."
+      operationId: verify_signature_api_v1_contracts__contract_id__sign_verify_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifySignIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Verify Signature Api V1 Contracts  Contract Id  Sign
+                  Verify Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/signatures:
+    get:
+      tags:
+      - contracts
+      summary: List Signatures
+      description: Every signature on a contract, with its verification state.
+      operationId: list_signatures_api_v1_contracts__contract_id__signatures_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Signatures Api V1 Contracts  Contract Id  Signatures
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/{contract_id}/match:
+    post:
+      tags:
+      - contracts
+      summary: Run Match
+      description: Run the 11-dim deterministic match over server-side rows; store
+        the run.
+      operationId: run_match_api_v1_contracts__contract_id__match_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: contract_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Contract Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Run Match Api V1 Contracts  Contract Id  Match Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/documents:
+    post:
+      tags:
+      - documents
+      summary: Upload
+      operationId: upload_api_v1_documents_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_api_v1_documents_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Upload Api V1 Documents Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - documents
+      summary: List Docs
+      operationId: list_docs_api_v1_documents_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: resource
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Resource
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Docs Api V1 Documents Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/documents/{doc_id}/download:
+    get:
+      tags:
+      - documents
+      summary: Download
+      description: "Serve the stored bytes, re-verifying the hash on every read.\n\
+        \nVNT-009: the bytes are fetched through the storage driver rather than by\n\
+        treating `storage_key` as a filesystem path, so the same code serves a local\n\
+        volume and an object store. The integrity re-check is kept \u2014 it is what\
+        \ turns\nsilent corruption into an explicit quarantine instead of a wrong\
+        \ document."
+      operationId: download_api_v1_documents__doc_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Doc Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/documents/{doc_id}/extract:
+    post:
+      tags:
+      - documents
+      summary: Extract Doc
+      description: "Extract text + chunk into DocumentChunk rows. Scanned/unreadable\
+        \ bytes\nquarantine with an explicit reason (never fake-extracted). Idempotent\
+        \ per\ndocument: re-extract replaces prior chunks.\n\nRole-gated: extraction\
+        \ mutates document status and rewrites chunk rows, so\nit requires the same\
+        \ write roles as upload. A 200 with `quarantined: true`\nis a real outcome,\
+        \ not a success \u2014 hence 200, not 201."
+      operationId: extract_doc_api_v1_documents__doc_id__extract_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Doc Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Extract Doc Api V1 Documents  Doc Id  Extract Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/documents/search:
+    get:
+      tags:
+      - documents
+      summary: Search Docs
+      description: "Keyword + optional semantic ranking over extracted chunks.\n\n\
+        Keyword stage: ILIKE substring match (works on SQLite and Postgres) \u2014\
+        \ this\nnever drops; an exact substring hit is always a candidate, keyword\
+        \ mode or\nnot. Ranking stage: if the embedding provider has written vectors,\
+        \ cosine\nscore re-orders the merged candidate pool; otherwise the keyword\
+        \ order\nstands and `mode` says so. Chunks without vectors are never ranked\
+        \ as if\nthey matched.\n\nRA-006 (re-audit 2026-10-02): on Postgres, with\
+        \ a vector available, a\nsecond candidate pool is pulled via `ORDER BY embedding\
+        \ <=> :qv LIMIT 50`\nagainst the real `vector(n)` column \u2014 the HNSW index\n\
+        (`ix_chunk_embedding_hnsw`, `vector_cosine_ops`) existed since migration\n\
+        0022 and had never actually been queried; every candidate was always\nILIKE-prefiltered\
+        \ first, so a chunk with no literal substring match could\nnever surface regardless\
+        \ of how semantically close it was. Merging in the\nANN pool before the existing\
+        \ Python rerank fixes that without weakening\nthe keyword guarantee or changing\
+        \ the final scoring method: the only\ndifference is which chunks reach `rank()`\
+        \ in the first place. SQLite (the\nentire test suite) takes neither pgvector\
+        \ operator nor index and is\nunaffected \u2014 this is additive and dialect-gated.\n\
+        \nChunks are joined to their parent document so a QUARANTINED document is\
+        \ not\nsearchable. It was not joined before, and the two quarantine paths\
+        \ return\nbefore the chunk delete, so text from a document explicitly held\
+        \ for review\nkept surfacing in search results."
+      operationId: search_docs_api_v1_documents_search_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 200
+          default: ''
+          title: Q
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Search Docs Api V1 Documents Search Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/requisitions:
+    get:
+      tags:
+      - purchase
+      summary: List Reqs
+      description: "Requisition index. Status + title/code search, cursor-paginated.\n\
+        \nThe requisition feature was previously write-only \u2014 there was no way\
+        \ to\nlist what had been created, which made the UI walk and the acceptance\
+        \ of\n`REQUISITION_CREATED` unverifiable without SQL."
+      operationId: list_reqs_api_v1_requisitions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Search
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Reqs Api V1 Requisitions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - purchase
+      summary: Create Req
+      operationId: create_req_api_v1_requisitions_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReqIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Req Api V1 Requisitions Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/requisitions/{rid}/submit:
+    post:
+      tags:
+      - purchase
+      summary: Submit Req
+      operationId: submit_req_api_v1_requisitions__rid__submit_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Rid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Submit Req Api V1 Requisitions  Rid  Submit Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders:
+    post:
+      tags:
+      - purchase
+      summary: Create Po
+      operationId: create_po_api_v1_purchase_orders_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Po Api V1 Purchase Orders Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - purchase
+      summary: List Pos
+      operationId: list_pos_api_v1_purchase_orders_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      - name: supplierId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Supplierid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Pos Api V1 Purchase Orders Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/approvals:
+    get:
+      tags:
+      - purchase
+      summary: List Approvals
+      description: "The approval queue \u2014 the read side of the HITL loop.\n\n\
+        Approvals were write-only: rows were filed by PO/requisition/invoice/AI\n\
+        paths and nothing could list them, so the queue only existed in SQL. Roles\n\
+        come from the verified token, so a tenant can only ever see its own rows."
+      operationId: list_approvals_api_v1_approvals_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: requested
+          title: Status
+      - name: resource
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Resource
+      - name: tier
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Tier
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Approvals Api V1 Approvals Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/approvals/{aid}/decide:
+    post:
+      tags:
+      - purchase
+      summary: Decide Approval Endpoint
+      description: "Decide one approval (requisition, purchase order, invoice).\n\n\
+        `ai:*` approvals are deliberately excluded: they are decided through\n`/ai/approvals/{id}/decide`\
+        \ so the copilot's HITL path stays explicit.\n\nA purchase-order approval\
+        \ decided here runs the same money gate as\n`POST /purchase-orders/{id}/approve`\
+        \ \u2014 the hard budget check, the tier\norder and the row lock. The queue\
+        \ is the second way to decide the same\nrows, and the budget gate existed\
+        \ only on the direct route: two POs each\nwithin the ceiling could both be\
+        \ approved entirely through the queue and\nthen both sent, committing double\
+        \ the category's ceiling without either\napproval ever testing it. An approval\
+        \ decision does not execute the\nunderlying action \u2014 the parent document's\
+        \ *status* moves with the decision\n(that is `_sync_parent` below), and the\
+        \ caller then acts through the normal\nendpoint."
+      operationId: decide_approval_endpoint_api_v1_approvals__aid__decide_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: aid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Aid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/app__routers__purchase__DecideIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Decide Approval Endpoint Api V1 Approvals  Aid  Decide
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/approve:
+    post:
+      tags:
+      - purchase
+      summary: Approve Po
+      operationId: approve_po_api_v1_purchase_orders__pid__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Approve Po Api V1 Purchase Orders  Pid  Approve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/send:
+    post:
+      tags:
+      - purchase
+      summary: Send Po
+      operationId: send_po_api_v1_purchase_orders__pid__send_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Send Po Api V1 Purchase Orders  Pid  Send Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/receipts:
+    post:
+      tags:
+      - purchase
+      summary: Receive
+      operationId: receive_api_v1_purchase_orders__pid__receipts_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Receive Api V1 Purchase Orders  Pid  Receipts Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/cancel:
+    post:
+      tags:
+      - purchase
+      summary: Cancel Po
+      description: 'Cancel a PO that has not yet been invoiced.
+
+
+        VNT-018. `cancelled` was in `PO_STATUSES` with no writer, so a PO that had
+        to
+
+        be abandoned stayed `draft`/`sent` forever and kept its budget reservation
+
+        and approval queue alive. Cancelling releases the approval queue and refuses
+
+        if any invoice is already approved, because reversing a posted `actual` is
+        a
+
+        finance action, not a status write.'
+      operationId: cancel_po_api_v1_purchase_orders__pid__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Cancel Po Api V1 Purchase Orders  Pid  Cancel Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/close:
+    post:
+      tags:
+      - purchase
+      summary: Close Po
+      description: 'Close a fully-invoiced PO. VNT-018: `closed` had no writer.'
+      operationId: close_po_api_v1_purchase_orders__pid__close_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Close Po Api V1 Purchase Orders  Pid  Close Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices/{iid}/match:
+    post:
+      tags:
+      - purchase
+      summary: Match Invoice
+      description: "Run the three-way match and park the invoice in `matched`.\n\n\
+        `matched` was in `INVOICE_STATUSES`, in `INVOICE_FLOW` and in the database\n\
+        CHECK constraint, and had no writer at all: approval went straight from\n\
+        `received` to `approved`, performing the match inside the same request. Three\n\
+        declarations agreed that the state existed, and nothing could put an invoice\n\
+        in it, so an auditor asking \"was this matched before it was approved, and\
+        \ by\nwhom\" had no answer \u2014 the audit event recorded the match at approval\
+        \ time,\nattributed to the approver rather than to the matcher.\n\nThis makes\
+        \ the state real and separates the two decisions: matching is a\ncontrol,\
+        \ approval is a separate one, and a mismatch is recorded as a failure\nto\
+        \ match rather than as a rejection. The match is re-run on approval, so\n\
+        parking an invoice here never lets stale quantities through."
+      operationId: match_invoice_api_v1_invoices__iid__match_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Match Invoice Api V1 Invoices  Iid  Match Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices/{iid}/reject:
+    post:
+      tags:
+      - purchase
+      summary: Reject Invoice
+      description: "Reject an invoice, with a written reason, before it is approved.\n\
+        \nVNT-018. `rejected` was in `INVOICE_STATUSES` with no writer, so a match\n\
+        failure was terminal and unrecorded: the supplier was never told why, and\
+        \ the\nPO line's received quantity stayed consumed by an invoice nobody could\
+        \ clear.\nRejecting releases the received quantity, so the same goods can\
+        \ be re-billed\ncorrectly \u2014 which is the whole point of the cumulative\
+        \ check."
+      operationId: reject_invoice_api_v1_invoices__iid__reject_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Reject Invoice Api V1 Invoices  Iid  Reject Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices/{iid}/pay:
+    post:
+      tags:
+      - purchase
+      summary: Pay Invoice
+      description: "Record payment. VNT-018: `paid` was a dead state \u2014 nothing\
+        \ could settle.\n\nThe ledger already carries the liability as an `actual`\
+        \ at approval time, so\nthis records settlement *of* that row rather than\
+        \ moving money again. The\nreference is kept because AP reconciliation needs\
+        \ the payment instrument,\nnot because the number moves again."
+      operationId: pay_invoice_api_v1_invoices__iid__pay_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Pay Invoice Api V1 Invoices  Iid  Pay Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}/invoices:
+    post:
+      tags:
+      - purchase
+      summary: Create Invoice
+      operationId: create_invoice_api_v1_purchase_orders__pid__invoices_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Create Invoice Api V1 Purchase Orders  Pid  Invoices
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices/{iid}/approve:
+    post:
+      tags:
+      - purchase
+      summary: Approve Invoice
+      operationId: approve_invoice_api_v1_invoices__iid__approve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Approve Invoice Api V1 Invoices  Iid  Approve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/purchase-orders/{pid}:
+    get:
+      tags:
+      - purchase
+      summary: Get Po
+      operationId: get_po_api_v1_purchase_orders__pid__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Po Api V1 Purchase Orders  Pid  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices:
+    get:
+      tags:
+      - purchase
+      summary: List Invoices
+      description: "Invoice index. VNT-UI: there was no way to list or open an invoice\
+        \ at all \u2014\nthe only read path was nested three deep under `GET /purchase-orders/{id}`,\n\
+        which is why neither a dedicated invoices screen nor a supplier's invoice\n\
+        history could exist. Same keyset pagination as every other list here."
+      operationId: list_invoices_api_v1_invoices_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      - name: poId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Poid
+      - name: supplierId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Supplierid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response List Invoices Api V1 Invoices Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/invoices/{iid}:
+    get:
+      tags:
+      - purchase
+      summary: Get Invoice
+      operationId: get_invoice_api_v1_invoices__iid__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: iid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Iid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Get Invoice Api V1 Invoices  Iid  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/spend/summary:
+    get:
+      tags:
+      - spend
+      summary: Summary
+      description: 'Ledger aggregates.
+
+
+        Money is never summed across currencies: `byCurrency` is the authoritative
+
+        per-currency breakdown. `poTotalMinor` / `invoicedTotalMinor` remain for
+
+        single-currency tenants and are accompanied by `currencyCount` so a caller
+
+        can refuse to render a meaningless cross-currency total.'
+      operationId: summary_api_v1_spend_summary_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Summary Api V1 Spend Summary Get
+      security:
+      - HTTPBearer: []
+  /api/v1/spend/intelligence:
+    get:
+      tags:
+      - spend
+      summary: Intelligence
+      description: "07 Spend Intelligence: cube + leakage + maverick + concentration\
+        \ in one call.\n\nVNT-043: `leakageTotalMinor` and `maverickTotalMinor` summed\
+        \ amounts across\ncurrencies into a single figure \u2014 1000 INR plus 1000\
+        \ USD rendered as \"2000\",\nwith no currency dimension anywhere in the response.\
+        \ They are now `null` when\nmore than one currency is present, and the per-currency\
+        \ breakdowns beside them\nare the authoritative answer."
+      operationId: intelligence_api_v1_spend_intelligence_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Intelligence Api V1 Spend Intelligence Get
+      security:
+      - HTTPBearer: []
+  /api/v1/spend/should-cost:
+    post:
+      tags:
+      - spend
+      summary: Should Cost
+      description: Deterministic should-cost rollup (+ optional quote gap). Pure math,
+        no storage.
+      operationId: should_cost_api_v1_spend_should_cost_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShouldCostIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Should Cost Api V1 Spend Should Cost Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/spend/price-evaluate/{po_id}:
+    post:
+      tags:
+      - spend
+      summary: Price Evaluate
+      description: 'Evaluate every PO line against its like-for-like baseline; open
+        anomaly
+
+        cases at |variance| >= 10%. Lines without enough history are SKIPPED with
+
+        reasons (never fake-flagged).'
+      operationId: price_evaluate_api_v1_spend_price_evaluate__po_id__post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: po_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Po Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Price Evaluate Api V1 Spend Price Evaluate  Po Id  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/spend/price-cases:
+    get:
+      tags:
+      - spend
+      summary: Price Cases
+      description: "Price anomaly cases, keyset paginated like every other list endpoint.\n\
+        \nThis one was hard-limited to 100 with no cursor and no stable ordering,\
+        \ so a\ntenant with more than 100 cases could see only the newest slice and\
+        \ had no\nway to reach anything older \u2014 the review queue silently truncated."
+      operationId: price_cases_api_v1_spend_price_cases_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Cursor
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Price Cases Api V1 Spend Price Cases Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/spend/price-cases/{case_id}/resolve:
+    post:
+      tags:
+      - spend
+      summary: Resolve Case
+      operationId: resolve_case_api_v1_spend_price_cases__case_id__resolve_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Resolve Case Api V1 Spend Price Cases  Case Id  Resolve
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AwardIn:
+      properties:
+        quote_id:
+          type: string
+          minLength: 1
+          title: Quote Id
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - quote_id
+      title: AwardIn
+    Body_upload_api_v1_documents_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        resource:
+          type: string
+          title: Resource
+          default: ''
+        resource_id:
+          type: string
+          title: Resource Id
+          default: ''
+      type: object
+      required:
+      - file
+      title: Body_upload_api_v1_documents_post
+    BudgetIn:
+      properties:
+        category_id:
+          type: string
+          title: Category Id
+          default: ''
+        period:
+          type: string
+          maxLength: 7
+          minLength: 7
+          title: Period
+        ceiling_minor:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Ceiling Minor
+      type: object
+      required:
+      - period
+      - ceiling_minor
+      title: BudgetIn
+    CancelIn:
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Reason
+      type: object
+      required:
+      - reason
+      title: CancelIn
+    CategoryIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        name:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Name
+        parent_id:
+          type: string
+          title: Parent Id
+          default: ''
+      type: object
+      required:
+      - code
+      - name
+      title: CategoryIn
+    CertIn:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Name
+        issuer:
+          type: string
+          title: Issuer
+          default: ''
+        valid_until:
+          type: string
+          title: Valid Until
+          default: ''
+        document_id:
+          type: string
+          title: Document Id
+          default: ''
+      type: object
+      required:
+      - name
+      title: CertIn
+    CompleteIn:
+      properties:
+        prompt:
+          type: string
+          maxLength: 8000
+          minLength: 2
+          title: Prompt
+        provider:
+          type: string
+          title: Provider
+          default: ''
+        model:
+          type: string
+          maxLength: 200
+          title: Model
+          default: ''
+        provider_key:
+          type: string
+          maxLength: 500
+          title: Provider Key
+          default: ''
+        system:
+          type: string
+          maxLength: 8000
+          title: System
+          default: ''
+        tools:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/ToolCallIn'
+            type: array
+          - type: 'null'
+          title: Tools
+      type: object
+      required:
+      - prompt
+      title: CompleteIn
+    ContactIn:
+      properties:
+        full_name:
+          type: string
+          maxLength: 200
+          minLength: 2
+          title: Full Name
+        email:
+          type: string
+          title: Email
+          default: ''
+        phone:
+          type: string
+          title: Phone
+          default: ''
+        role:
+          type: string
+          title: Role
+          default: ''
+      type: object
+      required:
+      - full_name
+      title: ContactIn
+    ContractIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        title:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Title
+        supplier_id:
+          type: string
+          title: Supplier Id
+          default: ''
+        contract_type:
+          type: string
+          title: Contract Type
+          default: supply
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        value_minor:
+          type: integer
+          minimum: 0.0
+          title: Value Minor
+          default: 0
+        start_date:
+          type: string
+          title: Start Date
+          default: ''
+        end_date:
+          type: string
+          title: End Date
+          default: ''
+        notes:
+          type: string
+          title: Notes
+          default: ''
+      type: object
+      required:
+      - code
+      - title
+      title: ContractIn
+    ContractStatusIn:
+      properties:
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - status
+      title: ContractStatusIn
+    EndpointIn:
+      properties:
+        url:
+          type: string
+          maxLength: 1024
+          minLength: 9
+          title: Url
+        events:
+          items:
+            type: string
+          type: array
+          title: Events
+        secret_ref:
+          type: string
+          title: Secret Ref
+          default: ''
+      type: object
+      required:
+      - url
+      title: EndpointIn
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    IntegrationIn:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Name
+        itype:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Itype
+        settings:
+          type: object
+          title: Settings
+        secret_ref:
+          type: string
+          title: Secret Ref
+          default: ''
+      type: object
+      required:
+      - name
+      - itype
+      title: IntegrationIn
+    InvIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/InvLineIn'
+          type: array
+          minItems: 1
+          title: Lines
+      type: object
+      required:
+      - code
+      - lines
+      title: InvIn
+    InvLineIn:
+      properties:
+        po_line_id:
+          type: string
+          minLength: 1
+          title: Po Line Id
+        quantity:
+          type: integer
+          minimum: 1.0
+          title: Quantity
+        unit_price_minor:
+          type: integer
+          minimum: 1.0
+          title: Unit Price Minor
+      type: object
+      required:
+      - po_line_id
+      - quantity
+      - unit_price_minor
+      title: InvLineIn
+    ItemIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        name:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Name
+        category_id:
+          type: string
+          title: Category Id
+          default: ''
+        uom:
+          type: string
+          title: Uom
+          default: each
+        ref_price_minor:
+          type: integer
+          minimum: 0.0
+          title: Ref Price Minor
+          default: 0
+        currency:
+          type: string
+          title: Currency
+          default: ''
+      type: object
+      required:
+      - code
+      - name
+      title: ItemIn
+    MatchIn:
+      properties:
+        po_id:
+          type: string
+          minLength: 1
+          title: Po Id
+        invoice_id:
+          type: string
+          minLength: 1
+          title: Invoice Id
+      type: object
+      required:
+      - po_id
+      - invoice_id
+      title: MatchIn
+    NegoIn:
+      properties:
+        list_price_minor:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: List Price Minor
+        walk_away_minor:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Walk Away Minor
+        buyer_offers_minor:
+          items:
+            type: integer
+          type: array
+          maxItems: 10
+          minItems: 1
+          title: Buyer Offers Minor
+        max_rounds:
+          type: integer
+          maximum: 10.0
+          minimum: 1.0
+          title: Max Rounds
+          default: 5
+        concession_bp:
+          type: integer
+          maximum: 10000.0
+          minimum: 1.0
+          title: Concession Bp
+          default: 1500
+      type: object
+      required:
+      - list_price_minor
+      - walk_away_minor
+      - buyer_offers_minor
+      title: NegoIn
+    ObligationIn:
+      properties:
+        title:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Title
+        status:
+          type: string
+          title: Status
+          default: open
+        due_date:
+          type: string
+          title: Due Date
+          default: ''
+        owner:
+          type: string
+          title: Owner
+          default: ''
+      type: object
+      required:
+      - title
+      title: ObligationIn
+    OptimizeIn:
+      properties:
+        max_share_bp:
+          type: integer
+          maximum: 10000.0
+          minimum: 1.0
+          title: Max Share Bp
+          default: 10000
+        exclude:
+          items:
+            type: string
+          type: array
+          title: Exclude
+      type: object
+      title: OptimizeIn
+    PoIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        supplier_id:
+          type: string
+          minLength: 1
+          title: Supplier Id
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        category_id:
+          type: string
+          title: Category Id
+          default: ''
+        requisition_id:
+          type: string
+          title: Requisition Id
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/PoLineIn'
+          type: array
+          minItems: 1
+          title: Lines
+      type: object
+      required:
+      - code
+      - supplier_id
+      - lines
+      title: PoIn
+    PoLineIn:
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Description
+        quantity:
+          type: integer
+          minimum: 1.0
+          title: Quantity
+        unit_price_minor:
+          type: integer
+          minimum: 1.0
+          title: Unit Price Minor
+      type: object
+      required:
+      - description
+      - quantity
+      - unit_price_minor
+      title: PoLineIn
+    QuoteIn:
+      properties:
+        supplier_id:
+          type: string
+          minLength: 1
+          title: Supplier Id
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/QuoteLineIn'
+          type: array
+          minItems: 1
+          title: Lines
+      type: object
+      required:
+      - supplier_id
+      - lines
+      title: QuoteIn
+    QuoteLineIn:
+      properties:
+        rfq_line_id:
+          type: string
+          title: Rfq Line Id
+          default: ''
+        unit_price_minor:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Unit Price Minor
+        quantity:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Quantity
+      type: object
+      required:
+      - unit_price_minor
+      - quantity
+      title: QuoteLineIn
+    ReceiptIn:
+      properties:
+        notes:
+          type: string
+          title: Notes
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/ReceiptLineIn'
+          type: array
+          minItems: 1
+          title: Lines
+      type: object
+      required:
+      - lines
+      title: ReceiptIn
+    ReceiptLineIn:
+      properties:
+        po_line_id:
+          type: string
+          minLength: 1
+          title: Po Line Id
+        quantity:
+          type: integer
+          minimum: 1.0
+          title: Quantity
+      type: object
+      required:
+      - po_line_id
+      - quantity
+      title: ReceiptLineIn
+    ReqIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        title:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Title
+        notes:
+          type: string
+          title: Notes
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/ReqLineIn'
+          type: array
+          title: Lines
+      type: object
+      required:
+      - code
+      - title
+      title: ReqIn
+    ReqLineIn:
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Description
+        quantity:
+          type: integer
+          minimum: 1.0
+          title: Quantity
+        est_price_minor:
+          type: integer
+          minimum: 0.0
+          title: Est Price Minor
+          default: 0
+      type: object
+      required:
+      - description
+      - quantity
+      title: ReqLineIn
+    ResolveIn:
+      properties:
+        status:
+          type: string
+          title: Status
+          default: dismissed
+      type: object
+      title: ResolveIn
+    RfqIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        title:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Title
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        category_id:
+          type: string
+          title: Category Id
+          default: ''
+        notes:
+          type: string
+          title: Notes
+          default: ''
+        lines:
+          items:
+            $ref: '#/components/schemas/RfqLineIn'
+          type: array
+          title: Lines
+      type: object
+      required:
+      - code
+      - title
+      title: RfqIn
+    RfqLineIn:
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          minLength: 2
+          title: Description
+        quantity:
+          type: integer
+          minimum: 1.0
+          title: Quantity
+        uom:
+          type: string
+          title: Uom
+          default: each
+      type: object
+      required:
+      - description
+      - quantity
+      title: RfqLineIn
+    RfqStatusIn:
+      properties:
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - status
+      title: RfqStatusIn
+    ScorecardIn:
+      properties:
+        dims:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Dims
+        weights:
+          anyOf:
+          - additionalProperties:
+              type: integer
+            type: object
+          - type: 'null'
+          title: Weights
+        hard_flags:
+          type: integer
+          minimum: 0.0
+          title: Hard Flags
+          default: 0
+      type: object
+      required:
+      - dims
+      title: ScorecardIn
+    SessionIn:
+      properties:
+        persona:
+          type: string
+          maxLength: 40
+          title: Persona
+          default: operator
+      type: object
+      title: SessionIn
+    ShouldCostIn:
+      properties:
+        material_minor:
+          type: integer
+          minimum: 0.0
+          title: Material Minor
+        labor_minor:
+          type: integer
+          minimum: 0.0
+          title: Labor Minor
+        overhead_bp:
+          type: integer
+          maximum: 10000.0
+          minimum: 0.0
+          title: Overhead Bp
+        logistics_minor:
+          type: integer
+          minimum: 0.0
+          title: Logistics Minor
+        margin_bp:
+          type: integer
+          maximum: 10000.0
+          minimum: 0.0
+          title: Margin Bp
+        quoted_minor:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Quoted Minor
+      type: object
+      required:
+      - material_minor
+      - labor_minor
+      - overhead_bp
+      - logistics_minor
+      - margin_bp
+      title: ShouldCostIn
+    SignIn:
+      properties:
+        method:
+          type: string
+          title: Method
+          default: internal
+        provider:
+          type: string
+          title: Provider
+          default: ''
+        envelope_id:
+          type: string
+          title: Envelope Id
+          default: ''
+      type: object
+      title: SignIn
+    SupplierIn:
+      properties:
+        code:
+          type: string
+          maxLength: 32
+          minLength: 2
+          title: Code
+        name:
+          type: string
+          maxLength: 300
+          minLength: 2
+          title: Name
+        status:
+          type: string
+          title: Status
+          default: draft
+        country:
+          type: string
+          title: Country
+          default: ''
+        currency:
+          type: string
+          title: Currency
+          default: ''
+        category_id:
+          type: string
+          title: Category Id
+          default: ''
+        payment_terms:
+          type: string
+          title: Payment Terms
+          default: ''
+        notes:
+          type: string
+          title: Notes
+          default: ''
+      type: object
+      required:
+      - code
+      - name
+      title: SupplierIn
+    SupplierPatch:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country
+        currency:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Currency
+        category_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category Id
+        payment_terms:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Payment Terms
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+      type: object
+      title: SupplierPatch
+    TestIn:
+      properties:
+        endpoint_id:
+          type: string
+          minLength: 1
+          title: Endpoint Id
+      type: object
+      required:
+      - endpoint_id
+      title: TestIn
+    ToolCallIn:
+      properties:
+        name:
+          type: string
+          title: Name
+        args:
+          type: object
+          title: Args
+      type: object
+      required:
+      - name
+      title: ToolCallIn
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    VerifySignIn:
+      properties:
+        envelope_id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Envelope Id
+        provider:
+          type: string
+          maxLength: 64
+          title: Provider
+          default: ''
+        status:
+          type: string
+          maxLength: 16
+          minLength: 1
+          title: Status
+        payload:
+          type: object
+          title: Payload
+      type: object
+      required:
+      - envelope_id
+      - status
+      title: VerifySignIn
+      description: The provider's own answer about an envelope.
+    app__routers__ai__DecideIn:
+      properties:
+        approve:
+          type: boolean
+          title: Approve
+          default: false
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      title: DecideIn
+    app__routers__purchase__DecideIn:
+      properties:
+        approve:
+          type: boolean
+          title: Approve
+          default: false
+        reason:
+          type: string
+          maxLength: 1000
+          title: Reason
+          default: ''
+      type: object
+      title: DecideIn
+    app__routers__suppliers__DecideIn:
+      properties:
+        decision:
+          type: string
+          title: Decision
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - decision
+      title: DecideIn
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

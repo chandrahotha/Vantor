@@ -4064,7 +4064,7 @@
           "purchase"
         ],
         "summary": "Decide Approval Endpoint",
-        "description": "Decide one approval (requisition, purchase order, invoice).\n\n`ai:*` approvals are deliberately excluded: they are decided through\n`/ai/approvals/{id}/decide` so the copilot's HITL path stays explicit.\nNothing auto-executes on approval \u2014 the caller then acts through the\nnormal endpoint.",
+        "description": "Decide one approval (requisition, purchase order, invoice).\n\n`ai:*` approvals are deliberately excluded: they are decided through\n`/ai/approvals/{id}/decide` so the copilot's HITL path stays explicit.\n\nA purchase-order approval decided here runs the same money gate as\n`POST /purchase-orders/{id}/approve` \u2014 the hard budget check, the tier\norder and the row lock. The queue is the second way to decide the same\nrows, and the budget gate existed only on the direct route: two POs each\nwithin the ceiling could both be approved entirely through the queue and\nthen both sent, committing double the category's ceiling without either\napproval ever testing it. An approval decision does not execute the\nunderlying action \u2014 the parent document's *status* moves with the decision\n(that is `_sync_parent` below), and the caller then acts through the normal\nendpoint.",
         "operationId": "decide_approval_endpoint_api_v1_approvals__aid__decide_post",
         "security": [
           {

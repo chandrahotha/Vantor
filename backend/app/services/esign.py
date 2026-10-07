@@ -177,7 +177,7 @@ def resolve_envelope_tenant(db: Session, *, provider: str, envelope_id: str) -> 
     if not envelope:
         # `apply_callback` refuses an empty envelope itself; nothing to resolve.
         return ""
-    if db.bind.dialect.name != "postgresql":
+    if db.bind is None or db.bind.dialect.name != "postgresql":
         return ""
     from sqlalchemy import text
 

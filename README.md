@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 
 > **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals — every activity cited with evidence and audit.
 
-**Status.** Backend: 385 pytest collected, 9 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 38 tests collected, 34 passing, 4 skipped.
+**Status.** Backend: 386 pytest collected, 9 skipped (the PostgreSQL tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations. Web: 155 vitest green, 19 compiled routes, 0 axe violations across all routes in both themes. Worker scheduler: 38 tests collected, 34 passing, 4 skipped.
 
 Not `PRODUCTION READY`, and two qualifications matter more than the counts:
 
@@ -245,26 +245,57 @@ nothing else, so a leaked worker secret is not an administrative token. Machine
 roles are deliberately not subsets of human roles, which is what makes that
 checkable.
 
-## Contributing
+## Testing & Verification
 
-See `CONTRIBUTING.md` + `CODE_OF_CONDUCT.md`.
-
-CI runs **weekly on Mondays 05:17 UTC, on manual dispatch, and on every push to
-`main`**. On a push it runs the fast per-commit gates (lint, typecheck, vitest,
-pytest, migration chain, OpenAPI drift, dependency audits, docs counts, secret and
-encoding guards); the long weekly job adds the PG migration chain and the heavier
-suites. Run the same gates locally before you push:
+A one-shot local verification suite is provided to exercise all 16 repository gates (secret scanning, encoding, brain links, migration linearity, image digests, palette contrast, doc counts, backend lint/mypy/pytest, worker lint/pytest, frontend tsc/eslint/vitest, and Next.js production build):
 
 ```powershell
-python -m pytest backend/tests -q     # 383 tests (7 need PostgreSQL)
-python scripts/verify_brain_links.py  # docs brain-link gate
-cd frontend; npm run typecheck; npm run lint; npm run build
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File scripts/verify_all.ps1
+
+# Linux / macOS Bash
+bash scripts/verify_all.sh
 ```
 
-CI gates: secret guard, compose/env validation, required-docs presence, brain links,
-`pytest`, Alembic upgrade/check/downgrade on real Postgres, OpenAPI drift
-(`git diff --exit-code api/openapi.json`), frontend typecheck + lint + build, container
-build, `pip-audit --strict`, `npm audit --audit-level=high`.
+To run individual verification tiers:
+```powershell
+# Backend fast tier (SQLite in-memory, 386 tests collected, 377 passing, 9 skipped for PG)
+$env:APP_ENV="test"; $env:DATABASE_URL="sqlite://"
+python -m pytest backend/tests -q
+
+# Backend lint and type checking
+cd backend; ruff check app tests alembic; mypy app; cd ..
+
+# Worker unit tests
+python -m pytest worker/tests -q
+
+# Frontend checks
+cd frontend; npm run typecheck; npm run lint; npm test; npm run build; cd ..
+```
+
+## Troubleshooting
+
+### 1. Keycloak admin bootstrap fails on restarted volumes
+If `keycloak-init` fails with an authentication error after resetting `.env`, Keycloak only sets `KC_BOOTSTRAP_ADMIN_PASSWORD` on an empty database. Existing volumes preserve the previous credentials. To reset Keycloak state cleanly:
+```powershell
+docker compose down -v
+docker compose up -d
+```
+
+### 2. Document upload fails with 503 DOC_STORAGE_UNAVAILABLE
+If `S3_ENDPOINT` points to an unreachable host (or a removed MinIO container), document upload will report `DOC_STORAGE_UNAVAILABLE`. To use local-disk storage, leave `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY` blank in `.env`. Files will land in `UPLOAD_DIR` (`uploads/`).
+
+### 3. Database connection fails with permission denied on Postgres
+Migration `0026_app_role_least_privilege` separates the schema owner (`POSTGRES_USER`, superuser used only for migrations) from the restricted application role (`vantor_app`, used by `DATABASE_URL`). Ensure `APP_DB_PASSWORD` matches between `.env` and the migration environment so the application role can authenticate and respect Row Level Security.
+
+### 4. Running without Keycloak in lightweight single-container mode
+To run the API without Keycloak, set `AUTH_MODE=local`. The API becomes its own token issuer with local RSA keypairs, suitable for single-node development and quickstarts without standing up an identity container.
+
+## Contributing
+
+See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
+
+CI runs **weekly on Mondays at 05:17 UTC (~4 scheduled runs/month)** and on manual workflow dispatch (`workflow_dispatch`). The workflow is deliberately lightweight (install -> typecheck -> lint -> critical tests -> production build) to avoid unnecessary cloud resource consumption. Full PR and push gating can be activated by uncommenting the branch triggers in `.github/workflows/ci.yml`.
 
 ## License
 

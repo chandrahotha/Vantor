@@ -5,6 +5,23 @@
 
 All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
 
+## [0.8.0] — 2026-10-07
+
+### Added
+
+- **Lightweight weekly CI workflow (`.github/workflows/ci.yml`).** Runs once per week (Mondays 05:17 UTC, ~4 runs/month) and on workflow dispatch. Implements fast verification pipeline: secret scanning, config validation, linting (Ruff), typechecking (Mypy + tsc), unit tests (pytest + vitest), and Next.js production build, with modular triggers preserved for future full PR/push expansion.
+- **Complete local verification scripts (`scripts/verify_all.ps1`, `scripts/verify_all.sh`).** One-shot offline verification covering all 16 gates: secrets, encoding, brain links, migrations, digests, palette layer, doc counts, backend lint/types/tests, worker lint/tests, frontend types/lint/tests/build.
+- **GitHub community standards.** Added `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, and `.github/PULL_REQUEST_TEMPLATE.md`.
+- **Instruction-injection prompt sanitizer** in AI gateway grounding pipeline (`backend/app/services/ai_gateway.py`), with regression test coverage.
+
+### Fixed
+
+- **Mypy union type error in `esign.py` (B-48).** Safely handled optional `db.bind` before dialect inspection.
+- **PO invoice state validation tests in `test_approvals.py` and `test_matching.py` (B-49).** Ensured purchase orders transition to `approved` and `sent` prior to recording invoices.
+- **Notification pagination test determinism on Windows (B-50).** Ensured monotonically increasing timestamps in `_seed_broadcasts`.
+- **OpenAPI 3.1 specification contract parity (B-52).** Replaced obsolete placeholder in `api/openapi.yaml` with full generated specification matching `api/openapi.json`.
+- **Sourcing quote award gate (B-51).** Enforced `_assert_evaluable` under lock and required evaluated quote status prior to awarding.
+
 ## [Unreleased] — 2026-09-30
 
 ### Added

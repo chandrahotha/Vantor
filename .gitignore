@@ -45,6 +45,7 @@ backend/_*.db
 
 # Kilo worktrees and local editor cache
 .kilo/
+.claude/
 
 # Next.js auto-generated agent prompt rules
 frontend/AGENTS.md
