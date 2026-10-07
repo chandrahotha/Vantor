@@ -6,7 +6,8 @@ server-side on PO send (commitment), invoice approval (actual) and award
 """
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterable, Sequence
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -83,7 +84,7 @@ def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = D
     by_supplier = [{"supplierId": s, "supplierName": sup_names.get(s, ""), "currency": c,
                     "poTotalMinor": int(t or 0), "poCount": int(n or 0)} for s, c, t, n in comm_rows]
 
-    def _totals(pairs):  # type: ignore[no-untyped-def]
+    def _totals(pairs: Iterable[Sequence[Any]]) -> dict[str, int]:
         acc: dict[str, int] = {}
         for ccy, amount in pairs:
             acc[ccy] = acc.get(ccy, 0) + int(amount or 0)

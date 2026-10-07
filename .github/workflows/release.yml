@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. v0.8.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Draft GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract Release Notes
+        id: notes
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "Building release for version $VERSION ($TAG)"
+          # Extract section from CHANGELOG.md if present
+          python -c "
+          import re, sys
+          from pathlib import Path
+
+          changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
+          version = '$VERSION'
+          pattern = rf'## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
+          match = re.search(pattern, changelog, re.DOTALL)
+          if match:
+              Path('release_notes.md').write_text(match.group(0).strip() + '\n', encoding='utf-8')
+          else:
+              Path('release_notes.md').write_text(f'Release {TAG}\n\nSee CHANGELOG.md for details.\n', encoding='utf-8')
+          "
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Vantor ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false

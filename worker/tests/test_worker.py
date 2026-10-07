@@ -58,8 +58,12 @@ class TestTheDefectThisFileExistsFor:
     def test_the_omitted_connection_is_a_crash_not_a_default(self):
         # Pinned so a future refactor cannot quietly go back to the form that
         # looks idiomatic and crash-loops the container.
-        with pytest.raises(AttributeError):
-            Worker([Queue("default", connection=Redis.from_url("redis://127.0.0.1:1/0"))])
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(AttributeError):
+                Worker([Queue("default", connection=Redis.from_url("redis://127.0.0.1:1/0"))])
 
     def test_build_worker_hands_rq_a_connection_argument(self, monkeypatch):
         # Behavioural, not a source scan: the fix is that `Worker` is *called*

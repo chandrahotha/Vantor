@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
@@ -281,7 +281,7 @@ def run_stream(payload: CompleteIn, request: Request, actor: Actor = Depends(get
     # of an answer it has to be told to distrust.
     grounded = bool([e for e in evidence if e])
 
-    def _events():  # type: ignore[no-untyped-def]
+    def _events() -> Iterator[str]:
         import json as _json
 
         from ..core.tenant import pinned_session

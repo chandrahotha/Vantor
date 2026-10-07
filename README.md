@@ -249,7 +249,11 @@ checkable.
 
 A one-shot local verification suite is provided to exercise all 16 repository gates (secret scanning, encoding, brain links, migration linearity, image digests, palette contrast, doc counts, backend lint/mypy/pytest, worker lint/pytest, frontend tsc/eslint/vitest, and Next.js production build):
 
-```powershell
+```bash
+# Using Make (Linux / macOS)
+make verify
+
+# Or directly via script:
 # Windows PowerShell
 powershell -ExecutionPolicy Bypass -File scripts/verify_all.ps1
 
