@@ -4,7 +4,7 @@
 Replaces an inline `grep` in `.github/workflows/ci.yml` that **could never pass**:
 the pattern `sk-(live|proj)` appeared literally in the workflow file's own
 command line, so the guard matched itself, exited 1, and had been red on every
-run. A security gate that always fails is worse than none — it looks like
+run. A security gate that always fails is worse than none - it looks like
 coverage while checking nothing.
 
 It also scanned `.kilo/worktrees/`, a stale worktree copy of this repository,
@@ -35,11 +35,12 @@ SKIP_SUFFIXES = {
 }
 
 #: Credential shapes. Each is assembled from fragments so this file does not
-#: contain any of them literally — otherwise the scanner would flag its own
+#: contain any of them literally - otherwise the scanner would flag its own
 #: source, which is exactly the bug this script replaces.
 PATTERNS = [
     (re.compile("sk-" + r"(live|proj|or-v1)-[A-Za-z0-9]{8,}", re.I), "openai-style key"),
     (re.compile("gh[pousr]_" + r"[A-Za-z0-9]{20,}"), "github token"),
+    (re.compile("github_pat_" + r"[A-Za-z0-9_]{30,}"), "github fine-grained token"),
     (re.compile("AKIA" + r"[0-9A-Z]{16}"), "aws access key id"),
     (re.compile("-----BEGIN " + r"(RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"), "private key block"),
     (re.compile("xox[baprs]-" + r"[A-Za-z0-9-]{10,}"), "slack token"),
@@ -94,6 +95,7 @@ MUST_FLAG = [
     "sk-" + "live-AbCdEfGh1234",
     "sk-" + "proj-0123456789abcdef",
     "gh" + "p_0123456789abcdefghijklmnopqrstuvwxyz",
+    "github_pat_" + "11ABCD0123456789_abcdefghijklmnopqrstuvwxyz",
     "AKI" + "A0B1C2D3E4F5G6H7J",
     "-----BEGIN " + "RSA PRIVATE KEY-----",
     "xox" + "b-1234567890-abcdefghij",

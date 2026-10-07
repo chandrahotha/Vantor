@@ -1,9 +1,33 @@
-# Phase-0 audit clones — private source, NEVER commit
+# Phase-0 audit clones - private source, NEVER commit
 _audit/
-# Vantor ignores — never commit secrets or local data
+
+# Environment files and credentials - NEVER commit
 .env
-.env.local
-.env.*.local
+.env.*
+.env*.local
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.pkcs12
+*.crt
+*.der
+*.cer
+*.csr
+*.asc
+id_rsa*
+id_ecdsa*
+id_ed25519*
+service-account*.json
+credentials.json
+client_secret*.json
+secrets*.json
+secrets*.yaml
+secrets*.yml
+*token*.json
+
+# Dependencies & build outputs
 node_modules/
 dist/
 build/
@@ -20,10 +44,6 @@ minio-data/
 keycloak-data/
 ollama-data/
 uploads/
-*.pem
-*.key
-*.p12
-service-account*.json
 .DS_Store
 Thumbs.db
 .idea/
@@ -41,7 +61,11 @@ test-results/
 # single environment variable, so a hand-typed `sqlite:///./_probe.db` writes
 # into the repo; these are run artifacts, never source.
 backend/_*.db
+*.sqlite
+*.sqlite3
 *.db-journal
+*.db-shm
+*.db-wal
 
 # Kilo worktrees and local editor cache
 .kilo/
