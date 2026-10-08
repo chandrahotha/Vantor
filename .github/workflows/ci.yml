@@ -55,7 +55,9 @@ jobs:
         run: |
           test -f .env.example
           grep -q SERVICE_CLIENT_SECRET .env.example
+          cp .env.example .env
           docker compose config > /dev/null
+          rm -f .env
       - name: Images are digest-pinned
         run: python scripts/pin_digests.py --check
 
