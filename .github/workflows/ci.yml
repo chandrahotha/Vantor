@@ -48,7 +48,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Secret guard (tracked files only)
         run: python scripts/check_secrets.py
       - name: Validate compose and environment template
@@ -74,7 +74,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Required documentation present
         run: |
           for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md; do test -f "$f" || (echo "missing $f" && exit 1); done
@@ -101,7 +101,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -136,7 +136,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -159,7 +159,7 @@ jobs:
       NEXT_PUBLIC_KEYCLOAK_REALM: vantor
       NEXT_PUBLIC_KEYCLOAK_CLIENT: vantor-web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -201,7 +201,7 @@ jobs:
           --health-cmd "pg_isready -U vantor"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -231,7 +231,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
