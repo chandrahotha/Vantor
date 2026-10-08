@@ -1,4 +1,4 @@
-"""Spend API — real aggregates for premium dashboards (no vanity metrics).
+"""Spend API - real aggregates for dashboards (no vanity metrics).
 
 Single source of truth: the SpendTransaction/SavingsRecord ledger written
 server-side on PO send (commitment), invoice approval (actual) and award

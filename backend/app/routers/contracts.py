@@ -1,6 +1,6 @@
-"""Contract API — repository + obligations + expiry roll (dashboard attention feed).
+"""Contract API - repository + obligations + expiry roll (dashboard attention feed).
 
-- Contracts: premium-grid list (search/status/supplier), create with real date
+- Contracts: data-grid list (search/status/supplier), create with real date
   validation, lifecycle PATCH, GET with obligations.
 - Obligations: POST/GET per contract, status guards.
 - POST /contracts/roll-expiry: server moves active→expiring where end_date

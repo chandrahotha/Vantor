@@ -7,7 +7,7 @@
 - GET /webhooks/endpoints: registered receivers.
 - POST /webhooks/endpoints: register HTTPS receiver + event filter. The URL is
   put through `services.egress` before it is stored, not when it is first dialled.
-- GET /webhooks/deliveries: premium-grid delivery log with status.
+- GET /webhooks/deliveries: data-grid delivery log with status.
 - POST /webhooks/deliveries/{id}/replay: return a dead letter to the queue.
 - POST /webhooks/test {endpoint_id}: one synchronous signed ping, same retry
   accounting as the queue so it cannot report success the queue would not.

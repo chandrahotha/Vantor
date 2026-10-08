@@ -6,7 +6,7 @@
 - Invoices: create against PO, lines reference PO lines; approve runs the
   server-side 3-way match (PO ↔ receipt ↔ invoice) — mismatches 422 with detail.
 - Approvals: requested → approved/rejected per tier; requester ≠ approver.
-- Audit on every state change. All lists premium-grid paginated.
+- Audit on every state change. All lists data-grid paginated.
 """
 from __future__ import annotations
 

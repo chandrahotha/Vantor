@@ -1,4 +1,4 @@
-"""Supplier Wave 2.1 tests — CRUD, premium-grid pagination, tenant isolation, audit.
+"""Supplier Wave 2.1 tests - CRUD, data-grid pagination, tenant isolation, audit.
 
 Runs on sqlite (no external PG/Keycloak). API tests use real RS256 JWTs.
 """

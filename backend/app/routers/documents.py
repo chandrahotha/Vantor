@@ -1,8 +1,8 @@
-"""Document API — upload, download (hash-verified), list.
+"""Document API - upload, download (hash-verified), list.
 
 - POST /documents (multipart): validated, hashed, stored, deduped per tenant.
   Returns the row; re-upload of identical bytes returns the existing row.
-- GET /documents: premium-grid list with resource filter.
+- GET /documents: data-grid list with resource filter.
 - GET /documents/{id}/download: streams bytes after re-verifying SHA-256;
   tampered files => 409 and quarantine (never silent).
 - Audit: DOCUMENT_UPLOADED on every accepted store.

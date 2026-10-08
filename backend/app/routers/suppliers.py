@@ -1,4 +1,4 @@
-"""Supplier API — premium-grid ready, real data only.
+"""Supplier API - data-grid ready, real data only.
 
 - GET /api/v1/suppliers: cursor pagination (limit/cursor/sort/order/search/status),
   stable newest-first default, typed 422 on bad sort.

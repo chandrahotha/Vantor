@@ -1,9 +1,9 @@
-"""Sourcing API — RFQ → Quote → Award, premium comparison ready.
+"""Sourcing API - RFQ → Quote → Award, comparison ready.
 
-- RFQs: premium-grid list (search/status/currency), create with lines, lifecycle PATCH.
+- RFQs: data-grid list (search/status/currency), create with lines, lifecycle PATCH.
 - Quotes: one per supplier per RFQ, lines with integer money, server-computed totals.
-- Comparison: GET /rfqs/{id}/comparison — real per-supplier totals from lines
-  (the data premium comparison tables render; no synthetic bands).
+- Comparison: GET /rfqs/{id}/comparison - real per-supplier totals from lines
+  (the data comparison tables render; no synthetic bands).
 - Award: POST /rfqs/{id}/award {quote_id, reason} — server total, single winner,
   RFQ → awarded. Audit: RFQ_CREATED/SENT, QUOTE_RECEIVED/SUBMITTED, AWARD_DECIDED.
 """

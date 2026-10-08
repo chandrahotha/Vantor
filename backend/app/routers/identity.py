@@ -1,4 +1,4 @@
-"""Identity read API — current actor context for premium UI shell.
+"""Identity read API - current actor context for web UI shell.
 
 - GET /api/v1/me: verified JWT claims (sub, tenant, email, roles). No DB hit,
   so the web shell + dashboards can render user/tenant context even when the

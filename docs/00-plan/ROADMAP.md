@@ -86,7 +86,7 @@ is emitted on every frame, and streamed completions are audited.
 **Gap:** evidence refs on tool calls remain empty in the response envelope; that is next.
 Gate: **PARTIAL** - streaming now live; real LLM eval still pending.
 
-## Phase 7 - Premium UI [IN DEVELOPMENT - surfaces up to ~46 operations, tests green]
+## Phase 7 - Web UI [IN DEVELOPMENT - surfaces up to ~46 operations, tests green]
 Landed: auth splash, search trigger + theme toggle, supplier 360 (contacts/certs/verify/
 qualification), contracts (create/status/obligations/sign), requisitions (create/submit),
 pricing check trigger, optimizer trigger, governance (audit chain + categories + budgets),

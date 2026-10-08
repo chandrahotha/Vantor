@@ -317,7 +317,7 @@ Product: **VANTOR** by **Digi Tracks**. Email: **digi.tracks@outlook.com**.
 
 ## Roadmap summary
 
-Phase 0 Discovery (audit) → 1 Architecture → 2 Design → 3 Foundation → 4 Core P2P → 5 Intelligence → 6 AI → 7 Premium UI → 8 Integrations → 9 Android → 10 Production hardening → 11 Portfolio extension (products 06-10). Details in `docs/00-plan/ROADMAP.md`.
+Phase 0 Discovery (audit) → 1 Architecture → 2 Design → 3 Foundation → 4 Core P2P → 5 Intelligence → 6 AI → 7 Web UI → 8 Integrations → 9 Android → 10 Production hardening → 11 Portfolio extension (products 06-10). Details in `docs/00-plan/ROADMAP.md`.
 
 > **Android app - Coming Soon (API-ready).** The `/api/v1` backend is already built
 > for it (OIDC + RLS + approvals); the native Kotlin app starts as its own wave
