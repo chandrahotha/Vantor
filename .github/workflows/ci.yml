@@ -46,6 +46,7 @@ jobs:
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-not-a-real-secret
+          APP_DB_PASSWORD: ci-not-a-real-secret
           REDIS_PASSWORD: ci-not-a-real-secret
           KEYCLOAK_ADMIN_PASSWORD: ci-not-a-real-secret
           SERVICE_CLIENT_SECRET: ci-not-a-real-secret
