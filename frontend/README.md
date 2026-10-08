@@ -54,6 +54,18 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
 `next.config.test.ts` asserts the policy exists, is derived from `NEXT_PUBLIC_API_URL` /
 `NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded, and that HSTS appears only over https.
 
+## Dependency audit posture
+
+- Production dependencies audit clean (`npm audit --omit=dev --audit-level=high`,
+  CI-gated). Dev-only findings are tracked via Dependabot.
+- **Known accepted risk:** `braces ≤ 3.0.3` (GHSA-vfj7-8cjw-p6xm, high,
+  stack-exhaustion via deeply nested patterns) arrives transitively through
+  `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` →
+  `micromatch`. No patched release exists upstream, so there is nothing to
+  upgrade to — and a downgrade does not remove it either. It runs at
+  lint/build time over repo-controlled glob patterns, never over
+  attacker-controlled input at runtime. Revisit when upstream ships a fix.
+
 ## Theming & UI Architecture
 
 Five palettes × light/dark, driven by CSS custom properties under

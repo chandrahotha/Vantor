@@ -7,6 +7,19 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ## [Unreleased]
 
+### Fixed
+
+- **6 Dependabot alerts on `next` 16.3.6 (1 high, 4 medium, 1 low).** Bumped
+  `next` + `eslint-config-next` 16.3.6 → 16.4.0 (SSRF in image optimization,
+  SSG/ISR cache poisoning, metadata-route disclosure, MCP endpoint disclosure,
+  Draft Mode leak). Frontend gates re-verified: typecheck, lint, 166 vitest,
+  production build.
+- **Dependency audits are now real CI gates** (README and SECURITY.md already
+  claimed they were). `pip-audit --strict` on backend + worker requirements,
+  `npm audit --omit=dev --audit-level=high` on the frontend production
+  surface. Known accepted risk documented in `frontend/README.md`: `braces`
+  GHSA-vfj7-8cjw-p6xm has no upstream patch and is dev/lint-time only.
+
 ### Changed
 
 - **Public-repo documentation cleanup.** Removed the internal working set from

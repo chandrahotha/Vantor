@@ -108,11 +108,13 @@ jobs:
       - name: Install backend dependencies and linters
         run: |
           pip install -r backend/requirements.txt
-          pip install ruff mypy
+          pip install ruff mypy pip-audit
       - name: Backend lint (Ruff)
         run: cd backend && ruff check app tests alembic
       - name: Backend typecheck (Mypy)
         run: cd backend && mypy app
+      - name: Backend dependency audit (pip-audit, strict)
+        run: python -m pip_audit -r backend/requirements.txt --strict
       - name: Palette contrast and token audit
         run: cd frontend && python check_palette_layer.py
       - name: Migration chain is linear
@@ -143,9 +145,11 @@ jobs:
       - name: Install worker dependencies
         run: |
           pip install -r worker/requirements.txt
-          pip install pytest ruff
+          pip install pytest ruff pip-audit
       - name: Worker lint
         run: cd worker && ruff check .
+      - name: Worker dependency audit (pip-audit, strict)
+        run: python -m pip_audit -r worker/requirements.txt --strict
       - name: Worker unit tests
         run: cd worker && python -m pytest tests -q
 
@@ -174,6 +178,11 @@ jobs:
       - name: Frontend lint
         working-directory: frontend
         run: npm run lint
+      - name: Frontend dependency audit (production deps, high+)
+        # Production surface only: dev-only findings with no upstream patch
+        # (e.g. braces via eslint) are tracked via Dependabot, not this gate.
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
       - name: Frontend unit/component tests
         working-directory: frontend
         run: npm test
