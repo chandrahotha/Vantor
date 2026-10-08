@@ -49,6 +49,10 @@ tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations across 84 paths.
 Web: 166 vitest green across 13 suites, 15 page routes. Worker: 38 tests
 collected (34 passing, 4 skipped — the 4 need a live Redis).
 
+> Re-verified 2026-10-08 — backend `377 passed, 9 skipped`, worker
+> `34 passed, 4 skipped`, frontend `166 passed`, OpenAPI drift check clean.
+> Reproduce with `make verify` or `powershell -ExecutionPolicy Bypass -File scripts/verify_all.ps1`.
+
 Not `PRODUCTION READY`, and two qualifications matter more than the counts:
 
 - The suite is honest about what it does not cover. Row-level security, the
