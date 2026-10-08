@@ -42,7 +42,7 @@ Canonical list with per-product detail: **[`docs/01-product/portfolio.md`](docs/
 > intelligence, onboarding, price intel, negotiation simulator) - see
 > [`docs/01-product/portfolio.md`](docs/01-product/portfolio.md) for the canonical mapping.
 
-> **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, integrations, and mobile approvals - every activity cited with evidence and audit.
+> **One-stop procurement:** supplier discovery, onboarding, scorecards, risk, sourcing projects, RFI/RFQ/RFP, quotations, bid evaluation, awards, contracts, obligations, renewals, requisitions, purchase orders, goods receipt, invoices, spend analytics, savings tracking, approvals, workflows, documents, AI copilot, and integrations - every activity cited with evidence and audit.
 
 **Status.** Backend: 386 pytest collected (377 passing, 9 skipped — the PostgreSQL
 tier, which needs `PG_TEST_DATABASE_URL`), 98 API operations across 84 paths.
@@ -68,14 +68,14 @@ Procurement teams juggle suppliers, RFQs, quotes, contracts, POs, invoices, spen
 SUPPLIERS → SOURCING → RFQs → QUOTES → NEGOTIATION → CONTRACTS → PURCHASES → INVOICES → SPEND → PERFORMANCE → RISK → SAVINGS
 ```
 
-with `PROCUREMENT AI + HUMAN + AI COLLABORATION` on top - every AI answer cited with evidence, confidence, and human-review gates.
+with human + AI collaboration on top - every AI answer cited with evidence, confidence, and human-review gates.
 
 ## What works today (tested, no mocks)
 
 - [x] Backend API (FastAPI, 98 operations across 84 paths, 386 pytest collected): suppliers + scorecards + onboarding + qualification decide, RFQ→quote→award + share-capped optimizer, contracts + obligations + e-sign + matching, requisitions→PO→receipt→invoice with 3-way match, tiered approvals + SoD + budgets, spend ledger + intelligence + should-cost + price cases (per-currency), catalogs, documents + extraction/embeddings/search (native pgvector HNSW index on Postgres, keyword prefilter elsewhere, honest mode label), notifications (per-recipient read, real polling), AI gateway + typed tools + HITL + negotiation sim, webhooks
 - [x] AuthN/Z: two modes, same verification path. **`AUTH_MODE=local` (default)** makes the API its own issuer - it holds an RSA keypair and mints RS256 tokens, so the product runs with no identity service at all. It is **passwordless**: `POST /api/v1/auth/session` issues a session to whoever asks, which means *anyone who can reach the deployment is the operator*. That is the deliberate trade for a one-container deploy; do not expose such a deployment to an untrusted network. **`AUTH_MODE=oidc`** requires Keycloak as before. In both modes the token is signed, carries a tenant, expires, and is verified identically - a forged or foreign-signed token is a 401, which `tests/test_local_auth.py` asserts. Plus RLS tenant isolation (Postgres only), RBAC, hash-chained audit, idempotency, rate limiting, security headers and an honest `/ready`. The `DISABLE_AUTH=1` escape hatch - which returned a full-Admin actor with no token, in every environment, under a docstring saying no such branch existed - has been removed.
 - [x] Web app (Next.js 16 / React 19, 15 routes): dashboard, suppliers grid + supplier 360, requisitions, RFQs + comparison + award, contracts, orders (+ PO price check + optimizer trigger), spend (cube/leakage/maverick/should-cost + cases), documents, governance (audit chain + catalog + budgets), integrations, negosim, notifications, copilot (tool-grounded with evidence), command palette (`Ctrl+K`), dark theme, error/loading/not-found boundaries
-- [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: weekly gates by design + per-push lint/typecheck/vitest/pytest + Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
+- [x] Worker (RQ + Redis + beat scheduler), free-only local stack (`docker compose up`), CI: per-push and per-PR lint/typecheck/vitest/pytest on every commit plus a weekly schedule, Alembic PG migration chain + OpenAPI drift check + pip-audit + npm audit, load-test script (`backend/scripts/load_test.py`)
 - [ ] Real-world providers live-checks: OCR engine not shipped, full Phase 11 vendor matrices not yet run, deeper HITL contract chain pending, realtime push (notifications poll), Android app (Phase 9, not started)
 
 All 10 products `TESTED` on core paths. Phase 10 production hardening is
