@@ -1,6 +1,6 @@
 site_name: VANTOR Docs - One-Stop Procurement Operating System
 site_author: Digi Tracks
-site_description: VANTOR by Digi Tracks - one-stop procurement operating system: supplier management, strategic sourcing, RFQ/RFP/RFI, quotation comparison, contract lifecycle, spend analysis, purchase requisitions, purchase orders, receiving, invoices, approvals, procurement AI copilot, and analytics. Open, self-hostable, production-grade.
+site_description: "VANTOR by Digi Tracks - one-stop procurement operating system: supplier management, strategic sourcing, RFQ/RFP/RFI, quotation comparison, contract lifecycle, spend analysis, purchase requisitions, purchase orders, receiving, invoices, approvals, procurement AI copilot, and analytics. Open, self-hostable, production-grade."
 site_url: https://github.com/chandrahotha/Vantor
 repo_url: https://github.com/chandrahotha/Vantor
 edit_uri: blob/main/docs/
@@ -13,9 +13,6 @@ nav:
   - Glossary: docs/glossary.md
   - Plan:
       - Roadmap: docs/00-plan/ROADMAP.md
-      - Repository audit: docs/00-plan/REPOSITORY_AUDIT.md
-      - Migration plan: docs/00-plan/MIGRATION_PLAN.md
-      - Session handoff: docs/00-plan/SESSION.md
   - Product:
       - Requirements: docs/01-product/requirements.md
       - Portfolio (10 products): docs/01-product/portfolio.md
@@ -37,5 +34,4 @@ nav:
   - Deployment: docs/08-deployment/local.md
   - Operations: docs/09-operations/runbook.md
   - Decisions: docs/10-decisions/README.md
-  - Audit findings: docs/00-plan/audit-findings/MASTER_FINDINGS.md
   - Legal: docs/12-legal/README.md

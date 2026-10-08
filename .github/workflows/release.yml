@@ -20,14 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       - name: Extract Release Notes
         id: notes
@@ -57,4 +57,5 @@ jobs:
           name: Vantor ${{ github.event.inputs.tag || github.ref_name }}
           body_path: release_notes.md
           draft: false
-          prerelease: false
+          # Pre-1.0: every release is a pre-release until 1.0 ships.
+          prerelease: true

@@ -3,7 +3,30 @@
 
 # Changelog - VANTOR
 
-All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / VERIFIED / PRODUCTION READY`.
+All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMENTED / TESTED / PRODUCTION READY`.
+
+## [Unreleased]
+
+### Changed
+
+- **Public-repo documentation cleanup.** Removed the internal working set from
+  the published docs: `docs/00-plan/audit-findings/` (60+ finding registers),
+  `SESSION.md`, `SCORECARD.md`, `BUGS.md`, `PRODUCTION_READINESS.md`,
+  `REPOSITORY_AUDIT.md`, `MIGRATION_PLAN.md`, and `docs/05-frontend/grade5/`
+  working notes. Bugs and features now live in GitHub Issues
+  (`.github/ISSUE_TEMPLATE/`); the remaining docs (`README.md`, `ROADMAP.md`,
+  `portfolio.md`, `BRAIN.md`, ADRs) were rewritten against live counts —
+  386 backend tests, 166 frontend tests, 15 routes, 98 API operations.
+- **CI hardening (`.github/workflows/ci.yml`).** Least-privilege
+  `permissions: contents: read`, `concurrency` cancel-in-progress,
+  `actions/checkout@v5`, docs gate scoped to the surviving files.
+- **Release workflow (`.github/workflows/release.yml`).** `checkout@v5`,
+  Python 3.13, pre-1.0 releases marked `prerelease: true`.
+- **Dependabot (`.github/dependabot.yml`).** Removed the dead root `pip` entry
+  (no requirements file at root), added `docker` ecosystem for base images,
+  clarified the Next.js group.
+- **Single-container image (`Dockerfile`).** Runtime base `python:3.12-slim` →
+  `3.13-slim`, aligned with `backend/Dockerfile` and CI.
 
 ## [0.8.0] - 2026-10-07
 
@@ -22,7 +45,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 - **OpenAPI 3.1 specification contract parity (B-52).** Replaced obsolete placeholder in `api/openapi.yaml` with full generated specification matching `api/openapi.json`.
 - **Sourcing quote award gate (B-51).** Enforced `_assert_evaluable` under lock and required evaluated quote status prior to awarding.
 
-## [Unreleased] - 2026-09-30
+## [0.7.0] - 2026-09-30
 
 ### Added
 
@@ -64,7 +87,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   Next.js image optimizer at nowhere near its rendered size; resized to match and served
   `unoptimized` as a static asset.
 
-## [Unreleased] - 2026-09-27
+## [0.6.0] - 2026-09-27
 
 ### Added
 
@@ -208,7 +231,7 @@ Recorded so the next reader does not repeat the work:
 
 ---
 
-## [Unreleased] - 2026-09-27
+## [0.5.0] - 2026-09-27
 
 ### Added - the "10/10" push. This is what moved the scorecard.
 
@@ -299,7 +322,7 @@ Recorded so the next reader does not repeat the work:
 
 ---
 
-## [Unreleased] - 2026-09-26
+## [0.4.0] - 2026-09-26
 
 ### Fixed - a green badge that was not green
 

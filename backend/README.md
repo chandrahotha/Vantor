@@ -9,10 +9,11 @@
 Stack: **FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic**, Postgres + RLS primary, RQ + Redis
 queue, Keycloak OIDC. (FastAPI decided in `../docs/10-decisions/ADR-007-fastapi-backend.md`.)
 
-Layout: `app/{routers,services,models,core}/`. It converges the 5 audited source trees per
-`../docs/00-plan/MIGRATION_PLAN.md` - canonical audit + idempotency from SupplierRadar, quorum
-approvals from ProcurementOS, JWKS auth from ContractGuard. It also carries the native modules for
-portfolio products 06-10 (see `../docs/01-product/portfolio.md`).
+Layout: `app/{routers,services,models,core}/`. It implements the ten products in
+[`../docs/01-product/portfolio.md`](../docs/01-product/portfolio.md) as one modular
+monolith: canonical audit + idempotency, quorum approvals, and JWKS-verified auth
+up front, with the native sourcing/spend/supplier/AI modules behind versioned
+routers.
 
 API: `/api/v1/...`, OpenAPI generated from code and committed to `../api/openapi.json`.
 CI fails if the committed contract drifts from the code.

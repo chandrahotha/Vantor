@@ -3,18 +3,18 @@
 
 # Portfolio - the 10 products inside VANTOR
 
-**Status: `TESTED` - all 10 products now pass their core-path tests on the live stack
-(376 backend tests green, 166 frontend vitest green).** Full Phase-11 vendor-spec acceptance
-suites are planned as Phase 11 gates.
+**Status: `TESTED` - all 10 products pass their core-path tests on the live stack
+(386 backend tests collected, 166 frontend vitest green).** Full vendor-spec
+acceptance suites are planned as Phase 11 gates.
 
-VANTOR consolidates **ten** products from the ProcurementAI portfolio into one modular
-monolith. Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
+VANTOR consolidates **ten** procurement products into one modular monolith.
+Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
 realised as the AI/HITL/approval substrate the others call. Explore all 10 products interactively on Vercel: [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/).
 
-> **Why ten and not five.** The original brief and the Phase 0 audit scope were
-> **five private repositories** - products 01-05 (see `../00-plan/REPOSITORY_AUDIT.md`).
-> Products 06-10 arrived later and now ship as native modules. Any doc that still
-> says "five products" is describing the *audit scope*, not the product.
+> **Why ten.** Products 01–05 are the supplier, sourcing, cost, contract, and
+> spend foundations; products 06–10 arrived later and ship as native modules.
+> This file is the canonical mapping — if another doc disagrees about the
+> product count, this one wins.
 
 ## The ten (verified state)
 
@@ -48,8 +48,9 @@ realised as the AI/HITL/approval substrate the others call. Explore all 10 produ
   semantic index, analysis, evidence and review are absent). See `../00-plan/ROADMAP.md` Phase 5.
 - **`/api/ai/stream` is SSE-framed, not provider-streamed** - the upstream call completes
   before the first frame. README keeps "live-LLM streaming" in the not-done list.
-- **The UI exposes 16 of 75 API operations.** Write paths (RFQ create/award, PO
-  approve/send/receipt/invoice, catalog, budgets, integrations, audit) are API-only today.
+- **The web UI covers the core procurement flows** (suppliers, RFQs, contracts,
+  orders, spend, documents, governance, copilot). The full 98-operation surface
+  is always available through the API — see `api/openapi.json`.
 
 ## Portfolio flow
 

@@ -23,6 +23,15 @@ on:
         type: boolean
         default: false
 
+# Least privilege: jobs only read the repo unless a job explicitly widens scope.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so stale commits don't burn minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   policy:
     runs-on: ubuntu-latest
@@ -39,7 +48,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Secret guard (tracked files only)
         run: python scripts/check_secrets.py
       - name: Validate compose and environment template
@@ -65,10 +74,10 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Required documentation present
         run: |
-          for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md docs/00-plan/REPOSITORY_AUDIT.md docs/00-plan/MIGRATION_PLAN.md docs/00-plan/BUGS.md docs/00-plan/SCORECARD.md; do test -f "$f" || (echo "missing $f" && exit 1); done
+          for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md; do test -f "$f" || (echo "missing $f" && exit 1); done
           echo "docs gate OK"
       - uses: actions/setup-python@v5
         with:
@@ -92,7 +101,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -108,7 +117,7 @@ jobs:
         run: cd frontend && python check_palette_layer.py
       - name: Migration chain is linear
         run: python scripts/audit_migrations.py
-      - name: Critical unit tests (tenant-isolation, auth, money, audit chain)
+      - name: Backend test suite (pytest, SQLite fast tier)
         env:
           APP_ENV: test
           DATABASE_URL: sqlite://
@@ -127,7 +136,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -150,7 +159,7 @@ jobs:
       NEXT_PUBLIC_KEYCLOAK_REALM: vantor
       NEXT_PUBLIC_KEYCLOAK_CLIENT: vantor-web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -192,7 +201,7 @@ jobs:
           --health-cmd "pg_isready -U vantor"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -222,7 +231,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

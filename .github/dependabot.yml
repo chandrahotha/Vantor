@@ -29,18 +29,6 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    labels: [dependencies, python]
-    commit-message:
-      prefix: "chore(deps)"
-
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -51,11 +39,10 @@ updates:
     open-pull-requests-limit: 5
     labels: [dependencies, javascript]
     groups:
-      # Next.js majors pull React + type changes with them — one reviewable PR, not six.
-      next-major:
+      # Next.js pulls React + type changes with it — one reviewable PR, not six.
+      nextjs:
         applies-to: version-updates
         patterns: ["next"]
-        update-types: [minor, patch]
       react-stack:
         applies-to: version-updates
         patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
@@ -73,3 +60,15 @@ updates:
     labels: [dependencies, ci]
     commit-message:
       prefix: "chore(ci)"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "chore(docker)"

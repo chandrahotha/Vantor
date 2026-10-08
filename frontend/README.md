@@ -39,8 +39,8 @@ come from the IdP. `lib/auth.ts` holds tokens in memory only, and `components/ui
 ```powershell
 npm run typecheck    # tsc --noEmit (0 errors)
 npm run lint         # eslint (0 errors, 0 warnings)
-npm test             # vitest (150/150 passed across 11 suites)
-npm run build        # next build (19 routes generated)
+npm test             # vitest (166 passed across 13 suites)
+npm run build        # next build (15 routes generated)
 ```
 
 All four gates pass. CI validates them on push and PR.
