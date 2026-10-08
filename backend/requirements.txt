@@ -1,4 +1,4 @@
-fastapi==0.141.1
+fastapi==0.142.2
 # Pinned explicitly: starlette is a transitive dep of fastapi, and 7 advisories
 # (DoS, request smuggling) live there. pip-audit only sees what is resolvable,
 # so the security-relevant transitive must be named, not left to the resolver.
