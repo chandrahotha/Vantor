@@ -3,7 +3,7 @@ fastapi==0.141.1
 # (DoS, request smuggling) live there. pip-audit only sees what is resolvable,
 # so the security-relevant transitive must be named, not left to the resolver.
 starlette==1.7.0
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.54.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
 SQLAlchemy==2.0.36
