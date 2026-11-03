@@ -1,9 +1,9 @@
 """Scheduler tests — structural, no Redis and no network.
 
 B-34 was not a subtle bug: `beat.py` called `RQScheduler(queue_name=...)` and
-`scheduler.schedule(...)`, and neither exists in the pinned rq 1.16.2, so the
-service died on boot. The tests below pin the properties that actually matter
-and that a fake can prove:
+`scheduler.schedule(...)`, and neither exists in rq 1.16.2 (the version it was
+written against) or in rq 3.0.0, so the service died on boot. The tests below
+pin the properties that actually matter and that a fake can prove:
 
 - the constructors and methods called are the ones the installed rq exposes
   (asserted against `rq.scheduler.RQScheduler` / `rq.Queue` themselves, so a
@@ -79,8 +79,8 @@ class TestInstalledRqApi:
         assert not hasattr(RQScheduler, "schedule")
 
     def test_enqueue_takes_no_repeat(self):
-        # `repeat=` was also passed to `schedule()` here; rq 1.16.2's `enqueue`
-        # has no such parameter, so a recurring schedule must be re-armed.
+        # `repeat=` was also passed to `schedule()` here; rq's `enqueue` has no
+        # such parameter, so a recurring schedule must be re-armed.
         assert "repeat" not in inspect.signature(Queue.enqueue).parameters
 
     def test_enqueue_at_is_the_documented_entry_point(self):

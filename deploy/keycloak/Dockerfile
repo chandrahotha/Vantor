@@ -5,7 +5,7 @@
 # keycloak-db service already has POSTGRES_DB=keycloak, so the postgres image
 # creates it, and this image needs nothing but the interpreter. Fewer packages
 # is fewer things to pin and fewer CVEs.
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 COPY realm-vantor.json provision.py init.sh /app/

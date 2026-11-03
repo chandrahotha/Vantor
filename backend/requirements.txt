@@ -1,21 +1,22 @@
-fastapi==0.141.1
+fastapi==0.162.0
 # Pinned explicitly: starlette is a transitive dep of fastapi, and 7 advisories
 # (DoS, request smuggling) live there. pip-audit only sees what is resolvable,
 # so the security-relevant transitive must be named, not left to the resolver.
-starlette==1.7.0
-uvicorn[standard]==0.34.0
-pydantic==2.10.4
-pydantic-settings==2.7.0
-SQLAlchemy==2.0.36
-alembic==1.14.0
-psycopg[binary]==3.2.9
-pgvector==0.3.6
-PyJWT==2.15.0
-cryptography==50.0.1
+starlette==1.10.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.2
+pydantic-settings==2.16.2
+SQLAlchemy==2.1.6
+alembic==1.20.1
+psycopg[binary]==3.3.6
+pgvector==0.5.1
+PyJWT==2.15.1
+cryptography==50.0.2
 httpx==0.28.1
-python-multipart==0.0.32
-redis==5.2.1
-rq==1.16.2
+python-multipart==0.0.33
+redis==8.1.0
+# rq is deliberately absent: the backend never imports it (only worker/ does),
+# and a second pin is a second version to keep in step for no benefit.
 # test
-pytest==9.1.1
-pytest-asyncio==1.4.0
+pytest==9.2.0
+pytest-asyncio==1.4.1

@@ -64,7 +64,7 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
   with `ROLL_EXPIRY_INTERVAL_S`, `WEBHOOK_DRAIN_INTERVAL_S`, `SPEND_SNAPSHOT_INTERVAL_S`; a
   non-positive or unparseable value falls back to the default rather than becoming a tight loop.
 - **The scheduler used to die on boot.** It called `RQScheduler(queue_name=…)` and
-  `scheduler.schedule(…)`, neither of which exists in the pinned rq 1.16.2, so the container
+  `scheduler.schedule(…)`, neither of which exists in rq 1.16.2 or rq 3.0.0, so the container
   exited immediately and no recurring job had ever run in any environment (B-34). The unit tests
   in `worker/tests/` run in CI and pin the real rq surface.
 - `python worker/enqueue.py roll_expiry` still runs one job immediately, by hand. The worker

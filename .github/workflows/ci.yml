@@ -48,7 +48,7 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Secret guard (tracked files only)
         run: python scripts/check_secrets.py
       - name: Validate compose and environment template
@@ -74,21 +74,21 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Required documentation present
         run: |
           for f in README.md LICENSE SECURITY.md CONTRIBUTING.md CODE_OF_CONDUCT.md CHANGELOG.md .env.example docker-compose.yml mkdocs.yml docs/BRAIN.md docs/README.md docs/glossary.md docs/00-plan/ROADMAP.md; do test -f "$f" || (echo "missing $f" && exit 1); done
           echo "docs gate OK"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Brain-link check
         run: python scripts/verify_brain_links.py
       - name: Encoding check
         run: python scripts/check_mojibake.py
       - name: Install dependencies for doc-count verification
         run: pip install -r backend/requirements.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -101,10 +101,10 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install backend dependencies and linters
         run: |
           pip install -r backend/requirements.txt
@@ -138,10 +138,10 @@ jobs:
     needs: policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install worker dependencies
         run: |
           pip install -r worker/requirements.txt
@@ -163,8 +163,8 @@ jobs:
       NEXT_PUBLIC_KEYCLOAK_REALM: vantor
       NEXT_PUBLIC_KEYCLOAK_CLIENT: vantor-web
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -210,10 +210,10 @@ jobs:
           --health-cmd "pg_isready -U vantor"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
       - name: Alembic baseline check on real Postgres
@@ -240,11 +240,11 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-      - uses: actions/setup-node@v4
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -272,7 +272,7 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           NEXT_PUBLIC_API_URL=http://localhost:8000 npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report

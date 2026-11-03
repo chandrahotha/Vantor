@@ -46,7 +46,7 @@ class BaselineCache:
         self._db = db
         self._tenant_id = tenant_id
         self._descriptions: dict[str, str] | None = None
-        self._invoices: dict[str, list[tuple[str, str]]] | None = None
+        self._invoices: dict[str, list[tuple[str, str | None]]] | None = None
 
     def _po_line_descriptions(self) -> dict[str, str]:
         if self._descriptions is None:
@@ -56,11 +56,15 @@ class BaselineCache:
             self._descriptions = {r[0]: r[1] for r in rows}
         return self._descriptions
 
-    def _approved_invoices(self, supplier_id: str) -> list[tuple[str, str]]:
+    def _approved_invoices(self, supplier_id: str) -> list[tuple[str, str | None]]:
         """`(invoice_id, po_id)` for approved/paid invoices of a supplier.
 
         The PO id travels with the invoice id because the caller excludes the
         PO under evaluation, and those are different columns.
+
+        `po_id` is nullable on the invoice: an invoice raised outside a purchase
+        order has no PO to point at. The type says so, rather than widening the
+        column or pretending the value is always there.
         """
         if self._invoices is None:
             self._invoices = {}
