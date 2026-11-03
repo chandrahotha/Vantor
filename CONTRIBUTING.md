@@ -1,15 +1,19 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
-
 # Contributing to VANTOR
+
+> Documentation index: [docs/README.md](docs/README.md)
 
 ## Ground rules
 
-1. Never claim `PRODUCTION READY` unless Definition of Done is met (see `docs/00-plan/ROADMAP.md`).
-2. No mocks presented as real: no fake dashboards, fake AI, hard-coded suppliers, UI-only CRUD.
-3. If an integration needs credentials you lack, implement a clean interface + document required config. Never fake it as operational.
-4. Every PR: format + lint + typecheck + tests + security/dependency scan + migration check.
-5. Record tradeoffs in `docs/10-decisions/ADR-*.md`. Document assumptions when requirements are ambiguous.
+1. Do not claim a capability that is not implemented and tested. If it is
+   half-built, say which half.
+2. No mocks presented as real: no fake dashboards, fake AI, hard-coded
+   suppliers, UI-only CRUD.
+3. If an integration needs credentials you lack, implement a clean interface
+   and document the required configuration. Never fake it as operational.
+4. Every PR: format + lint + typecheck + tests + security/dependency scan +
+   migration check.
+5. Record tradeoffs in `docs/10-decisions/ADR-*.md`. Document assumptions when
+   requirements are ambiguous.
 
 ## Workflow
 

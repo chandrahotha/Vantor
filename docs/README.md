@@ -1,59 +1,66 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](BRAIN.md)
+# Documentation — VANTOR
 
-# Docs - VANTOR
+Everything about how VANTOR is built, secured, deployed and operated. Each
+page is written to be read on its own.
 
-> 🧠 Start at [`BRAIN.md`](BRAIN.md) (central knowledge index - every page links back to it). Root: [`../README.md`](../README.md).
+**Start here:** the [knowledge index](BRAIN.md) maps how the documents
+relate to each other.
 
-## Visibility structure (numbered = reading order)
+## Reading order
 
-```
-docs/
-  BRAIN.md                  ← central brain (read first)
-  README.md                 ← this index
-  glossary.md               ← shared vocabulary
-  00-plan/ROADMAP.md
-  01-product/requirements.md
-  01-product/portfolio.md      ← canonical list of the 10 products
-  02-architecture/system.md, domain.md, database.md, api.md
-  03-ai/architecture.md, safety.md, evaluation.md
-  04-security/architecture.md, threat-model.md
-  05-frontend/design-system.md
-  06-brand/logo.md
-  07-android/strategy.md
-  08-deployment/local.md
-  09-operations/runbook.md
-  10-decisions/README.md + ADR-001…007
-  12-legal/ (draft, not legally reviewed)
-```
+**If you are evaluating VANTOR**
 
-## Index
+1. [System architecture](02-architecture/system.md) — how the pieces fit together
+2. [Security architecture](04-security/architecture.md) — auth, tenancy, RBAC, audit
+3. [Database architecture](02-architecture/database.md) — schema, row-level security, vectors
+4. [AI architecture](03-ai/architecture.md) — gateway, typed tools, evidence contracts
 
-| Order | Doc | Status | Link |
-|---|---|---|---|
-| 🧠 | Brain | IMPLEMENTED | [BRAIN.md](BRAIN.md) |
-| X | Glossary | IMPLEMENTED | [glossary.md](glossary.md) |
-| 0 | Roadmap (build phases) | IN DEVELOPMENT (Phases 9–11 open) | [00-plan/ROADMAP.md](00-plan/ROADMAP.md) |
-| 1 | Product requirements | PLANNED | [01-product/requirements.md](01-product/requirements.md) |
-| 1 | **Portfolio (10 products)** | TESTED (core paths) | [01-product/portfolio.md](01-product/portfolio.md) |
-| 2 | System architecture | PLANNED | [02-architecture/system.md](02-architecture/system.md) |
-| 2 | Domain model | PLANNED | [02-architecture/domain.md](02-architecture/domain.md) |
-| 2 | Database architecture | PLANNED | [02-architecture/database.md](02-architecture/database.md) |
-| 2 | API architecture | PLANNED | [02-architecture/api.md](02-architecture/api.md) |
-| 3 | AI architecture | PLANNED | [03-ai/architecture.md](03-ai/architecture.md) |
-| 3 | AI safety | PLANNED | [03-ai/safety.md](03-ai/safety.md) |
-| 3 | AI evaluation | PLANNED | [03-ai/evaluation.md](03-ai/evaluation.md) |
-| 4 | Security architecture | PLANNED | [04-security/architecture.md](04-security/architecture.md) |
-| 4 | Threat model | PLANNED | [04-security/threat-model.md](04-security/threat-model.md) |
-| 5 | Design system | PLANNED | [05-frontend/design-system.md](05-frontend/design-system.md) |
-| 6 | Brand / logo | IMPLEMENTED art | [06-brand/logo.md](06-brand/logo.md) |
-| 7 | Android strategy | COMING SOON (API-ready) | [07-android/strategy.md](07-android/strategy.md) |
-| 8 | Local deployment | IMPLEMENTED compose | [08-deployment/local.md](08-deployment/local.md) |
-| 9 | Operations runbook | PLANNED | [09-operations/runbook.md](09-operations/runbook.md) |
-| 10 | Decisions (ADRs) | Accepted (001–007) | [10-decisions/README.md](10-decisions/README.md) |
-| 12 | Legal (privacy, terms, DPA, MSA, refunds) | `DRAFT - NOT LEGALLY REVIEWED` | [12-legal/README.md](12-legal/README.md) |
+**If you are deploying it**
 
-Root companions: [`00-plan/ROADMAP.md`](00-plan/ROADMAP.md) · [`../SECURITY.md`](../SECURITY.md) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
+1. [Local deployment](08-deployment/local.md) — every environment variable
+2. [Operations runbook](09-operations/runbook.md) — health, backup, incidents
+3. [Security architecture](04-security/architecture.md)
 
-> Bugs and feature requests live in [GitHub Issues](../../issues), not in a
-> register file. Security reports: see [`../SECURITY.md`](../SECURITY.md).
+**If you are working on it**
+
+1. [Domain model](02-architecture/domain.md) — the vocabulary, in code
+2. [API design](02-architecture/api.md) — envelopes, pagination, idempotency, errors
+3. [Design system](05-frontend/design-system.md) — tokens, palettes, primitives
+4. [Decisions](10-decisions/README.md) — the ADRs and why they were taken
+
+## The documents
+
+| Document | What it covers |
+|---|---|
+| [BRAIN.md](BRAIN.md) | Knowledge index — how the documents connect |
+| [glossary.md](glossary.md) | Shared vocabulary across the platform |
+| [01-product/requirements.md](01-product/requirements.md) | Product requirements |
+| [01-product/portfolio.md](01-product/portfolio.md) | The capability map and where each capability lives |
+| [02-architecture/system.md](02-architecture/system.md) | System architecture, deployment topology |
+| [02-architecture/domain.md](02-architecture/domain.md) | Domain model and entities |
+| [02-architecture/database.md](02-architecture/database.md) | Schema, tenancy, row-level security, vectors |
+| [02-architecture/api.md](02-architecture/api.md) | API conventions, envelopes, pagination, idempotency |
+| [03-ai/architecture.md](03-ai/architecture.md) | AI gateway, typed tools, providers |
+| [03-ai/safety.md](03-ai/safety.md) | Evidence contracts, human review, guardrails |
+| [03-ai/evaluation.md](03-ai/evaluation.md) | How AI behaviour is evaluated |
+| [04-security/architecture.md](04-security/architecture.md) | Authentication, authorisation, tenancy, audit |
+| [04-security/threat-model.md](04-security/threat-model.md) | Threats, mitigations, residual risk |
+| [05-frontend/design-system.md](05-frontend/design-system.md) | Tokens, palettes, components, accessibility |
+| [06-brand/logo.md](06-brand/logo.md) | Logo assets and usage |
+| [07-android/strategy.md](07-android/strategy.md) | Android client strategy |
+| [08-deployment/local.md](08-deployment/local.md) | Environment variables, compose, deployment modes |
+| [09-operations/runbook.md](09-operations/runbook.md) | Health checks, backup, incident response |
+| [10-decisions/](10-decisions/README.md) | Architecture decision records |
+| [12-legal/](12-legal/README.md) | Draft legal templates — **not legally reviewed** |
+
+## Root companions
+
+[`../README.md`](../README.md) ·
+[`../SECURITY.md`](../SECURITY.md) ·
+[`../CONTRIBUTING.md`](../CONTRIBUTING.md) ·
+[`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) ·
+[`../CHANGELOG.md`](../CHANGELOG.md)
+
+Bugs and feature requests belong in
+[GitHub Issues](../../issues), not in a register file in the repository.
+Security reports go through [`../SECURITY.md`](../SECURITY.md) — privately.

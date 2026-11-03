@@ -27,8 +27,8 @@ echo "==> 1. Running Secret Guard..."
 echo "==> 2. Checking File Encodings..."
 "$PYTHON" scripts/check_mojibake.py
 
-echo "==> 3. Verifying Documentation Brain Links..."
-"$PYTHON" scripts/verify_brain_links.py
+echo "==> 3. Verifying Documentation Links..."
+"$PYTHON" scripts/verify_doc_links.py
 
 echo "==> 4. Auditing Migration Linearity..."
 "$PYTHON" scripts/audit_migrations.py

@@ -120,6 +120,51 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 - **Single-container image (`Dockerfile`).** Runtime base `python:3.12-slim` →
   `3.14-slim`, aligned with `backend/Dockerfile` and CI.
 
+### Documentation
+
+- **The READMEs were rewritten as public documentation.** `README.md`,
+  `backend/README.md`, `frontend/README.md`, `worker/README.md`,
+  `android/README.md` and `docs/README.md` were internal working documents
+  wearing a public hat. They carried the build-phase numbering, the
+  `PLANNED / IN DEVELOPMENT / TESTED / PRODUCTION READY` status vocabulary,
+  internal ticket IDs (`B-34`, `B-41`, `B-28`, `B-24`), per-product UAT
+  matrices and test-evidence columns, internal module file paths, and
+  incident narratives — "the service died on boot and no recurring job had
+  ever run", "this replaced a grant of `Super Admin` … a leaked environment
+  was a fully administrative token". That material belongs in the changelog
+  and the ADRs, not on the page a visitor lands on.
+  The capability table now describes what the platform *does* rather than
+  which router implements it, the internal defect registers are reframed as
+  "Current limitations", and the READMEs link to `docs/README.md` — the
+  documentation index — instead of to individual working documents.
+- **The documentation index and the knowledge map were rewritten.** The
+  `docs/README.md` visibility tree and status column are gone, replaced by
+  reading-order guides for evaluating, deploying and working on VANTOR.
+  `docs/BRAIN.md` keeps the knowledge graph and the reading trails, and now
+  describes the corpus in public terms.
+- **The link gate now checks links instead of a convention.**
+  `scripts/verify_brain_links.py` required the string `BRAIN.md` to appear in
+  every markdown file in the repository — it passed while links pointed at
+  files that did not exist, and it forced an internal navigation convention
+  onto the public landing pages. It is replaced by
+  `scripts/verify_doc_links.py`, which checks that every relative link
+  resolves, that no document under `docs/` is orphaned from the index, that
+  the public READMEs link to it, and that the docs tree still links back to
+  its own central index. `scripts/fix_brain_links.py` is now scoped to
+  `docs/`, where the convention belongs.
+- **`SECURITY.md` no longer claims controls that do not exist.** "Guaranteed
+  controls (Definition of Done)" listed object-storage-only uploads, a
+  malware-scan hook, OCR sandboxing, a CORS allowlist and CSRF protection —
+  none of which is implemented. The page is now split into what the code
+  enforces, what is explicitly **not** implemented, and what is the
+  deployer's responsibility (TLS, encryption at rest, secret management).
+  A public security policy that overstates its own guarantees is worse than
+  one that admits what is missing.
+- **Internal identifiers removed from the published docs.** The `(B-34)`,
+  `(B-18)` and `(B-13)` ticket references in the operations runbook, and the
+  reference to a retired external specification bundle in the roadmap, are
+  gone.
+
 ### Known accepted risk
 
 - `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate) arrives transitively

@@ -1,103 +1,134 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](../docs/BRAIN.md) · [Docs index](../docs/README.md)
+# Frontend — VANTOR Web
 
-# Frontend - VANTOR Web
+The web application: every procurement workspace, the approvals queue, spend
+analytics, contract obligations and an evidence-grounded AI copilot.
 
-🚀 **Live Interactive Deployment:** [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/)
+**15 routes** in a Next.js 16 App Router application.
 
-**Status: `IN DEVELOPMENT` - 15 routes, 166 vitest green across 13 test suites.**
+**Stack:** Node 22 · Next.js 16 · React 19 · TypeScript 6 · Tailwind-free CSS
+custom properties · Keycloak OIDC (Authorization Code + PKCE) · ESLint 10 ·
+Vitest 5.
 
-Stack: **Next.js 16 App Router + React 19 + TypeScript 5.9**, Keycloak OIDC (Authorization Code + PKCE), ESLint 9 flat config, design tokens per `../docs/05-frontend/design-system.md`.
+**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) — a
+standalone demo mode lets visitors explore the full interface without a
+backend running.
 
-Rules: real API data only (envelope `{data,pagination,error,requestId}`), explicit empty/error
-states, no localStorage token leaks, no fake sessions, no placeholder charts.
+## The routes
 
-Features an automated standalone Demo Mode: visitors to [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/) can explore every procurement workspace, approvals queue, spend cube, contract obligations, and AI copilot offline without a backend running.
+| Route | What it is |
+|---|---|
+| `/` | Dashboard |
+| `/suppliers`, `/suppliers/[id]` | Supplier 360 — profile, scorecards, qualifications, performance |
+| `/requisitions` | Requisition intake and tracking |
+| `/rfqs` | RFQs, quote comparison, award |
+| `/contracts` | Contracts, obligations, renewal windows |
+| `/orders` | Purchase orders with price check |
+| `/spend` | Spend analytics, leakage, concentration, should-cost |
+| `/documents` | Document library, upload, search |
+| `/approvals` | Approval queue and decisions |
+| `/governance` | Policy, budgets, audit |
+| `/integrations` | Connected systems and webhook health |
+| `/negosim` | AI negotiation simulator |
+| `/notifications` | Notification feed |
+| `/copilot` | Evidence-grounded AI copilot |
 
-## Run
+## Run it
 
-### Local Development
-
-```powershell
+```bash
 npm ci
-$env:NEXT_PUBLIC_API_URL="http://localhost:8000"
-$env:NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080"
+NEXT_PUBLIC_API_URL="http://localhost:8000" \
+NEXT_PUBLIC_KEYCLOAK_URL="http://localhost:8080" \
 npm run dev
 ```
 
-Navigate to `http://localhost:3000`. Boot is `check-sso`: the app paints its own loading
-splash, and if there is no IdP session it renders a sign-in card with one **Continue with
-Vantor ID** button. The window is never navigated to the identity provider without that
-click - an automatic redirect is what stranded users on `:8080` when it was down (B-28).
+Open `http://localhost:3000`.
 
-There is no in-app persona switcher, no role picker, and no path to a session that does not
-come from the IdP. `lib/auth.ts` holds tokens in memory only, and `components/ui.tsx` renders
-`AuthScreen` for every unsigned-in state. Sign-in is Keycloak; sign-out is `kc.logout()`.
+On boot the app renders its own loading state and, if there is no identity
+provider session, a sign-in card with a single **Continue with Vantor ID**
+button. The window is never redirected to the identity provider without that
+click — an automatic redirect is what stranded users when the IdP was
+unreachable.
 
-## Verification & Gates
+Tokens are held in memory only, never in `localStorage`. There is no
+in-app persona switcher, no role picker, and no path to a session that does
+not come from the identity provider.
 
-```powershell
-npm run typecheck    # tsc --noEmit (0 errors)
-npm run lint         # eslint (0 errors, 0 warnings)
-npm test             # vitest (166 passed across 13 suites)
-npm run build        # next build (15 routes generated)
+## Verification
+
+```bash
+npm run typecheck    # tsc --noEmit
+npm run lint         # eslint
+npm test             # vitest — 166 vitest green across 13 suites
+npm run build        # next build
 ```
 
-All four gates pass. CI validates them on push and PR.
+All four gates pass, and CI runs them on every push and pull request.
 
-## Security & Headers
+## Security headers
 
-Security headers are part of the build contract, not an afterthought: `next.config.mjs` sets a
-Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
-`Permissions-Policy` on every response from the app. A CSP served by the API governs documents the
-*API* serves, so the app needs its own - without it the pages a user reads are unprotected.
-`next.config.test.ts` asserts the policy exists, is derived from `NEXT_PUBLIC_API_URL` /
-`NEXT_PUBLIC_KEYCLOAK_URL` rather than hardcoded, and that HSTS appears only over https.
+Security headers are part of the build contract, not an afterthought. The
+Next.js config sets a Content-Security-Policy plus `X-Frame-Options`,
+`X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy` on every
+response the app serves. A CSP served by the API governs documents the *API*
+serves, so the app needs its own — without it, the pages a user reads are
+unprotected.
 
-## Dependency audit posture
+The policy is derived from `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_KEYCLOAK_URL`
+rather than hardcoded, and HSTS appears only over https. A test asserts all
+of it.
 
-- Production dependencies audit clean (`npm audit --omit=dev --audit-level=high`,
-  CI-gated). Dev-only findings are tracked via Dependabot.
-- **Known accepted risk:** `braces ≤ 3.0.3` (GHSA-vfj7-8cjw-p6xm, high,
-  stack-exhaustion via deeply nested patterns) arrives transitively through
+## Design system
+
+Five palettes × light/dark, driven by CSS custom properties under
+`[data-palette="<key>"]` and `[data-theme="light|dark"]` — not by hardcoded
+surface colours. The default is **Vantor Cobalt** (Hyper Cobalt `#0038FF` +
+Skin Sand `#FFD8B8`).
+
+Selection persists, and a tenant's identity-token brand claim can override
+it. A palette audit gates the token layer: no cycles, no dangling tokens, and
+every contrast pair above its threshold.
+
+Shared primitives cover stat cards, pagers, data tables with accessible ARIA
+sorting, badges, and the empty/error/skeleton states. Typography is bundled
+at build time rather than fetched at runtime.
+
+Full reference: [design system](../docs/05-frontend/design-system.md) and
+[brand](../docs/06-brand/logo.md).
+
+## Dependency posture
+
+- The whole tree audits clean — `npm audit --audit-level=low` reports **0
+  vulnerabilities**, dev dependencies included. The production surface is
+  gated separately in CI at `--omit=dev --audit-level=high`.
+- **Accepted risk:** `braces ≤ 3.0.3` (GHSA-vfj7-8cjw-p6xm, high,
+  stack exhaustion via deeply nested patterns) arrives transitively through
   `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` →
   `micromatch`. No patched release exists upstream, so there is nothing to
   upgrade to — and a downgrade does not remove it either. It runs at
   lint/build time over repo-controlled glob patterns, never over
-  attacker-controlled input at runtime. Revisit when upstream ships a fix.
-- **Known accepted risk:** `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate,
-  denial of service via glob-parts amplification) arrives transitively through
-  `eslint-plugin-import`, `eslint-plugin-react` and `eslint-plugin-jsx-a11y`,
-  all of which `eslint-config-next` pulls in. The fix exists — `11.0.1` — but
-  `minimatch` v3's default export is a *callable* CJS function and v11's is
-  not: v11 exposes `minimatch()` as a named export only. The plugins call
-  `minimatch(path, pattern)` directly, so forcing the upgrade replaces a
-  lint-tool crash with a lint-tool crash. The root `minimatch` (pulled by
-  `eslint` and `@typescript-eslint`) is already on 10.2.6 and is unaffected;
-  only the three plugin-nested v3 copies remain. Dev-only, lint-time, over
-  repo-controlled patterns. Revisit when those plugins move to a callable
-  `minimatch` v11 import.
+  attacker-controlled input at runtime.
+- **`minimatch` is overridden to `^11.0.1`** (GHSA-g3hv-75wg-m249, moderate,
+  denial of service via glob-parts amplification). The flaw is in minimatch
+  v10's pattern optimizer; minimatch v3 does not contain that code path at
+  all, but the advisory's affected range is a blanket `< 11.0.1`, so the
+  scanner flags every copy in the tree. Forcing the tree to v11 is what
+  closes the alert.
+- **That override has one consequence, and it is guarded.** minimatch v3's
+  module export was a *callable* function; v11's is an object with a named
+  `minimatch` export. `eslint-plugin-import`, `eslint-plugin-react` and
+  `eslint-plugin-jsx-a11y` call the module directly, so five of their rules
+  (`import/extensions`, `import/no-extraneous-dependencies`,
+  `react/no-unstable-nested-components`, `react/forbid-component-props`,
+  `react/jsx-pascal-case`) cannot run under v11. None is enabled here and
+  `eslint-config-next` does not enable them either. The ESLint config checks
+  the composed config and fails with an actionable message if one of them is
+  ever switched on, rather than letting it blow up mid-lint.
 
-## Theming & UI Architecture
+## Documentation
 
-Five palettes × light/dark, driven by CSS custom properties under
-`[data-palette="<key>"]` and `[data-theme="light|dark"]`, not by hardcoded surface colours.
-The default is **Vantor Cobalt** - Hyper Cobalt `#0038FF` + Skin Sand `#FFD8B8`
-(`../docs/05-frontend/design-system.md`). The sidebar is the brand anchor: cobalt in every
-palette and both modes, white labels and icons, and the active route in Skin Sand with cobalt
-text.
-Selection persists via `useSyncExternalStore` (`lib/palette.ts`) and a tenant's identity-token
-brand claim can override it. `check_palette_layer.py` gates the layer: no cycles, no dangling
-tokens, and every contrast pair above its threshold.
-
-Shared UI primitives live in `components/ui.tsx` and `components/Shell.tsx`:
-- `useBoot`: Keycloak session boot with bounce-loop detection; `loading` → `ok` → `error` → sign-in.
-- `AuthScreen`: the only unauthenticated surface - one explicit sign-in button, a retry on
-  IdP failure, and no way to reach the app without a token.
-- `StatCard`, `Pager`, `DataTable`: Standardized data grid with accessible ARIA sort.
-- `Badge`, `Empty`, `ErrorBox`, `Skeleton`: Standardized feedback and empty states.
-- Fonts: `Inter` and `JetBrains Mono` are bundled via `next/font` in `layout.tsx` and applied
-  to `<html>`; `--font-ui` / `--font-mono` in `globals.css` reference the variables
-  `next/font` emits, with a system stack behind them. `components/grade5.test.tsx` asserts
-  both directions, because a token that names a font the build does not ship (B-24) and a
-  webfont that is downloaded but never rendered are the same defect.
+- [Design system](../docs/05-frontend/design-system.md) ·
+  [Brand](../docs/06-brand/logo.md)
+- [Security architecture](../docs/04-security/architecture.md) ·
+  [Threat model](../docs/04-security/threat-model.md)
+- [Deployment reference](../docs/08-deployment/local.md)
+- [Full documentation index](../docs/README.md)

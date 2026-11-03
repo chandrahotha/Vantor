@@ -82,8 +82,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Brain-link check
-        run: python scripts/verify_brain_links.py
+      - name: Documentation link check
+        run: python scripts/verify_doc_links.py
       - name: Encoding check
         run: python scripts/check_mojibake.py
       - name: Install dependencies for doc-count verification
