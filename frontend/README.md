@@ -58,7 +58,7 @@ not come from the identity provider.
 ```bash
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
-npm test             # vitest — 166 vitest green across 13 suites
+npm test             # vitest — 170 vitest green across 14 suites
 npm run build        # next build
 ```
 

@@ -77,4 +77,23 @@ Write-Host "==> 16. Building Frontend Production Bundle (next build)..." -Foregr
 npm run build
 
 Set-Location $repoRoot
+
+Write-Host "==> 17. Checking the Committed OpenAPI Contract Matches the Code..." -ForegroundColor Cyan
+# The contract is committed twice (api/openapi.json and api/openapi.yaml) and
+# both are regenerated from one `app.openapi()` call, so neither can drift.
+# PyYAML renders the YAML copy; without it the JSON is still checked and the
+# YAML is reported as unchecked rather than silently passed.
+& $python -c "import yaml"
+if ($LASTEXITCODE -eq 0) {
+    & $python scripts/generate_openapi.py
+    git diff --exit-code -- api/openapi.json api/openapi.yaml
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "the committed OpenAPI contract is stale - run 'make contract' and commit the result" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "    PyYAML is not installed - api/openapi.yaml was NOT checked." -ForegroundColor Yellow
+    Write-Host "    Install it with: pip install pyyaml==6.0.3" -ForegroundColor Yellow
+}
+
 Write-Host "`nAll verification checks passed successfully! Repository is production-ready." -ForegroundColor Green

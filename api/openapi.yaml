@@ -15,6 +15,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Health Api V1 Health Get
   /api/v1/ops/metrics:
@@ -33,6 +34,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Ops Metrics Api V1 Ops Metrics Get
       security:
@@ -106,6 +108,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Create Session Api V1 Auth Session Post
         '422':
@@ -132,6 +135,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response List Personas Api V1 Auth Personas Get
   /api/v1/auth/me:
@@ -147,6 +151,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Whoami Api V1 Auth Me Get
       security:
@@ -173,6 +178,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Auth Config Api V1 Auth Config Get
   /api/v1/me:
@@ -187,6 +193,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Me Api V1 Me Get
       security:
@@ -203,6 +210,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Types Api V1 Integrations Types Get
       security:
@@ -242,6 +250,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Integrations Api V1 Integrations Get
         '422':
           description: Validation Error
@@ -269,6 +278,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Register Api V1 Integrations Post
         '422':
           description: Validation Error
@@ -305,6 +315,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Endpoints Api V1 Webhooks Endpoints Get
         '422':
           description: Validation Error
@@ -347,6 +358,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Add Endpoint Api V1 Webhooks Endpoints Post
         '422':
           description: Validation Error
@@ -393,6 +405,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Deliveries Api V1 Webhooks Deliveries Get
         '422':
           description: Validation Error
@@ -423,6 +436,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Replay Delivery Api V1 Webhooks Deliveries  Did  Replay
                   Post
         '422':
@@ -460,6 +474,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Drain Queue Api V1 Webhooks Drain Post
         '422':
           description: Validation Error
@@ -492,6 +507,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Test Ping Api V1 Webhooks Test Post
         '422':
@@ -541,6 +557,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Notifs Api V1 Notifications Get
         '422':
           description: Validation Error
@@ -560,6 +577,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Unread Count Api V1 Notifications Unread Count Get
       security:
@@ -586,6 +604,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Mark Read Api V1 Notifications  Nid  Read Post
         '422':
           description: Validation Error
@@ -639,6 +658,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Events Api V1 Audit Events Get
         '422':
           description: Validation Error
@@ -658,6 +678,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Verify Api V1 Audit Events Verify Get
       security:
@@ -708,6 +729,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Items Api V1 Catalog Items Get
         '422':
           description: Validation Error
@@ -735,6 +757,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Item Api V1 Catalog Items Post
         '422':
           description: Validation Error
@@ -760,6 +783,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Set Budget Api V1 Budgets Post
         '422':
@@ -782,6 +806,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response List Categories Api V1 Catalog Categories Get
       security:
@@ -803,6 +828,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Create Category Api V1 Catalog Categories Post
         '422':
@@ -833,6 +859,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Negotiate Api V1 Ai Negotiate Post
         '422':
@@ -857,6 +884,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Providers Api V1 Ai Providers Get
       security:
@@ -879,6 +907,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Run Complete Api V1 Ai Complete Post
         '422':
@@ -910,6 +939,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: true
               title: Args
       responses:
         '200':
@@ -918,6 +948,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Run Tool Api V1 Ai Tools  Name  Post
         '422':
           description: Validation Error
@@ -957,6 +988,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Decide Approval Api V1 Ai Approvals  Approval Id  Decide
                   Post
         '422':
@@ -1055,6 +1087,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Suppliers Api V1 Suppliers Get
         '422':
           description: Validation Error
@@ -1082,6 +1115,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Supplier Api V1 Suppliers Post
         '422':
           description: Validation Error
@@ -1111,6 +1145,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Supplier Api V1 Suppliers  Supplier Id  Get
         '422':
           description: Validation Error
@@ -1145,6 +1180,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Update Supplier Api V1 Suppliers  Supplier Id  Patch
         '422':
           description: Validation Error
@@ -1174,6 +1210,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Contacts Api V1 Suppliers  Supplier Id  Contacts
                   Get
         '422':
@@ -1209,6 +1246,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Add Contact Api V1 Suppliers  Supplier Id  Contacts
                   Post
         '422':
@@ -1245,6 +1283,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Post Scorecard Api V1 Suppliers  Supplier Id  Scorecard
                   Post
         '422':
@@ -1274,6 +1313,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Scorecard Api V1 Suppliers  Supplier Id  Scorecard
                   Get
         '422':
@@ -1304,6 +1344,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Certs Api V1 Suppliers  Supplier Id  Certifications
                   Get
         '422':
@@ -1339,6 +1380,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Add Cert Api V1 Suppliers  Supplier Id  Certifications
                   Post
         '422':
@@ -1387,6 +1429,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Verify Cert Api V1 Suppliers  Supplier Id  Certifications  Cert
                   Id  Verify Post
         '422':
@@ -1417,6 +1460,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Qual Api V1 Suppliers  Supplier Id  Qualification
                   Get
         '422':
@@ -1447,6 +1491,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Submit Qual Api V1 Suppliers  Supplier Id  Qualification
                   Submit Post
         '422':
@@ -1494,6 +1539,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Decide Qual Api V1 Suppliers  Supplier Id  Qualification
                   Decide Post
         '422':
@@ -1562,6 +1608,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Rfqs Api V1 Rfqs Get
         '422':
           description: Validation Error
@@ -1589,6 +1636,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Rfq Api V1 Rfqs Post
         '422':
           description: Validation Error
@@ -1618,6 +1666,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Rfq Api V1 Rfqs  Rfq Id  Get
         '422':
           description: Validation Error
@@ -1653,6 +1702,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Move Rfq Api V1 Rfqs  Rfq Id  Status Patch
         '422':
           description: Validation Error
@@ -1688,6 +1738,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Submit Quote Api V1 Rfqs  Rfq Id  Quotes Post
         '422':
           description: Validation Error
@@ -1717,6 +1768,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Comparison Api V1 Rfqs  Rfq Id  Comparison Get
         '422':
           description: Validation Error
@@ -1752,6 +1804,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Award Api V1 Rfqs  Rfq Id  Award Post
         '422':
           description: Validation Error
@@ -1789,6 +1842,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Optimize Api V1 Rfqs  Rfq Id  Optimize Post
         '422':
           description: Validation Error
@@ -1870,6 +1924,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Contracts Api V1 Contracts Get
         '422':
           description: Validation Error
@@ -1897,6 +1952,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Contract Api V1 Contracts Post
         '422':
           description: Validation Error
@@ -1926,6 +1982,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Contract Api V1 Contracts  Contract Id  Get
         '422':
           description: Validation Error
@@ -1971,6 +2028,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Move Contract Api V1 Contracts  Contract Id  Status
                   Patch
         '422':
@@ -2007,6 +2065,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Add Obligation Api V1 Contracts  Contract Id  Obligations
                   Post
         '422':
@@ -2057,6 +2116,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Roll Expiry Api V1 Contracts Roll Expiry Post
         '422':
           description: Validation Error
@@ -2102,6 +2162,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Sign Contract Api V1 Contracts  Contract Id  Sign
                   Post
         '422':
@@ -2159,6 +2220,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Provider Signature Callback Api V1 Contracts Signatures
                   Provider Callback Post
         '422':
@@ -2209,6 +2271,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Verify Signature Api V1 Contracts  Contract Id  Sign
                   Verify Post
         '422':
@@ -2240,6 +2303,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Signatures Api V1 Contracts  Contract Id  Signatures
                   Get
         '422':
@@ -2278,6 +2342,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Run Match Api V1 Contracts  Contract Id  Match Post
         '422':
           description: Validation Error
@@ -2306,6 +2371,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Upload Api V1 Documents Post
         '422':
           description: Validation Error
@@ -2358,6 +2424,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Docs Api V1 Documents Get
         '422':
           description: Validation Error
@@ -2426,6 +2493,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Extract Doc Api V1 Documents  Doc Id  Extract Post
         '422':
           description: Validation Error
@@ -2479,6 +2547,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Search Docs Api V1 Documents Search Get
         '422':
           description: Validation Error
@@ -2536,6 +2605,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Reqs Api V1 Requisitions Get
         '422':
           description: Validation Error
@@ -2563,6 +2633,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Req Api V1 Requisitions Post
         '422':
           description: Validation Error
@@ -2592,6 +2663,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Submit Req Api V1 Requisitions  Rid  Submit Post
         '422':
           description: Validation Error
@@ -2620,6 +2692,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Po Api V1 Purchase Orders Post
         '422':
           description: Validation Error
@@ -2672,6 +2745,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Pos Api V1 Purchase Orders Get
         '422':
           description: Validation Error
@@ -2736,6 +2810,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Approvals Api V1 Approvals Get
         '422':
           description: Validation Error
@@ -2783,6 +2858,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Decide Approval Endpoint Api V1 Approvals  Aid  Decide
                   Post
         '422':
@@ -2813,6 +2889,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Approve Po Api V1 Purchase Orders  Pid  Approve Post
         '422':
           description: Validation Error
@@ -2842,6 +2919,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Send Po Api V1 Purchase Orders  Pid  Send Post
         '422':
           description: Validation Error
@@ -2877,6 +2955,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Receive Api V1 Purchase Orders  Pid  Receipts Post
         '422':
           description: Validation Error
@@ -2926,6 +3005,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Cancel Po Api V1 Purchase Orders  Pid  Cancel Post
         '422':
           description: Validation Error
@@ -2962,6 +3042,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Close Po Api V1 Purchase Orders  Pid  Close Post
         '422':
           description: Validation Error
@@ -3003,6 +3084,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Match Invoice Api V1 Invoices  Iid  Match Post
         '422':
           description: Validation Error
@@ -3045,6 +3127,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Reject Invoice Api V1 Invoices  Iid  Reject Post
         '422':
           description: Validation Error
@@ -3085,6 +3168,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Pay Invoice Api V1 Invoices  Iid  Pay Post
         '422':
           description: Validation Error
@@ -3120,6 +3204,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Create Invoice Api V1 Purchase Orders  Pid  Invoices
                   Post
         '422':
@@ -3150,6 +3235,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Approve Invoice Api V1 Invoices  Iid  Approve Post
         '422':
           description: Validation Error
@@ -3179,6 +3265,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Po Api V1 Purchase Orders  Pid  Get
         '422':
           description: Validation Error
@@ -3243,6 +3330,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response List Invoices Api V1 Invoices Get
         '422':
           description: Validation Error
@@ -3272,6 +3360,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Get Invoice Api V1 Invoices  Iid  Get
         '422':
           description: Validation Error
@@ -3301,6 +3390,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Summary Api V1 Spend Summary Get
       security:
@@ -3323,6 +3413,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Intelligence Api V1 Spend Intelligence Get
       security:
@@ -3347,6 +3438,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 type: object
                 title: Response Should Cost Api V1 Spend Should Cost Post
         '422':
@@ -3385,6 +3477,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Price Evaluate Api V1 Spend Price Evaluate  Po Id  Post
         '422':
           description: Validation Error
@@ -3435,6 +3528,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Price Cases Api V1 Spend Price Cases Get
         '422':
           description: Validation Error
@@ -3470,6 +3564,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: true
                 title: Response Resolve Case Api V1 Spend Price Cases  Case Id  Resolve
                   Post
         '422':
@@ -3744,6 +3839,7 @@ components:
           minLength: 2
           title: Itype
         settings:
+          additionalProperties: true
           type: object
           title: Settings
         secret_ref:
@@ -4346,6 +4442,7 @@ components:
           type: string
           title: Name
         args:
+          additionalProperties: true
           type: object
           title: Args
       type: object
@@ -4396,6 +4493,7 @@ components:
           minLength: 1
           title: Status
         payload:
+          additionalProperties: true
           type: object
           title: Payload
       type: object

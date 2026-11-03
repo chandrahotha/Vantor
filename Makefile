@@ -1,4 +1,4 @@
-.PHONY: help install lint typecheck test test-backend test-frontend test-worker build verify up down clean
+.PHONY: help install lint typecheck test test-backend test-frontend test-worker build verify contract up down clean
 
 PYTHON ?= $(shell which python3 2>/dev/null || which python 2>/dev/null || echo python)
 RUFF ?= $(shell which ruff 2>/dev/null || echo ruff)
@@ -14,6 +14,8 @@ install: ## Install frontend and backend dependencies
 	cd backend && $(PYTHON) -m pip install -r requirements.txt
 	@echo "Installing worker dependencies..."
 	cd worker && $(PYTHON) -m pip install -r requirements.txt
+	@echo "Installing contract tooling (PyYAML — renders api/openapi.yaml)..."
+	$(PYTHON) -m pip install "pyyaml==6.0.3"
 	@echo "Installing frontend dependencies..."
 	npm --prefix frontend install
 
@@ -39,6 +41,9 @@ test: test-backend test-worker test-frontend ## Run all test suites
 
 build: ## Build frontend production Next.js bundle
 	npm --prefix frontend run build
+
+contract: ## Regenerate the committed OpenAPI contract (api/openapi.json + .yaml)
+	$(PYTHON) scripts/generate_openapi.py
 
 verify: ## Run full repository verification pipeline
 	@bash scripts/verify_all.sh

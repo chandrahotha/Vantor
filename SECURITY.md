@@ -43,6 +43,13 @@ not claimed.
   read.
 - **Rate limiting**, per route and per identity, with separate read and write
   budgets.
+- **CORS is an explicit allowlist, and it fails closed.** Only origins on the
+  list — `APP_URL`, `API_URL`, and the local development origins outside
+  production — receive a grant; every other origin gets none. The grant is
+  applied to error responses as well as successful ones, so a cross-origin
+  client can read an API error instead of seeing an opaque network failure.
+  If you serve the web app from an origin that is not on the list, add it to
+  `APP_URL`; a request from an unlisted origin is refused, not redirected.
 - **Security headers** on both the API and the web app — see the
   [Content-Security-Policy](#where-the-content-security-policy-actually-applies)
   section below.
@@ -66,9 +73,6 @@ Stated plainly so nobody relies on them:
   scanned. Put a scanner in front of the storage path if you need one.
 - **No OCR.** A scanned document with no text layer is quarantined, not
   processed. There is no OCR sandbox to isolate.
-- **No CORS middleware.** The API does not send `Access-Control-Allow-Origin`
-  headers. If you serve the web app from a different origin than the API,
-  put a proxy in front rather than relying on CORS.
 - **No CSRF tokens.** Authentication is a bearer token in an `Authorization`
   header, not a cookie, so there is no cookie-authenticated endpoint for a
   CSRF token to protect. If you add cookie authentication, add CSRF

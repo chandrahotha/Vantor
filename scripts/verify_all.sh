@@ -71,5 +71,21 @@ echo "==> 16. Building Frontend Production Bundle (next build)..."
 npm run build
 
 cd "$REPO_ROOT"
+
+echo "==> 17. Checking the Committed OpenAPI Contract Matches the Code..."
+# The contract is committed twice (api/openapi.json and api/openapi.yaml) and
+# both are regenerated from one `app.openapi()` call, so neither can drift.
+# PyYAML renders the YAML copy; without it the JSON is still checked and the
+# YAML is reported as unchecked rather than silently passed.
+if "$PYTHON" -c "import yaml" >/dev/null 2>&1; then
+  "$PYTHON" scripts/generate_openapi.py
+  git diff --exit-code -- api/openapi.json api/openapi.yaml || (
+    echo "the committed OpenAPI contract is stale - run 'make contract' and commit the result" && exit 1
+  )
+else
+  echo "    PyYAML is not installed - api/openapi.yaml was NOT checked."
+  echo "    Install it with: pip install pyyaml==6.0.3"
+fi
+
 echo ""
 echo "All verification checks passed successfully! Repository is production-ready."

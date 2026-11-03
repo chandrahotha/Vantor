@@ -65,9 +65,18 @@ def error_envelope(code: str, message: str, details: Any = None, request_id: str
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    def _harden(resp: JSONResponse, rid: str) -> JSONResponse:
+    def _harden(request: Request, resp: JSONResponse, rid: str) -> JSONResponse:
         # Error paths bypass SecurityHeadersMiddleware — harden here instead.
-        from .secheaders import apply_security_headers
+        #
+        # They bypass it because Starlette installs a catch-all `Exception`
+        # handler on `ServerErrorMiddleware`, the outermost layer, outside every
+        # `add_middleware` call. A response produced here therefore never passes
+        # back through the CORS middleware either, so it also has to carry the
+        # CORS headers itself. Without them the browser could not read the error
+        # envelope at all: the API returned a precise `INTERNAL_ERROR` and the
+        # page reported an opaque "Failed to fetch", which is the opposite of
+        # what the envelope is for.
+        from .secheaders import apply_cors_headers, apply_security_headers, origin_allowed
 
         try:
             from .config import get_settings
@@ -76,6 +85,8 @@ def install_error_handlers(app: FastAPI) -> None:
         except Exception:
             prod = False
         apply_security_headers(resp, is_prod=prod)
+        origin = request.headers.get("origin", "")
+        apply_cors_headers(resp, origin=origin, allowed=origin_allowed(origin))
         resp.headers["X-Request-ID"] = rid
         return resp
 
@@ -84,7 +95,7 @@ def install_error_handlers(app: FastAPI) -> None:
         rid = getattr(request.state, "request_id", "")
         # ctx may hold non-serializable objects — coerce safely.
         details = jsonable_encoder(exc.errors(), custom_encoder={Exception: str})
-        return _harden(JSONResponse(
+        return _harden(request, JSONResponse(
             status_code=422,
             content=error_envelope("VALIDATION_FAILED", "Request validation failed", details, rid),
         ), rid)
@@ -104,13 +115,13 @@ def install_error_handlers(app: FastAPI) -> None:
                     503: "UNAVAILABLE"}.get(exc.status_code, "REQUEST_FAILED")
             message = detail if isinstance(detail, str) else "Request failed"
             extra = {} if isinstance(detail, str) else jsonable_encoder(detail, custom_encoder={Exception: str})
-        return _harden(JSONResponse(status_code=exc.status_code, content=error_envelope(code, message, extra, rid)), rid)
+        return _harden(request, JSONResponse(status_code=exc.status_code, content=error_envelope(code, message, extra, rid)), rid)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:  # noqa: BLE001
         rid = getattr(request.state, "request_id", "")
         # Never leak internals; log full traceback via structlog/uvicorn upstream.
-        return _harden(JSONResponse(
+        return _harden(request, JSONResponse(
             status_code=500,
             content=error_envelope("INTERNAL_ERROR", "Unexpected error processing request", {}, rid),
         ), rid)

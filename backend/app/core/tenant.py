@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, make_url, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -64,13 +64,45 @@ def get_engine():  # type: ignore[no-untyped-def]
         settings = get_settings()
         url = settings.database_url_resolved
         if url.startswith("sqlite"):
-            # Unit-test / local only: shared in-memory DB across threads
-            # (StaticPool + shared cache) so TestClient sees created tables.
-            _engine = create_engine(
-                url,
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool,
-            )
+            # Two different SQLite deployments were being given the same pool,
+            # and only one of them needed it.
+            #
+            # **In-memory** SQLite (`sqlite://`, `sqlite:///:memory:`) is one
+            # database that exists only for the lifetime of its connection, so
+            # every session must share that one connection — `StaticPool` is
+            # the only pool that can do that, and `check_same_thread=False`
+            # lets the test client and the request threads share it.
+            #
+            # **File-backed** SQLite (`sqlite:///./vantor.db`) is an ordinary
+            # database on disk. Forcing it through the same pool gave the
+            # single-container deployment *one connection shared by every
+            # request thread*, and a SQLite connection is not safe for
+            # concurrent use: two requests interleaving on it produced
+            # `sqlite3.InterfaceError: bad parameter or other API misuse` and
+            # `IndexError: tuple index out of range` inside SQLAlchemy's
+            # result processing. Those surfaced as 500s the browser could not
+            # read, because a response produced by an unhandled exception never
+            # passes back through the CORS middleware — so the page saw an
+            # opaque network error instead of an error it could act on.
+            #
+            # The file-backed case therefore uses the dialect's own default
+            # (`QueuePool`, `check_same_thread=False`), which hands each thread
+            # its own connection. This is the same pool SQLAlchemy chooses on
+            # its own for a file database.
+            database = make_url(url).database
+            in_memory = database in (None, "", ":memory:")
+            if in_memory:
+                _engine = create_engine(
+                    url,
+                    connect_args={"check_same_thread": False},
+                    poolclass=StaticPool,
+                )
+            else:
+                _engine = create_engine(
+                    url,
+                    connect_args={"check_same_thread": False},
+                    pool_pre_ping=True,
+                )
         else:
             _engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20)
     return _engine

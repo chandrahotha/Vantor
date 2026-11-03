@@ -141,9 +141,28 @@ def test_every_linked_column_should_have_a_foreign_key():
 
 
 def test_invoice_with_cross_po_line_is_rejected(pg_client):
-    """In SQLite the bad cross-PO link was silently written. On Postgres the FK says no."""
+    """In SQLite the bad cross-PO link was silently written. On Postgres the FK says no.
+
+    Two validation gates guard `POST /purchase-orders/{pid}/invoices`, and they
+    run in a fixed order: the PO's own state is checked first, then whether
+    each cited line belongs to that PO. A test that posts against a `draft` PO
+    therefore never reaches the second gate — it gets `INVOICE_PO_NOT_READY`
+    and stops there, so the cross-PO-line path is never exercised at all.
+
+    That is what this test did. It asserted `INVOICE_LINE_NOT_ON_PO` against a
+    freshly created PO, which is `draft`, so it failed on the first gate rather
+    than on the thing it was written to prove. The equivalent SQLite-tier test
+    (`tests/test_approvals.py`) approves and sends the PO first for exactly
+    this reason.
+
+    Both gates are asserted here, in the order they run, so neither is left
+    untested and the precedence is pinned rather than incidental.
+    """
     c, pem, tenant = pg_client
     h = _h(pem, tenant=tenant)
+    # SoD: the PO creator cannot approve their own PO, so the approver is a
+    # different subject.
+    approver_h = _h(pem, sub="pg-approver", tenant=tenant, roles=("Procurement Manager", "Approver"))
     sup = c.post("/api/v1/suppliers", json={"code": "S-PG", "name": "PG Supplier"}, headers=h).json()["data"]["id"]
     po1 = c.post("/api/v1/purchase-orders", json={"code": "PO-PG-1", "supplier_id": sup, "currency": "USD",
                                                   "lines": [{"description": "Bolt", "quantity": 1, "unit_price_minor": 10}]},
@@ -152,9 +171,20 @@ def test_invoice_with_cross_po_line_is_rejected(pg_client):
                                                   "lines": [{"description": "Nut", "quantity": 1, "unit_price_minor": 10}]},
                  headers=h).json()["data"]["id"]
     l1 = c.get(f"/api/v1/purchase-orders/{po1}", headers=h).json()["data"]["lines"][0]["id"]
-    bad = c.post(f"/api/v1/purchase-orders/{po2}/invoices",
-                 json={"code": "INV-PG", "lines": [{"po_line_id": l1, "quantity": 1, "unit_price_minor": 10}]},
-                 headers=h)
+    bad_body = {"code": "INV-PG", "lines": [{"po_line_id": l1, "quantity": 1, "unit_price_minor": 10}]}
+
+    # Gate 1 — the PO is still `draft`, so the state check answers first.
+    not_ready = c.post(f"/api/v1/purchase-orders/{po2}/invoices", json=bad_body, headers=h)
+    assert not_ready.status_code == 422
+    assert not_ready.json()["error"]["code"] == "INVOICE_PO_NOT_READY"
+
+    # Put the PO in a state where an invoice is allowed at all, so gate 2 is
+    # the one under test.
+    assert c.post(f"/api/v1/purchase-orders/{po2}/approve", headers=approver_h).status_code == 200
+    assert c.post(f"/api/v1/purchase-orders/{po2}/send", headers=h).status_code == 200
+
+    # Gate 2 — `l1` belongs to PO-PG-1, not to PO-PG-2.
+    bad = c.post(f"/api/v1/purchase-orders/{po2}/invoices", json=bad_body, headers=h)
     assert bad.status_code == 422
     assert bad.json()["error"]["code"] == "INVOICE_LINE_NOT_ON_PO"
 

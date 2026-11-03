@@ -32,6 +32,40 @@ function documentLabel(a: Approval): string {
   return a.resourceCode ? `${a.resourceCode}` : `${a.resource} ${a.resourceId.slice(0, 8)}`;
 }
 
+/** Human-readable name for the kind of document an approval is about.
+ *
+ *  The Document column shows the code — `REQ-…`, `PO-…` — and the type was
+ *  encoded only in that prefix. A prefix is a convention, not a label: the
+ *  queue mixes requisitions, purchase orders and AI action requests, and
+ *  approving a purchase order and approving a requisition are different acts
+ *  with different consequences. The type is now stated in its own column
+ *  rather than left for the reader to infer. */
+const RESOURCE_LABEL: Record<string, string> = {
+  requisition: "Requisition",
+  purchase_order: "Purchase order",
+  invoice: "Invoice",
+  rfq: "RFQ",
+  quote: "Quote",
+  award: "Award",
+  contract: "Contract",
+  supplier: "Supplier",
+  document: "Document",
+  catalog: "Catalogue item",
+  budget: "Budget",
+  integration: "Integration",
+  webhook: "Webhook",
+};
+
+export function resourceLabel(resource: string): string {
+  const known = RESOURCE_LABEL[resource];
+  if (known) return known;
+  // AI action requests are stored as `ai:<action>`.
+  if (resource.startsWith("ai:")) return `AI: ${resource.slice(3)}`;
+  // An unrecognised type still gets a readable label rather than a raw key.
+  const words = resource.replace(/[_-]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : resource;
+}
+
 const TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
   requested: "warn", approved: "ok", rejected: "bad",
 };
@@ -112,6 +146,9 @@ export default function Approvals() {
   }
 
   const columns: Column<Approval>[] = [
+    {
+      key: "type", header: "Type", render: (a: Approval) => <span className="mono">{resourceLabel(a.resource)}</span>,
+    },
     {
       key: "resource", header: "Document",
       render: (a: Approval) => RESOURCE_PATH[a.resource] ? (

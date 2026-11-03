@@ -126,3 +126,75 @@ def test_error_responses_still_hardened():
     assert r.status_code == 401  # auth first, still enveloped + hardened
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert r.headers["X-Request-ID"] == r.json()["requestId"]
+
+
+def test_error_responses_carry_the_cors_grant():
+    """An error the browser cannot read is an error the browser cannot report.
+
+    The API answers a failed request with a precise envelope — a code, a
+    message, a request id. That envelope is only useful if the client can read
+    it, and a client on a different origin can only read it if the response
+    carries the CORS grant. The web app is a different origin from the API in
+    every deployment that is not the single-container image, so without this
+    header the app's own error handling never saw an API error at all.
+    """
+    r = client.get("/api/v1/suppliers/does-not-exist", headers={"Origin": "http://localhost:3000"})
+    assert r.status_code == 401
+    assert r.headers["Access-Control-Allow-Origin"] == "http://localhost:3000"
+
+
+def test_unhandled_error_responses_carry_the_cors_grant():
+    """A 500 is the response a client most needs, and it is the one that was invisible.
+
+    Starlette installs a catch-all `Exception` handler on `ServerErrorMiddleware`,
+    which sits *outside* every `add_middleware` call. A response produced there
+    never passes back through the CORS middleware, so it has to carry the grant
+    itself — otherwise the browser reports an opaque "Failed to fetch" in place
+    of the `INTERNAL_ERROR` envelope the API built.
+
+    The route that raises is added to a throwaway application rather than to
+    the product app: a route on the product app would change the committed
+    OpenAPI contract.
+    """
+    from fastapi import FastAPI
+
+    from app.core.errors import install_error_handlers
+    from app.core.secheaders import SecurityHeadersMiddleware
+
+    mini = FastAPI()
+
+    @mini.get("/boom")
+    async def boom() -> None:
+        raise RuntimeError("boom")
+
+    mini.add_middleware(SecurityHeadersMiddleware)
+    install_error_handlers(mini)
+
+    mini_client = TestClient(mini, raise_server_exceptions=False)
+    r = mini_client.get("/boom", headers={"Origin": "http://localhost:3000"})
+    assert r.status_code == 500
+    assert r.headers["Access-Control-Allow-Origin"] == "http://localhost:3000"
+    assert r.headers["Access-Control-Allow-Credentials"] == "true"
+    assert r.json()["error"]["code"] == "INTERNAL_ERROR"
+
+
+def test_unhandled_error_responses_do_not_grant_an_unknown_origin():
+    """The grant still fails closed for an origin that is not on the allowlist."""
+    from fastapi import FastAPI
+
+    from app.core.errors import install_error_handlers
+    from app.core.secheaders import SecurityHeadersMiddleware
+
+    mini = FastAPI()
+
+    @mini.get("/boom")
+    async def boom() -> None:
+        raise RuntimeError("boom")
+
+    mini.add_middleware(SecurityHeadersMiddleware)
+    install_error_handlers(mini)
+
+    mini_client = TestClient(mini, raise_server_exceptions=False)
+    r = mini_client.get("/boom", headers={"Origin": "https://evil.test"})
+    assert r.status_code == 500
+    assert "Access-Control-Allow-Origin" not in r.headers
