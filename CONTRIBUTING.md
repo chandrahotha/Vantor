@@ -31,6 +31,26 @@ gh pr create --fill
 Object storage is BYO S3-compatible (`S3_ENDPOINT`/`S3_BUCKET` in `.env`) or local-disk
 in development; there is no bundled MinIO service.
 
+### Images are pinned by digest
+
+Every container image the project runs — the compose stack and the CI service
+containers alike — is pinned to a digest rather than a tag. A tag is a mutable
+name: `redis:7-alpine` can point at different bytes tomorrow, so a rebuilt
+upstream tag silently changes what was tested.
+
+`python scripts/pin_digests.py --check` is the gate. It is offline and runs on
+every push:
+
+- the **compose** images are pinned through `.env` indirection, so a developer
+  can override them without editing the compose file;
+- the **CI** images are pinned inline in `.github/workflows/ci.yml`, because a
+  CI job has no `.env` and the workflow is what names the image.
+
+Refresh the compose digests with `python scripts/pin_digests.py` (network
+access required). The CI digests are literals in the workflow — update them by
+hand when an image needs to move, and the `--check` gate will tell you if you
+forget.
+
 ## The tiers CI runs
 
 | Tier | When | What it needs |
