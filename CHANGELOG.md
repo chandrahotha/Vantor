@@ -144,6 +144,27 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Changed
 
+- **The CI service containers are digest-pinned, and the gate now covers
+  them.** The five images the compose stack runs were pinned to a digest;
+  the two the CI jobs run — `redis:7-alpine` for the worker tier and
+  `pgvector/pgvector:pg16` for the Postgres tier — were still mutable tags.
+  The reason for pinning is the same in both places: a tag is a mutable name,
+  so a rebuilt upstream tag silently changes what was tested, and the CI job
+  that reported green was not necessarily testing the same bytes as the last
+  one. The compose images are pinned through `.env` indirection because a
+  developer can override them without editing the compose file; the CI images
+  are pinned inline in the workflow, because a CI job has no `.env` and the
+  workflow is what names the image.
+  `scripts/pin_digests.py --check` — the offline gate CI runs on every push —
+  now parses the workflow's `image:` lines as well, and fails on an unpinned
+  or malformed digest. The check is deliberately strict: a dynamically
+  interpolated image is rejected rather than skipped, because a gate that
+  quietly exempts a line is a gate with a hole in it, and the exempt line
+  would be the one image that changes without a commit.
+  Both pinned digests were verified against the upstream manifest lists and
+  the tiers were re-run against the digest-pinned containers: the Alembic
+  drill and the 11 Postgres-backed tests on PostgreSQL 16 with pgvector
+  0.8.7, and the 38 worker tests on Redis.
 - **The CI tiers that were never run now run.** The `postgres-tier` and
   `e2e-tier` jobs were `workflow_dispatch`-only, and the single time the
   workflow was dispatched it failed in the `policy` job before reaching any

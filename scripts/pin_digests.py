@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve and record immutable digests for every image in the compose file.
+"""Resolve and record immutable digests for every image the project runs.
 
 VNT-035. The stack referenced `minio/minio:latest` and `ollama/ollama:latest`
 behind environment indirection, so two people running the same commit could get
@@ -13,6 +13,20 @@ still pulls successfully -- it just pulls the old thing. So the digests live in
 `.env` next to the image names, and `--check` (offline, no registry access) is
 what CI runs: it fails when a digest is missing or is still a placeholder. The
 network is only needed to *refresh*.
+
+Two places name an image, and both are checked
+----------------------------------------------
+* **`docker-compose.yml`** — the images a developer runs. These are pinned
+  through `.env` indirection, because the compose file is meant to be
+  editable by a developer who has their own `.env`.
+* **`.github/workflows/ci.yml`** — the images the CI jobs run. These are pinned
+  inline in the workflow, because a CI job has no `.env` and the workflow is
+  what names the image. The reason for pinning is identical, so the same
+  `--check` gate polices both.
+
+The compose file's `image:` lines are a different shape from the workflow's:
+compose interpolates `${VAR:-image}@${DIGEST_VAR:-...}`, and a workflow names
+a literal `image: repo:tag@sha256:...`. Two parsers, one gate.
 
 Usage:
     python scripts/pin_digests.py            # resolve and write digests to .env
@@ -44,6 +58,11 @@ ENV_FILE = ROOT / ".env"
 #: change, the pin follows automatically.
 COMPOSE = ROOT / "docker-compose.yml"
 
+#: The CI workflow. Its service images are pinned inline rather than through
+#: `.env` indirection: a CI job has no `.env`, and the workflow is the file
+#: that names the image, so that is where the pin belongs.
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
 PLACEHOLDER_DIGEST = "sha256:" + "0" * 64
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE_RE = re.compile(
@@ -51,6 +70,12 @@ IMAGE_RE = re.compile(
     r"\$\{(?P<var>[A-Z0-9_]+):-(?P<image>[^}]+)\}"
     r"@\$\{(?P<digestvar>[A-Z0-9_]+):-(?P<default>[^}]+)\}\s*$"
 )
+
+#: A workflow's `image:` key with a literal scalar value — a GitHub Actions
+#: `services:` entry or a `container:` block. Deliberately a plain scalar:
+#: compose's `image:` lines interpolate `${VAR:-...}` and are handled by
+#: `IMAGE_RE` instead.
+CI_IMAGE_RE = re.compile(r"^\s*image:\s*(?P<ref>[^\s#]+)\s*(?:#.*)?$")
 
 #: Manifest media types to ask for. Asking for the list gives us the multi-arch
 #: index digest, which is what `image@sha256:` must point at: the per-architecture
@@ -75,6 +100,53 @@ def parse_compose_images(text: str) -> list[tuple[str, str, str, str]]:
                 (m.group("var"), m.group("digestvar"), m.group("image"), m.group("default"))
             )
     return found
+
+
+def parse_ci_images(text: str) -> list[tuple[int, str]]:
+    """Return `(line number, image reference)` for every `image:` line.
+
+    The line number is carried because a workflow is long and a bare image
+    name does not say where it is; the failure message has to point at the
+    exact line to be actionable.
+    """
+    found: list[tuple[int, str]] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        m = CI_IMAGE_RE.match(raw)
+        if m:
+            found.append((number, m.group("ref")))
+    return found
+
+
+def check_ci_images(text: str) -> list[str]:
+    """Every container image a CI job runs must be pinned to a digest.
+
+    The rule is deliberately strict: an `image:` line in the workflow must
+    carry a literal `@sha256:<64 hex>`. A dynamically interpolated image
+    (`${{ ... }}`) is therefore rejected rather than skipped, because a gate
+    that quietly exempts a line is a gate with a hole in it — and exempting
+    one here would mean the *one* image that changes without a commit is the
+    one the gate does not see. If a dynamic image is ever genuinely needed,
+    that is a deliberate change to this check, not something to slip through.
+    """
+    problems: list[str] = []
+    for number, ref in parse_ci_images(text):
+        if "@" not in ref:
+            problems.append(
+                f"{CI_WORKFLOW.name} line {number}: {ref} is not digest-pinned. "
+                "Use `image: repo:tag@sha256:<64 hex>`"
+            )
+            continue
+        _name, _, digest = ref.rpartition("@")
+        if not DIGEST_RE.match(digest):
+            problems.append(
+                f"{CI_WORKFLOW.name} line {number}: {ref} has a malformed digest "
+                f"{digest!r} — expected sha256:<64 hex>"
+            )
+        if ":latest" in ref:
+            problems.append(
+                f"{CI_WORKFLOW.name} line {number}: {ref} uses a mutable `latest` tag"
+            )
+    return problems
 
 
 def split_reference(ref: str) -> tuple[str, str]:
@@ -180,16 +252,20 @@ def read_env(path: pathlib.Path) -> list[str]:
 def check(images, env_lines) -> int:
     """Offline verification. No registry access: this is the CI gate.
 
-    Two separate things are checked, because they fail for different reasons and
-    only one of them can be checked in CI:
+    Three separate things are checked, because they fail for different reasons
+    and only some of them can be checked in CI:
 
-    * **Structural** — every `image:` line is of the form
+    * **Structural (compose)** — every `image:` line is of the form
       `${VAR:-name:tag}@${DIGEST_VAR:-...}` and no tag is `latest`. This needs
       nothing but the compose file, so it is the part CI can enforce on every
       push, and it is what catches someone reverting a service to a mutable tag.
     * **Values** — if a `.env` exists, the digests in it are real sha256 values
       rather than the zero placeholder. A developer's stale `.env` is caught
       here; CI has no `.env`, so this half is skipped there rather than faked.
+    * **Structural (CI workflow)** — every image a CI job runs carries a
+      literal digest. The CI images are pinned in the workflow rather than in
+      `.env`, and the reason is the same as for compose, so they are gated by
+      the same command.
     """
     present: dict[str, str] = {}
     for line in env_lines:
@@ -245,11 +321,24 @@ def check(images, env_lines) -> int:
             problems.append(
                 f"{digest_var} still matches the compose placeholder for {image}")
 
-    for p in problems:
-        print(f"FAIL {p}", file=sys.stderr)
+    # The CI workflow names its own images, inline. They are not in `.env`,
+    # so the compose half of this gate cannot see them.
+    ci_images: list[tuple[int, str]] = []
+    if CI_WORKFLOW.exists():
+        ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
+        ci_images = parse_ci_images(ci_text)
+        problems.extend(check_ci_images(ci_text))
+    else:
+        problems.append(f"{CI_WORKFLOW.name} is missing — the CI images cannot be checked")
+
     if problems:
+        for p in problems:
+            print(f"FAIL {p}", file=sys.stderr)
         return 1
-    print(f"all {len(images)} images are digest-pinned (structural check passed)")
+    print(
+        f"all {len(images)} compose images are digest-pinned and "
+        f"{len(ci_images)} CI service images are digest-pinned (structural check passed)"
+    )
     return 0
 
 
@@ -287,6 +376,44 @@ SELF_TEST_CASES = [
 ]
 
 
+#: (workflow text, expected problem count). The CI-image half of the gate has
+#: to be able to *fail*: a check that cannot fail is not a check. These cases
+#: pin both directions — a pinned image passes, an unpinned one is reported,
+#: and a malformed digest is not mistaken for a good one.
+CI_IMAGE_SELF_TEST_CASES = [
+    (
+        "      redis:\n"
+        "        image: redis:7-alpine@sha256:" + "a" * 64 + "\n",
+        0,
+    ),
+    (
+        "      redis:\n"
+        "        image: redis:7-alpine\n",
+        1,
+    ),
+    (
+        "      postgres:\n"
+        "        image: pgvector/pgvector:pg16@sha256:deadbeef\n",
+        1,
+    ),
+    (
+        "      postgres:\n"
+        "        image: pgvector/pgvector:latest@sha256:" + "b" * 64 + "\n",
+        1,
+    ),
+    (
+        "      redis:\n"
+        "        image: redis:7-alpine@sha256:" + "c" * 64 + "  # pinned\n",
+        0,
+    ),
+    (
+        # A comment mentioning `image:` must not be read as an image.
+        "      # image: redis:7-alpine\n",
+        0,
+    ),
+]
+
+
 def self_test() -> int:
     failures = []
     for ref, expected in SELF_TEST_CASES:
@@ -299,6 +426,13 @@ def self_test() -> int:
         name_segment = actual.rsplit("/manifests/", 1)[0]
         if tag in name_segment.rsplit("/", 1)[-1]:
             failures.append(f"{ref}: tag {tag!r} leaked into the name segment of {actual!r}")
+    for text, expected in CI_IMAGE_SELF_TEST_CASES:
+        found = check_ci_images(text)
+        if len(found) != expected:
+            failures.append(
+                f"CI image check: expected {expected} problem(s), got {len(found)} "
+                f"for {text!r} -> {found}"
+            )
     for f in failures:
         print(f"SELF-TEST FAIL: {f}", file=sys.stderr)
     return len(failures)
