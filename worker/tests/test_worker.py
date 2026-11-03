@@ -1,11 +1,16 @@
 """Worker wiring — the B-41 regression needs no Redis; the rest wants one.
 
 B-41: `worker.py` ended with `Worker(queues).work()` and no connection, which is
-an immediate `AttributeError` in the pinned rq 1.16.2 rather than a default:
+an immediate crash rather than a default:
 
-    rq/worker.py:147  connection = self._set_connection(connection)
-    rq/worker.py:298  if connection is None: connection = get_current_connection()
-    rq/worker.py:300  current_socket_timeout = connection.connection_pool...
+    rq 1.16.2  rq/worker.py:147  connection = self._set_connection(connection)
+               rq/worker.py:298  if connection is None: connection = get_current_connection()
+               rq/worker.py:300  current_socket_timeout = connection.connection_pool...
+               -> AttributeError: 'NoneType' object has no attribute 'connection_pool'
+
+    rq 3.0.0   the worker resolves a default connection first and then talks to
+               Redis, so the missing connection surfaces as
+               `redis.exceptions.ConnectionError` when the server cannot be reached.
 
 `get_current_connection()` resolves inside rq's fork-based work-horse. In the
 parent process — which is where the entrypoint runs — there is no current fork,
@@ -16,9 +21,11 @@ Worker.
 
 The two halves below are split on purpose.
 
-* `TestTheDefectThisFileExistsFor` needs nothing. The crash happens on line 300,
-  before rq opens a socket, so it is reproduced in any environment — this is the
-  regression and it runs everywhere, including in CI's worker job.
+* `TestTheDefectThisFileExistsFor` needs nothing but a port nothing listens on.
+  rq 1.16.2 crashed before it opened a socket; rq 3.0.0 fails when it cannot
+  reach Redis, so the test points the worker at a closed port. Either way the
+  crash is reproduced in any environment — this is the regression and it runs
+  everywhere, including in CI's worker job.
 * `TestWorkerConstruction` builds a real `rq.Worker`, and `Worker.__init__` calls
   `connection.client_setname(...)` at `rq/worker.py:205`, so it needs a reachable
   Redis. It skips without `RQ_TEST_REDIS_URL`; CI's worker job provides one.
@@ -33,6 +40,7 @@ import sys
 
 import pytest
 from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from rq import Queue, Worker
 
@@ -58,11 +66,17 @@ class TestTheDefectThisFileExistsFor:
     def test_the_omitted_connection_is_a_crash_not_a_default(self):
         # Pinned so a future refactor cannot quietly go back to the form that
         # looks idiomatic and crash-loops the container.
+        #
+        # The exception type moved with the rq major: rq 1.16.2 dereferenced a
+        # `None` connection and raised `AttributeError`, while rq 3.0.0 resolves
+        # a default connection and fails when it cannot reach Redis. Both are
+        # the same crash — a worker that is *constructed* is the bug, and which
+        # exception rq raises about it is rq's business, not ours.
         import warnings
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            with pytest.raises(AttributeError):
+            with pytest.raises((AttributeError, RedisConnectionError)):
                 Worker([Queue("default", connection=Redis.from_url("redis://127.0.0.1:1/0"))])
 
     def test_build_worker_hands_rq_a_connection_argument(self, monkeypatch):

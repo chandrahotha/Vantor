@@ -17,10 +17,11 @@ once-a-minute tick would add up to a minute of latency to every webhook for no
 reason.
 
 B-34 — this file previously crashed on boot. It called `RQScheduler(queue_name=...)`
-and `scheduler.schedule(...)`, neither of which exists in the pinned rq 1.16.2:
-the constructor takes `queues` + `connection`, and there is no `schedule` method
-at all. The compose `beat` service therefore died instantly and no recurring job
-had ever run. Verified against the installed library:
+and `scheduler.schedule(...)`, neither of which exists in rq 1.16.2 (the version
+it was written against) or in rq 3.0.0: the constructor takes `queues` +
+`connection`, and there is no `schedule` method at all. The compose `beat`
+service therefore died instantly and no recurring job had ever run. Verified
+against the installed library:
     RQScheduler(queues, connection, interval=1, ...)
     RQScheduler.work() -> acquire_locks() / enqueue_scheduled_jobs() / heartbeat()
 and `Queue.enqueue` has no `repeat` parameter, so a recurring schedule cannot be

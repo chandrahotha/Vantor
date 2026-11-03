@@ -405,14 +405,21 @@ def test_expiry_roll_is_idempotent_and_clock_injectable(client):
 def test_expiry_roll_uses_the_tenant_timezone(client, monkeypatch):
     """VNT-041: a tenant at UTC-12 reaches its own new year twelve hours before
     a UTC server does, which is a day of drift on a renewal notice."""
-    from datetime import datetime, timezone as _tz
+    from datetime import date, datetime, timezone as _tz
+    from zoneinfo import ZoneInfo
 
     from app.core.config import get_settings
     from app.core.tenant import pinned_session
     from app.routers.contracts import _tenant_today
 
+    def _local_date(zone: str, instant: datetime) -> date:
+        offset = ZoneInfo(zone).utcoffset(instant) or timedelta(0)
+        return (instant + offset).date()
+
     db = pinned_session("t1")
     try:
+        utc_before = datetime.now(_tz.utc)
+
         monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Kiritimati")  # UTC+14
         get_settings.cache_clear()
         kiritimati = _tenant_today(db, "t1")
@@ -420,9 +427,28 @@ def test_expiry_roll_uses_the_tenant_timezone(client, monkeypatch):
         monkeypatch.setenv("CONTRACT_TIMEZONE", "Pacific/Pago_Pago")  # UTC-11
         get_settings.cache_clear()
         pago_pago = _tenant_today(db, "t1")
-        # The two zones are 25 hours apart, so the local date can legitimately differ.
-        assert abs((kiritimati - pago_pago).days) <= 1
+
+        utc_after = datetime.now(_tz.utc)
         assert get_settings().contract_timezone == "Pacific/Pago_Pago"
+
+        # The invariant, stated without reference to the wall clock: each zone's
+        # local date is the UTC date shifted by that zone's own offset. The two
+        # reads may straddle UTC midnight, so each date must be the one that
+        # instant or its neighbour produces.
+        assert kiritimati in {_local_date("Pacific/Kiritimati", utc_before),
+                              _local_date("Pacific/Kiritimati", utc_after)}
+        assert pago_pago in {_local_date("Pacific/Pago_Pago", utc_before),
+                             _local_date("Pacific/Pago_Pago", utc_after)}
+
+        # Kiritimati is 25 hours ahead of Pago Pago, so their calendar dates are
+        # one or two days apart — never the same day, never three.
+        #
+        # The old assertion here was `abs((kiritimati - pago_pago).days) <= 1`,
+        # which is wrong once an hour: in the window where UTC+14 has already
+        # rolled over and UTC-11 has not, the dates are two days apart, and the
+        # test failed. It failed on every scheduled CI run that landed in that
+        # hour, which is how a green branch stayed red for three weeks.
+        assert 1 <= (kiritimati - pago_pago).days <= 2
 
         # An unknown deployment zone falls back to UTC rather than breaking the roll.
         monkeypatch.setenv("CONTRACT_TIMEZONE", "Not/AZone")

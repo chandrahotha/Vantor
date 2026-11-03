@@ -7,21 +7,103 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ## [Unreleased]
 
+### Security
+
+- **All 18 open Dependabot security alerts closed in one consolidated refresh.**
+  | Package | Alerts | From | To |
+  |---|---|---|---|
+  | `next` | 67–72 (runtime; 4 critical, 2 high) | 16.4.0 | 16.4.4 |
+  | `undici` | 66, 73, 75, 76 (dev; 3 high, 1 medium) | 8.12.1 | 8.12.3 |
+  | `vite` | 57–62 (dev; 1 high, 4 medium, 1 low) | 8.3.1 | 8.3.5 |
+  | `@vitest/mocker` | 63, 64 (dev; 2 medium) | 5.0.2 | 5.1.0 |
+
+  `eslint-config-next` moved in lockstep with `next` (they release together).
+  `vite` was an unpinned peer transitive that npm had left at the vulnerable
+  8.3.1; it is now an explicit devDependency so the advisory has a version to
+  move. `@vitest/mocker` could not be updated at all before this change —
+  `vitest` pinned it to an exact version, so Dependabot reported
+  "update not possible" and silently did nothing; `vitest` 5.1.0 unblocks it.
+  The `@vitest/mocker` and `vite` advisories were also unreachable behind
+  Dependabot's `open-pull-requests-limit`, which was exhausted by the backlog.
+- **Backend pins refreshed to current releases.** `fastapi` 0.162.0,
+  `starlette` 1.10.0, `uvicorn[standard]` 0.54.0, `pydantic` 2.14.2,
+  `pydantic-settings` 2.16.2, `SQLAlchemy` 2.1.6, `alembic` 1.20.1,
+  `psycopg[binary]` 3.3.6, `pgvector` 0.5.1, `PyJWT` 2.15.1,
+  `cryptography` 50.0.2, `httpx` 0.28.1, `python-multipart` 0.0.33,
+  `redis` 8.1.0, `pytest` 9.2.0, `pytest-asyncio` 1.4.1. `starlette` is now
+  named explicitly: it is a transitive of `fastapi`, and seven advisories
+  (DoS, request smuggling) live there — `pip-audit` only sees what is
+  resolvable, so the security-relevant transitive must be pinned, not left to
+  the resolver.
+
 ### Fixed
 
-- **6 Dependabot alerts on `next` 16.3.6 (1 high, 4 medium, 1 low).** Bumped
-  `next` + `eslint-config-next` 16.3.6 → 16.4.0 (SSRF in image optimization,
-  SSG/ISR cache poisoning, metadata-route disclosure, MCP endpoint disclosure,
-  Draft Mode leak). Frontend gates re-verified: typecheck, lint, 166 vitest,
-  production build.
 - **Dependency audits are now real CI gates** (README and SECURITY.md already
   claimed they were). `pip-audit --strict` on backend + worker requirements,
   `npm audit --omit=dev --audit-level=high` on the frontend production
   surface. Known accepted risk documented in `frontend/README.md`: `braces`
   GHSA-vfj7-8cjw-p6xm has no upstream patch and is dev/lint-time only.
+- **Three weeks of red `main` was one flaky test, not a broken branch.**
+  `backend/tests/test_contract_authority.py::test_expiry_roll_uses_the_tenant_timezone`
+  asserted `abs((kiritimati - pago_pago).days) <= 1`, but those zones are 25
+  hours apart, so their calendar dates legitimately differ by one *or two*
+  days. The test failed in the UTC window where UTC+14 has already rolled
+  over and UTC-11 has not — and GitHub's scheduled weekly cron landed inside
+  it. The assertion is now `1 <= (kiritimati - pago_pago).days <= 2`, and each
+  zone's local date is checked against its own offset-shifted date
+  (`utc_before`/`utc_after` bracketing, so the test is race-free at UTC
+  midnight). Verified against all 24 UTC hours.
+- **Three `mypy` errors that SQLAlchemy 2.1 exposes.**
+  `backend/app/core/idempotency.py` — `Session.execute` is typed as returning
+  a `Result`, which has no `rowcount`; the object it actually returns for DML
+  is a `CursorResult`, which does, so the call is now explicitly cast.
+  `backend/app/services/price_intel.py` — `Invoice.po_id` is nullable, and the
+  type now says so instead of pretending the value is always present.
+  `backend/app/routers/spend.py` — `SpendTransaction.supplier_id` is nullable,
+  so the supplier-name lookup is guarded.
+- **`rq` 3.0.0 compatibility.** The worker is pinned to `rq` 3.0.0. rq 3
+  resolves a default connection and then talks to Redis, so the B-41
+  regression (a worker constructed without a connection) now surfaces as
+  `redis.exceptions.ConnectionError` rather than `AttributeError`. The
+  regression test accepts either — the crash is the point, not the exception
+  type rq chooses to raise it with. `rq` was also removed from
+  `backend/requirements.txt`: the backend never imports it, and a second pin
+  is a second version to keep in step for no benefit.
 
 ### Changed
 
+- **Dependabot config repaired (`.github/dependabot.yml`).** The file was
+  invalid YAML — the `updates:` key was missing, so Dependabot was reading a
+  bare list and the config never loaded. Beyond the syntax, three policy
+  faults let the backlog build for three weeks: `open-pull-requests-limit` was
+  3–5, so once that many PRs were open Dependabot stopped proposing anything
+  (now 10); the `docker` ecosystem does not recurse, so the single `/` entry
+  tracked one of five Dockerfiles (now one entry per directory); and the
+  `vitest` family had no group, so `@vitest/mocker` — which `vitest` pins to
+  an exact version — could never resolve on its own (now a `vitest-stack`
+  group covering `vitest`, `@vitest/mocker`, `@vitest/coverage-v8`, `vite` and
+  `@vitejs/plugin-react`). Added `python-security` / `python-runtime` /
+  `nextjs` / `react-stack` groups and `ignore` rules for updates that can
+  never pass CI: `typescript >= 7.0.0` (typescript-eslint supports
+  `>=4.8.4 <6.1.0`; TypeScript 7 is the Go-native port) and `@types/node >= 23`
+  / `node >= 23-alpine` (the frontend ships on Node 22).
+- **TypeScript 5.9.3 → 6.0.3.** Verified end-to-end: typecheck, lint,
+  166 vitest tests and a production build all pass.
+- **CI actions moved to current majors.** `actions/checkout@v7`,
+  `actions/setup-python@v7`, `actions/setup-node@v7`,
+  `actions/upload-artifact@v7`, `softprops/action-gh-release@v3`.
+- **Python 3.13 → 3.14** across `ci.yml`, `release.yml` and every base image
+  (`Dockerfile`, `backend/Dockerfile`, `worker/Dockerfile`,
+  `deploy/keycloak/Dockerfile` → `python:3.14-slim`). Every binary dependency
+  in the backend and worker requirement sets has a cp314 wheel.
+- **Frontend devDependencies refreshed.** `eslint` 10.14.0, `jsdom` 30.1.3,
+  `@playwright/test` 1.64.1, `@types/node` 22.20.5 (held to match the Node 22
+  runtime), `@testing-library/*` current, `@vitejs/plugin-react` 6.2.1,
+  `vite` 8.3.5, `vitest` 5.1.0, `@vitest/coverage-v8` 5.1.0. An obsolete
+  `eslint-disable-next-line @next/next/no-img-element` was removed from
+  `frontend/app/opengraph-image.tsx` — ESLint 10 flagged it as unused.
+- **`api/openapi.json` regenerated** against FastAPI 0.162.0, which now emits
+  `additionalProperties: true` on plain-object response models.
 - **Public-repo documentation cleanup.** Removed the internal working set from
   the published docs: `docs/00-plan/audit-findings/` (60+ finding registers),
   `SESSION.md`, `SCORECARD.md`, `BUGS.md`, `PRODUCTION_READINESS.md`,
@@ -32,14 +114,21 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   386 backend tests, 166 frontend tests, 15 routes, 98 API operations.
 - **CI hardening (`.github/workflows/ci.yml`).** Least-privilege
   `permissions: contents: read`, `concurrency` cancel-in-progress,
-  `actions/checkout@v5`, docs gate scoped to the surviving files.
-- **Release workflow (`.github/workflows/release.yml`).** `checkout@v5`,
-  Python 3.13, pre-1.0 releases marked `prerelease: true`.
-- **Dependabot (`.github/dependabot.yml`).** Removed the dead root `pip` entry
-  (no requirements file at root), added `docker` ecosystem for base images,
-  clarified the Next.js group.
+  docs gate scoped to the surviving files.
+- **Release workflow (`.github/workflows/release.yml`).** Pre-1.0 releases
+  marked `prerelease: true`.
 - **Single-container image (`Dockerfile`).** Runtime base `python:3.12-slim` →
-  `3.13-slim`, aligned with `backend/Dockerfile` and CI.
+  `3.14-slim`, aligned with `backend/Dockerfile` and CI.
+
+### Known accepted risk
+
+- `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate) arrives transitively
+  through `eslint-plugin-import`, `eslint-plugin-react` and
+  `eslint-plugin-jsx-a11y`. The fix exists, but `minimatch` v3's default export
+  is a callable CJS function and v11's is not — those plugins call
+  `minimatch(path, pattern)` directly, so forcing the upgrade replaces one
+  lint-tool crash with another. Dev-only, lint-time, repo-controlled patterns.
+  Documented in `frontend/README.md` alongside `braces`.
 
 ## [0.8.0] - 2026-10-07
 

@@ -18,6 +18,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Health Api V1 Health Get"
                 }
@@ -41,6 +42,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Ops Metrics Api V1 Ops Metrics Get"
                 }
@@ -130,6 +132,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Create Session Api V1 Auth Session Post"
                 }
@@ -163,6 +166,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response List Personas Api V1 Auth Personas Get"
                 }
@@ -186,6 +190,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Whoami Api V1 Auth Me Get"
                 }
@@ -214,6 +219,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Auth Config Api V1 Auth Config Get"
                 }
@@ -236,6 +242,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Me Api V1 Me Get"
                 }
@@ -263,6 +270,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Types Api V1 Integrations Types Get"
                 }
@@ -311,6 +319,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Integrations Api V1 Integrations Get"
                 }
               }
@@ -356,6 +365,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Register Api V1 Integrations Post"
                 }
               }
@@ -408,6 +418,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Endpoints Api V1 Webhooks Endpoints Get"
                 }
               }
@@ -454,6 +465,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Add Endpoint Api V1 Webhooks Endpoints Post"
                 }
               }
@@ -525,6 +537,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Deliveries Api V1 Webhooks Deliveries Get"
                 }
               }
@@ -574,6 +587,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Replay Delivery Api V1 Webhooks Deliveries  Did  Replay Post"
                 }
               }
@@ -626,6 +640,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Drain Queue Api V1 Webhooks Drain Post"
                 }
               }
@@ -668,6 +683,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Test Ping Api V1 Webhooks Test Post"
                 }
@@ -745,6 +761,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Notifs Api V1 Notifications Get"
                 }
               }
@@ -776,6 +793,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Unread Count Api V1 Notifications Unread Count Get"
                 }
@@ -820,6 +838,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Mark Read Api V1 Notifications  Nid  Read Post"
                 }
               }
@@ -901,6 +920,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Events Api V1 Audit Events Get"
                 }
               }
@@ -932,6 +952,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Verify Api V1 Audit Events Verify Get"
                 }
@@ -1009,6 +1030,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Items Api V1 Catalog Items Get"
                 }
               }
@@ -1054,6 +1076,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Item Api V1 Catalog Items Post"
                 }
               }
@@ -1095,6 +1118,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Set Budget Api V1 Budgets Post"
                 }
@@ -1132,6 +1156,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response List Categories Api V1 Catalog Categories Get"
                 }
@@ -1167,6 +1192,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Create Category Api V1 Catalog Categories Post"
                 }
@@ -1215,6 +1241,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Negotiate Api V1 Ai Negotiate Post"
                 }
@@ -1253,6 +1280,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Providers Api V1 Ai Providers Get"
                 }
@@ -1290,6 +1318,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Run Complete Api V1 Ai Complete Post"
                 }
@@ -1343,6 +1372,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
+                "additionalProperties": true,
                 "title": "Args"
               }
             }
@@ -1355,6 +1385,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Run Tool Api V1 Ai Tools  Name  Post"
                 }
               }
@@ -1414,6 +1445,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Decide Approval Api V1 Ai Approvals  Approval Id  Decide Post"
                 }
               }
@@ -1560,6 +1592,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Suppliers Api V1 Suppliers Get"
                 }
               }
@@ -1605,6 +1638,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Supplier Api V1 Suppliers Post"
                 }
               }
@@ -1653,6 +1687,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Supplier Api V1 Suppliers  Supplier Id  Get"
                 }
               }
@@ -1709,6 +1744,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Update Supplier Api V1 Suppliers  Supplier Id  Patch"
                 }
               }
@@ -1757,6 +1793,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Contacts Api V1 Suppliers  Supplier Id  Contacts Get"
                 }
               }
@@ -1813,6 +1850,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Add Contact Api V1 Suppliers  Supplier Id  Contacts Post"
                 }
               }
@@ -1871,6 +1909,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Post Scorecard Api V1 Suppliers  Supplier Id  Scorecard Post"
                 }
               }
@@ -1917,6 +1956,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Scorecard Api V1 Suppliers  Supplier Id  Scorecard Get"
                 }
               }
@@ -1965,6 +2005,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Certs Api V1 Suppliers  Supplier Id  Certifications Get"
                 }
               }
@@ -2021,6 +2062,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Add Cert Api V1 Suppliers  Supplier Id  Certifications Post"
                 }
               }
@@ -2079,6 +2121,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Verify Cert Api V1 Suppliers  Supplier Id  Certifications  Cert Id  Verify Post"
                 }
               }
@@ -2127,6 +2170,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Qual Api V1 Suppliers  Supplier Id  Qualification Get"
                 }
               }
@@ -2175,6 +2219,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Submit Qual Api V1 Suppliers  Supplier Id  Qualification Submit Post"
                 }
               }
@@ -2234,6 +2279,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Decide Qual Api V1 Suppliers  Supplier Id  Qualification Decide Post"
                 }
               }
@@ -2335,6 +2381,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Rfqs Api V1 Rfqs Get"
                 }
               }
@@ -2380,6 +2427,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Rfq Api V1 Rfqs Post"
                 }
               }
@@ -2428,6 +2476,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Rfq Api V1 Rfqs  Rfq Id  Get"
                 }
               }
@@ -2486,6 +2535,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Move Rfq Api V1 Rfqs  Rfq Id  Status Patch"
                 }
               }
@@ -2544,6 +2594,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Submit Quote Api V1 Rfqs  Rfq Id  Quotes Post"
                 }
               }
@@ -2592,6 +2643,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Comparison Api V1 Rfqs  Rfq Id  Comparison Get"
                 }
               }
@@ -2650,6 +2702,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Award Api V1 Rfqs  Rfq Id  Award Post"
                 }
               }
@@ -2709,6 +2762,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Optimize Api V1 Rfqs  Rfq Id  Optimize Post"
                 }
               }
@@ -2830,6 +2884,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Contracts Api V1 Contracts Get"
                 }
               }
@@ -2875,6 +2930,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Contract Api V1 Contracts Post"
                 }
               }
@@ -2923,6 +2979,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Contract Api V1 Contracts  Contract Id  Get"
                 }
               }
@@ -2982,6 +3039,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Move Contract Api V1 Contracts  Contract Id  Status Patch"
                 }
               }
@@ -3040,6 +3098,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Add Obligation Api V1 Contracts  Contract Id  Obligations Post"
                 }
               }
@@ -3092,6 +3151,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Roll Expiry Api V1 Contracts Roll Expiry Post"
                 }
               }
@@ -3151,6 +3211,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Sign Contract Api V1 Contracts  Contract Id  Sign Post"
                 }
               }
@@ -3207,6 +3268,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Provider Signature Callback Api V1 Contracts Signatures Provider Callback Post"
                 }
               }
@@ -3266,6 +3328,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Verify Signature Api V1 Contracts  Contract Id  Sign Verify Post"
                 }
               }
@@ -3315,6 +3378,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Signatures Api V1 Contracts  Contract Id  Signatures Get"
                 }
               }
@@ -3374,6 +3438,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Run Match Api V1 Contracts  Contract Id  Match Post"
                 }
               }
@@ -3421,6 +3486,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Upload Api V1 Documents Post"
                 }
               }
@@ -3500,6 +3566,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Docs Api V1 Documents Get"
                 }
               }
@@ -3595,6 +3662,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Extract Doc Api V1 Documents  Doc Id  Extract Post"
                 }
               }
@@ -3647,6 +3715,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Search Docs Api V1 Documents Search Get"
                 }
               }
@@ -3729,6 +3798,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Reqs Api V1 Requisitions Get"
                 }
               }
@@ -3774,6 +3844,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Req Api V1 Requisitions Post"
                 }
               }
@@ -3822,6 +3893,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Submit Req Api V1 Requisitions  Rid  Submit Post"
                 }
               }
@@ -3869,6 +3941,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Po Api V1 Purchase Orders Post"
                 }
               }
@@ -3948,6 +4021,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Pos Api V1 Purchase Orders Get"
                 }
               }
@@ -4040,6 +4114,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Approvals Api V1 Approvals Get"
                 }
               }
@@ -4099,6 +4174,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Decide Approval Endpoint Api V1 Approvals  Aid  Decide Post"
                 }
               }
@@ -4147,6 +4223,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Approve Po Api V1 Purchase Orders  Pid  Approve Post"
                 }
               }
@@ -4195,6 +4272,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Send Po Api V1 Purchase Orders  Pid  Send Post"
                 }
               }
@@ -4253,6 +4331,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Receive Api V1 Purchase Orders  Pid  Receipts Post"
                 }
               }
@@ -4312,6 +4391,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Cancel Po Api V1 Purchase Orders  Pid  Cancel Post"
                 }
               }
@@ -4371,6 +4451,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Close Po Api V1 Purchase Orders  Pid  Close Post"
                 }
               }
@@ -4420,6 +4501,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Match Invoice Api V1 Invoices  Iid  Match Post"
                 }
               }
@@ -4479,6 +4561,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Reject Invoice Api V1 Invoices  Iid  Reject Post"
                 }
               }
@@ -4538,6 +4621,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Pay Invoice Api V1 Invoices  Iid  Pay Post"
                 }
               }
@@ -4596,6 +4680,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Create Invoice Api V1 Purchase Orders  Pid  Invoices Post"
                 }
               }
@@ -4644,6 +4729,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Approve Invoice Api V1 Invoices  Iid  Approve Post"
                 }
               }
@@ -4692,6 +4778,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Po Api V1 Purchase Orders  Pid  Get"
                 }
               }
@@ -4784,6 +4871,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response List Invoices Api V1 Invoices Get"
                 }
               }
@@ -4832,6 +4920,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Get Invoice Api V1 Invoices  Iid  Get"
                 }
               }
@@ -4864,6 +4953,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Summary Api V1 Spend Summary Get"
                 }
@@ -4892,6 +4982,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Intelligence Api V1 Spend Intelligence Get"
                 }
@@ -4930,6 +5021,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Should Cost Api V1 Spend Should Cost Post"
                 }
@@ -4985,6 +5077,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Price Evaluate Api V1 Spend Price Evaluate  Po Id  Post"
                 }
               }
@@ -5057,6 +5150,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Price Cases Api V1 Spend Price Cases Get"
                 }
               }
@@ -5115,6 +5209,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Resolve Case Api V1 Spend Price Cases  Case Id  Resolve Post"
                 }
               }
@@ -5485,6 +5580,7 @@
             "title": "Itype"
           },
           "settings": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Settings"
           },
@@ -6312,6 +6408,7 @@
             "title": "Name"
           },
           "args": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Args"
           }
@@ -6383,6 +6480,7 @@
             "title": "Status"
           },
           "payload": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           }

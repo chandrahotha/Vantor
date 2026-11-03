@@ -29,14 +29,14 @@ queued.
 A non-positive or unparseable override falls back to the default rather than
 becoming a tight loop against the database.
 
-It is written against the **pinned** rq 1.16.2, whose actual surface is
+It is written against the **pinned** rq 3.0.0, whose actual surface is
 `RQScheduler(queues, connection, interval=...)` plus `work()` /
 `enqueue_scheduled_jobs()`. The previous version called
 `RQScheduler(queue_name=...)` and `scheduler.schedule(...)` - neither exists in
-that version, so the service died on boot and no recurring job had ever run
-(B-34).
+rq 1.16.2 or rq 3.0.0, so the service died on boot and no recurring job had ever
+run (B-34).
 
-Because rq 1.16.2's `Queue.enqueue` has no `repeat` parameter, a recurring job
+Because rq's `Queue.enqueue` has no `repeat` parameter, a recurring job
 cannot be declared once and forgotten. `BeatScheduler` re-arms each schedule on
 every scheduler tick, inside the same loop that promotes due jobs, so there is
 one process and one lifecycle rather than a second heartbeat that could die and

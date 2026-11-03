@@ -81,7 +81,10 @@ def summary(request: Request, actor: Actor = Depends(get_actor), db: Session = D
         .group_by(SavingsRecord.currency)).all())
 
     sup_names = supplier_names(db, actor.tenant_id, {s for s, _c, _t, _n in comm_rows})
-    by_supplier = [{"supplierId": s, "supplierName": sup_names.get(s, ""), "currency": c,
+    # `SpendTransaction.supplier_id` is nullable — a commitment can be recorded
+    # against no supplier yet — so the id can be `None`. `supplier_names` only
+    # ever returns real ids, and a missing one has no name to show.
+    by_supplier = [{"supplierId": s, "supplierName": sup_names.get(s or "", ""), "currency": c,
                     "poTotalMinor": int(t or 0), "poCount": int(n or 0)} for s, c, t, n in comm_rows]
 
     def _totals(pairs: Iterable[Sequence[Any]]) -> dict[str, int]:

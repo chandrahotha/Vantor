@@ -65,6 +65,18 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
   upgrade to — and a downgrade does not remove it either. It runs at
   lint/build time over repo-controlled glob patterns, never over
   attacker-controlled input at runtime. Revisit when upstream ships a fix.
+- **Known accepted risk:** `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate,
+  denial of service via glob-parts amplification) arrives transitively through
+  `eslint-plugin-import`, `eslint-plugin-react` and `eslint-plugin-jsx-a11y`,
+  all of which `eslint-config-next` pulls in. The fix exists — `11.0.1` — but
+  `minimatch` v3's default export is a *callable* CJS function and v11's is
+  not: v11 exposes `minimatch()` as a named export only. The plugins call
+  `minimatch(path, pattern)` directly, so forcing the upgrade replaces a
+  lint-tool crash with a lint-tool crash. The root `minimatch` (pulled by
+  `eslint` and `@typescript-eslint`) is already on 10.2.6 and is unaffected;
+  only the three plugin-nested v3 copies remain. Dev-only, lint-time, over
+  repo-controlled patterns. Revisit when those plugins move to a callable
+  `minimatch` v11 import.
 
 ## Theming & UI Architecture
 

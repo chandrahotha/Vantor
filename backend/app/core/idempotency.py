@@ -24,9 +24,11 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import CursorResult
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -199,14 +201,21 @@ def _claim(tenant_id: str, fingerprint: str, method: str, path: str) -> tuple[st
                 # what makes this compare-and-swap: of two racers that both saw
                 # the same stale timestamp, only the one whose UPDATE matches
                 # before the other commits gets a non-zero rowcount.
-                result = db.execute(
+                #
+                # `Session.execute` is typed as returning a `Result`, which has no
+                # `rowcount`; the object it actually hands back for a DML
+                # statement is a `CursorResult`, which does. SQLAlchemy 2.1
+                # narrowed the declared return type, so the cast states what the
+                # runtime object has always been instead of reading a value off
+                # a base class that never carried it.
+                result = cast(CursorResult[Any], db.execute(
                     update(IdempotencyKey)
                     .where(IdempotencyKey.tenant_id == tenant_id,
                            IdempotencyKey.id == stored.id,
                            IdempotencyKey.state == "in_progress",
                            IdempotencyKey.claimed_at == claimed)
                     .values(state="in_progress", claimed_at=_now_for(dialect),
-                            updated_at=_now_for(dialect)))
+                            updated_at=_now_for(dialect))))
                 db.commit()
                 if result.rowcount:
                     return ("proceed", None)

@@ -1,74 +1,226 @@
 version: 2
 
+# ---------------------------------------------------------------------------
+# Dependabot policy
+#
+# What this file must guarantee, in order of importance:
+#
+# 1. Every manifest that ships is tracked. The `docker` ecosystem does NOT
+#    recurse, so a single `/` entry covered only the root Dockerfile and left
+#    `backend/`, `worker/`, `frontend/` and `deploy/keycloak/` untracked.
+# 2. The queue cannot stall. `open-pull-requests-limit` was 3-5 across the
+#    board; once that many PRs were open, Dependabot stopped proposing anything
+#    else — which is how `@vitest/mocker` sat vulnerable for weeks with no PR
+#    at all and why `actions/checkout@v7` and `actions/setup-node@v7` never came
+#    back after their PRs were closed. 10 is above the number of PRs a single
+#    weekly run can produce for any one ecosystem here.
+# 3. Grouped updates move together. `vitest` pins `@vitest/mocker` to an exact
+#    version, so a PR that bumps one without the other cannot resolve —
+#    Dependabot reports "update not possible" and silently does nothing.
+# 4. Updates that can never pass CI are not proposed. See the `ignore` blocks
+#    for the two cases where a bump is knowingly incompatible.
+# ---------------------------------------------------------------------------
+
 updates:
-  - package-ecosystem: pip
-    directory: /backend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 5
-    labels: [dependencies, python]
-    groups:
-      python-security:
-        applies-to: version-updates
-        patterns: ["cryptography", "pyjwt", "python-multipart", "httpx", "urllib3", "requests", "jinja2", "aiohttp", "starlette"]
-    commit-message:
-      prefix: "chore(deps)"
 
-  - package-ecosystem: pip
-    directory: /worker
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    labels: [dependencies, python]
-    commit-message:
-      prefix: "chore(deps)"
+# --- Python ----------------------------------------------------------------
+- package-ecosystem: pip
+  directory: /backend
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, python]
+  groups:
+    # The security-relevant surface: these are the packages advisories land in,
+    # so they arrive together as one reviewable change rather than one PR each.
+    python-security:
+      applies-to: version-updates
+      patterns:
+        - cryptography
+        - pyjwt
+        - python-multipart
+        - httpx
+        - urllib3
+        - requests
+        - jinja2
+        - aiohttp
+        - starlette
+        - fastapi
+    # The framework/runtime stack, versioned as one unit because FastAPI's
+    # transitive Starlette and Pydantic's settings model move with them.
+    python-runtime:
+      applies-to: version-updates
+      patterns:
+        - uvicorn
+        - sqlalchemy
+        - alembic
+        - psycopg
+        - pgvector
+        - redis
+        - pydantic
+        - pydantic-settings
+  commit-message:
+    prefix: "chore(deps)"
 
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 5
-    labels: [dependencies, javascript]
-    groups:
-      # Next.js pulls React + type changes with it — one reviewable PR, not six.
-      nextjs:
-        applies-to: version-updates
-        patterns: ["next"]
-      react-stack:
-        applies-to: version-updates
-        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
-    commit-message:
-      prefix: "chore(deps)"
+- package-ecosystem: pip
+  directory: /worker
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, python]
+  groups:
+    # The worker had no group at all, so its security updates arrived as loose
+    # PRs and were the ones most likely to be blocked by the limit.
+    python-security:
+      applies-to: version-updates
+      patterns:
+        - cryptography
+        - pyjwt
+        - python-multipart
+        - httpx
+        - urllib3
+        - requests
+        - jinja2
+        - aiohttp
+        - redis
+        - rq
+  commit-message:
+    prefix: "chore(deps)"
 
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    labels: [dependencies, ci]
-    commit-message:
-      prefix: "chore(ci)"
+# --- JavaScript ------------------------------------------------------------
+- package-ecosystem: npm
+  directory: /frontend
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, javascript]
+  groups:
+    # Next.js pulls React + type changes with it — one reviewable PR, not six.
+    # `eslint-config-next` is versioned in lockstep with `next` (they release
+    # together), so leaving it out produced a second PR that could not merge
+    # on its own.
+    nextjs:
+      applies-to: version-updates
+      patterns: ["next", "eslint-config-next"]
+    react-stack:
+      applies-to: version-updates
+      patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+    # `vitest` pins `@vitest/mocker` and `@vitest/coverage-v8` to exactly its
+    # own version, and both peer-depend on the vite it runs on. A PR for any
+    # one of them alone is unresolvable: this is the group that makes the
+    # mocker's advisories fixable at all.
+    vitest-stack:
+      applies-to: version-updates
+      patterns: ["vitest", "@vitest/mocker", "@vitest/coverage-v8", "vite", "@vitejs/plugin-react"]
+  ignore:
+    # typescript-eslint — which eslint-config-next drives — supports
+    # `typescript >=4.8.4 <6.1.0`. TypeScript 7 is the Go-native port and
+    # typescript-eslint refuses to start against it, so a 7.x PR can never
+    # pass the lint gate. It was proposed weekly anyway.
+    - dependency-name: "typescript"
+      versions: [">=7.0.0"]
+    # The frontend targets Node 22 (Dockerfile `node:22-alpine`, CI
+    # `node-version: 22`). `@types/node` describes the *runtime* API surface,
+    # so a newer major would type-check against APIs the shipped image does
+    # not have. Bumping the runtime and the types together is a deliberate
+    # decision, not a Dependabot patch.
+    - dependency-name: "@types/node"
+      versions: [">=23.0.0"]
+  commit-message:
+    prefix: "chore(deps)"
 
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 3
-    labels: [dependencies, docker]
-    commit-message:
-      prefix: "chore(docker)"
+# --- CI --------------------------------------------------------------------
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, ci]
+  commit-message:
+    prefix: "chore(ci)"
+
+# --- Docker ----------------------------------------------------------------
+# One entry per directory containing a Dockerfile. The docker ecosystem reads
+# only the Dockerfile in `directory` — it does not recurse — so the single `/`
+# entry below tracked exactly one of five images.
+- package-ecosystem: docker
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, docker]
+  ignore:
+    # Node 22 is the runtime this image ships with and the version CI builds
+    # against. A new Node major changes the JS engine the Next server runs on,
+    # so it is taken deliberately, with the frontend image and CI moved at the
+    # same time.
+    - dependency-name: "node"
+      versions: [">=23-alpine"]
+  commit-message:
+    prefix: "chore(docker)"
+
+- package-ecosystem: docker
+  directory: /backend
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, docker]
+  commit-message:
+    prefix: "chore(docker)"
+
+- package-ecosystem: docker
+  directory: /worker
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, docker]
+  commit-message:
+    prefix: "chore(docker)"
+
+- package-ecosystem: docker
+  directory: /frontend
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, docker]
+  ignore:
+    - dependency-name: "node"
+      versions: [">=23-alpine"]
+  commit-message:
+    prefix: "chore(docker)"
+
+- package-ecosystem: docker
+  directory: /deploy/keycloak
+  schedule:
+    interval: weekly
+    day: monday
+    time: "06:00"
+    timezone: Etc/UTC
+  open-pull-requests-limit: 10
+  labels: [dependencies, docker]
+  commit-message:
+    prefix: "chore(docker)"

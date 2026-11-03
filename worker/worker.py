@@ -1,11 +1,14 @@
 """RQ worker entrypoint — listens on default + documents queues.
 
 B-41: this file used to end with `Worker(queues).work()`, passing the queues but
-not the connection. In the pinned rq 1.16.2 that is a crash on boot, not a
-default:
+not the connection. In rq that is a crash on boot, not a default:
 
-    Worker._set_connection(None)  ->  get_current_connection()  ->  None
-    ->  None.connection_pool      ->  AttributeError
+    rq 1.16.2  Worker._set_connection(None)  ->  get_current_connection()  ->  None
+               ->  None.connection_pool      ->  AttributeError
+
+    rq 3.0.0   the worker resolves a default connection and then talks to
+               Redis, so the same omission surfaces as
+               `redis.exceptions.ConnectionError`.
 
 `get_current_connection()` resolves inside rq's own fork-based work-horse; there
 is no current fork in the parent process, so it answers `None` and the very next
@@ -41,7 +44,7 @@ def build_queues(connection: Redis) -> list[Queue]:
 
 
 def build_worker(connection: Redis) -> Worker:
-    """The worker, wired the way rq 1.16.2 actually requires.
+    """The worker, wired the way rq actually requires.
 
     `connection` is a positional-or-keyword argument with a real default; passing
     it is not optional, it is the difference between a worker and a traceback.
