@@ -33,10 +33,10 @@ in development; there is no bundled MinIO service.
 
 ### Images are pinned by digest
 
-Every container image the project runs — the compose stack and the CI service
-containers alike — is pinned to a digest rather than a tag. A tag is a mutable
-name: `redis:7-alpine` can point at different bytes tomorrow, so a rebuilt
-upstream tag silently changes what was tested.
+Every container image the project runs — the compose stack, the CI service
+containers and the Dockerfile base images alike — is pinned to a digest rather
+than a tag. A tag is a mutable name: `redis:7-alpine` can point at different
+bytes tomorrow, so a rebuilt upstream tag silently changes what was tested.
 
 `python scripts/pin_digests.py --check` is the gate. It is offline and runs on
 every push:
@@ -44,12 +44,53 @@ every push:
 - the **compose** images are pinned through `.env` indirection, so a developer
   can override them without editing the compose file;
 - the **CI** images are pinned inline in `.github/workflows/ci.yml`, because a
-  CI job has no `.env` and the workflow is what names the image.
+  CI job has no `.env` and the workflow is what names the image;
+- the **Dockerfile base images** are pinned inline in each `FROM` line, because
+  that is where the build names them.
 
 Refresh the compose digests with `python scripts/pin_digests.py` (network
-access required). The CI digests are literals in the workflow — update them by
+access required). The CI and Dockerfile digests are literals — update them by
 hand when an image needs to move, and the `--check` gate will tell you if you
 forget.
+
+### `.dockerignore` is not optional
+
+Each build context has a `.dockerignore`. They are not hygiene; they are
+correctness.
+
+`frontend/Dockerfile` installs the dependencies and *then* copies the source:
+
+```dockerfile
+RUN npm ci        # the lockfile's exact tree, for this platform
+COPY . .          # ...overwritten by whatever the host happened to have
+```
+
+Docker merges a later `COPY` over an earlier layer. Without a `.dockerignore`,
+the second line copies the developer's own `node_modules` — 713 MB of
+packages compiled for the host's libc — over the install the container had
+just made, and copies the host's stale `.next` over the build output as well.
+The image then ships the developer's dependency tree instead of the lockfile's,
+and on a glibc host it ships glibc binaries into an Alpine image.
+
+The `.dockerignore` files also keep the build context from carrying a
+gigabyte of files the image has no use for.
+
+### Building the images
+
+CI builds the images, and has since the job that was missing. The three Python
+images are built on every push; the two Node images — each of which runs a
+full `npm ci` and a production `next build` — are built on the weekly schedule
+and on a manual `full_suite: true` dispatch.
+
+To build them locally:
+
+```bash
+docker build -t vantor-backend:ci -f backend/Dockerfile backend
+docker build -t vantor-worker:ci  -f worker/Dockerfile  worker
+docker build -t vantor-keycloak:ci -f deploy/keycloak/Dockerfile deploy/keycloak
+docker build -t vantor-frontend:ci -f frontend/Dockerfile frontend
+docker build -t vantor:ci          -f Dockerfile .
+```
 
 ## The tiers CI runs
 
@@ -57,6 +98,7 @@ forget.
 |---|---|---|
 | Fast | every push and pull request | nothing — SQLite in memory, no Redis, no Postgres |
 | Worker | every push and pull request | a Redis service (now provided by CI) |
+| Images | every push and pull request | Docker — the three Python images |
 | Postgres | weekly schedule, and `workflow_dispatch` with `full_suite: true` | a real PostgreSQL — set `PG_TEST_DATABASE_URL` |
 | End-to-end | weekly schedule, and `workflow_dispatch` with `full_suite: true` | a running API on port 8000 and Playwright's chromium |
 

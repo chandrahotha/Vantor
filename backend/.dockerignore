@@ -1,0 +1,24 @@
+# Build context for `backend/Dockerfile`.
+#
+# The Dockerfile copies named paths only — `requirements.txt`, `alembic.ini`,
+# `alembic/`, `app/` — so host files cannot overwrite the image's contents
+# here. This file keeps the context itself small and keeps local state
+# (a SQLite database, an uploads directory) out of it.
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+data
+uploads
+tests
+
+# Local environment files and private keys. The Dockerfile copies named paths
+# only, so these would not reach the image — but they have no business being
+# in the build context either.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key

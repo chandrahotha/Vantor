@@ -57,6 +57,58 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Fixed
 
+- **The Dockerfiles copied the developer's `node_modules` over the
+  container's own install.** `frontend/Dockerfile` installs the dependencies
+  and *then* copies the source:
+  ```
+  RUN npm ci        # the lockfile's exact tree, for this platform
+  COPY . .          # ...overwritten by whatever the host happened to have
+  ```
+  There was no `.dockerignore`, so Docker's default applied: everything in
+  the context was sent. A later `COPY` merges over an earlier layer, so the
+  host's `node_modules` replaced the packages `npm ci` had just installed
+  where their paths collided, and was added alongside them where they did not.
+  The image therefore shipped the *developer's* dependency tree rather than
+  the lockfile's — and, on a glibc host, glibc-compiled native modules in an
+  Alpine (musl) image. The host's stale `.next` was copied over the build
+  output as well.
+  The root `Dockerfile` had the same defect in `COPY frontend/ ./`.
+  Measured on a working checkout: **1.02 GB** of build context, 340 host
+  packages copied into the image. With a `.dockerignore` per context: the
+  context drops to the tracked source, and neither `node_modules` nor `.next`
+  is copied.
+- **A developer's `.env` could have been baked into the published image.** The
+  first version of the root `.dockerignore` excluded `.env` and `.env.*`, but
+  a bare pattern matches only the *root* of the build context — and the root
+  Dockerfile copies `backend/` and `frontend/` wholesale. A developer's
+  `backend/.env` (which `Settings` loads from the working directory) or
+  `frontend/.env.local` would therefore have reached the image, with whatever
+  secrets it held. `frontend/.dockerignore` does not help: it does not apply
+  when the build context is the repository root.
+  The exclusions are now anchored at any depth (`**/.env`, `**/.env.*`,
+  `!**/.env.example`), along with `**/*.pem`, `**/*.key`, `**/*.p12` and
+  `**/*.pfx`. Verified by planting marker files at `backend/.env`,
+  `frontend/.env.local` and `frontend/.env.production`: none of them reaches
+  the image, and `.env.example` is still carried.
+- **No CI job built a Dockerfile — ever.** The `release` workflow publishes a
+  GitHub release and never touches Docker, so the repository's primary
+  delivery artefact was built by nobody, ever. A broken Dockerfile could
+  reach `main` with no test noticing, which is exactly how the defect above
+  survived. There is now an `images` job: the three Python images are built
+  on every push (one `pip install` each, and they catch the failures that
+  actually happen — a base image that no longer resolves, a requirements file
+  that cannot be installed, a Dockerfile that no longer parses), and the two
+  Node images are built on the weekly schedule and on a manual
+  `full_suite: true` dispatch, because each runs a full `npm ci` and a
+  production `next build`.
+- **The Dockerfile base images were mutable tags.** `python:3.14-slim` and
+  `node:22-alpine` are now pinned to digests, and `scripts/pin_digests.py
+  --check` parses every `FROM` line and fails on an unpinned or malformed
+  digest. The base image is where the build's supply chain enters — it
+  carries the system packages, the interpreter, and the `npm ci` / `pip
+  install` that run on top of it. The check tells a base image apart from a
+  build stage by tracking the stage names the file itself defines, so
+  `FROM web AS run` is not mistaken for an image to pull.
 - **A file-backed SQLite database shared one connection across every request
   thread.** `get_engine()` gave `StaticPool` to every SQLite URL — a comment
   said "unit-test / local only", but the condition was `url.startswith("sqlite")`,
@@ -164,8 +216,7 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   Both pinned digests were verified against the upstream manifest lists and
   the tiers were re-run against the digest-pinned containers: the Alembic
   drill and the 11 Postgres-backed tests on PostgreSQL 16 with pgvector
-  0.8.7, and the 38 worker tests on Redis.
-- **The CI tiers that were never run now run.** The `postgres-tier` and
+  0.8.7, and the 38 worker tests on Redis.- **The CI tiers that were never run now run.** The `postgres-tier` and
   `e2e-tier` jobs were `workflow_dispatch`-only, and the single time the
   workflow was dispatched it failed in the `policy` job before reaching any
   test. So the row-level-security, foreign-key and concurrency assertions had

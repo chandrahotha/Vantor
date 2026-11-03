@@ -1,0 +1,57 @@
+# Build context for the single-container image (the root `Dockerfile`).
+#
+# The root Dockerfile builds the web app in a `node:22-alpine` stage, runs
+# `npm ci`, and then does `COPY frontend/ ./`. Without this file that `COPY`
+# carries the developer's `node_modules` (713 MB) and `.next` (345 MB) into
+# the stage and lays them over the install the container just made — so the
+# image ships the host's dependency tree, built for the host's libc, instead
+# of the lockfile's for Alpine's musl. See `frontend/.dockerignore` for the
+# same problem in the other direction.
+#
+# It also keeps the context from carrying the whole working tree.
+.git
+.gitignore
+.github
+
+# Nothing in the image is built from these.
+docs
+android
+api
+assets
+scripts
+uploads
+
+# Host-installed dependencies and build output, at any depth.
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/test-results
+**/playwright-report
+**/coverage
+
+# Local state: the SQLite database, the uploads directory, virtualenvs.
+backend/data
+backend/.venv
+backend/uploads
+worker/.venv
+# Local environment files, at any depth. These patterns have to be anchored
+# with `**/`: a bare `.env` matches only the root of the build context, and
+# this Dockerfile copies `backend/` and `frontend/` wholesale — so a
+# developer's `backend/.env` (which `Settings` loads from the working
+# directory) or `frontend/.env.local` would otherwise be baked into the
+# published image, with whatever secrets they hold.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and certificates. The session signing key is written under
+# `backend/data/` at runtime, but a stray `.pem` in the working tree must not
+# be able to reach an image.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

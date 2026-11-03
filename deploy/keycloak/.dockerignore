@@ -1,0 +1,16 @@
+# Build context for `deploy/keycloak/Dockerfile`.
+#
+# The Dockerfile copies named paths only — `realm-vantor.json`,
+# `provision.py`, `init.sh` — so host files cannot overwrite the image's
+# contents here. This file keeps the context itself small.
+__pycache__
+*.pyc
+
+# Local environment files and private keys. The Dockerfile copies named paths
+# only, so these would not reach the image — but they have no business being
+# in the build context either.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key

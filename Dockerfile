@@ -17,7 +17,11 @@
 # `docker compose up` instead — that stack is unchanged.
 
 # ---- web -------------------------------------------------------------------
-FROM node:22-alpine AS web
+# Base images are pinned by digest. A tag is a mutable name: `node:22-alpine`
+# can point at different bytes tomorrow, so the image built today and the image
+# built next week would not be the same thing. `scripts/pin_digests.py --check`
+# enforces this on every push — see CONTRIBUTING.md for how to refresh it.
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -36,7 +40,7 @@ ENV INTERNAL_API_URL="http://127.0.0.1:8000"
 RUN npm run build
 
 # ---- run -------------------------------------------------------------------
-FROM python:3.14-slim AS run
+FROM python:3.14-slim@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966 AS run
 WORKDIR /srv
 
 # Node is needed at runtime because the web app is a Next server, not a bundle
