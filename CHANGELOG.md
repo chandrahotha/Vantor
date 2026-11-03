@@ -25,6 +25,25 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   "update not possible" and silently did nothing; `vitest` 5.1.0 unblocks it.
   The `@vitest/mocker` and `vite` advisories were also unreachable behind
   Dependabot's `open-pull-requests-limit`, which was exhausted by the backlog.
+- **`minimatch` overridden to `^11.0.1`** (GHSA-g3hv-75wg-m249, moderate,
+  CVE-2026-118764 — denial of service via glob-parts amplification in
+  `firstPhasePreProcess()`). The advisory was published on 2026-10-30, after
+  the last dependency scan, so it only surfaced once this refresh re-scanned
+  the tree. The flaw is in minimatch v10's pattern optimizer — v3 does not
+  contain that code path — but the advisory's affected range is a blanket
+  `< 11.0.1`, so every copy in the tree is flagged, including the v3 ones
+  under `eslint-plugin-import`, `eslint-plugin-react` and
+  `eslint-plugin-jsx-a11y`. Forcing the whole tree to v11 closes the alert and
+  takes `npm audit` to **0 vulnerabilities across dev and prod** (it was 15
+  moderate + 2 high).
+  One consequence is guarded rather than left to chance: minimatch v3's
+  module export was a callable function and v11's is an object, so five
+  opt-in rules in those plugins (`import/extensions`,
+  `import/no-extraneous-dependencies`, `react/no-unstable-nested-components`,
+  `react/forbid-component-props`, `react/jsx-pascal-case`) cannot run under
+  v11. None is enabled here and `eslint-config-next` does not enable them;
+  `eslint.config.mjs` now checks the composed config and fails with an
+  actionable message if one is ever switched on.
 - **Backend pins refreshed to current releases.** `fastapi` 0.162.0,
   `starlette` 1.10.0, `uvicorn[standard]` 0.54.0, `pydantic` 2.14.2,
   `pydantic-settings` 2.16.2, `SQLAlchemy` 2.1.6, `alembic` 1.20.1,
@@ -167,13 +186,8 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Known accepted risk
 
-- `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate) arrives transitively
-  through `eslint-plugin-import`, `eslint-plugin-react` and
-  `eslint-plugin-jsx-a11y`. The fix exists, but `minimatch` v3's default export
-  is a callable CJS function and v11's is not — those plugins call
-  `minimatch(path, pattern)` directly, so forcing the upgrade replaces one
-  lint-tool crash with another. Dev-only, lint-time, repo-controlled patterns.
-  Documented in `frontend/README.md` alongside `braces`.
+- `braces ≤ 3.0.3` (GHSA-vfj7-8cjw-p6xm, high) has no upstream patch and is
+  dev/lint-time only. Documented in `frontend/README.md`.
 
 ## [0.8.0] - 2026-10-07
 
