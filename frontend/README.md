@@ -58,6 +58,9 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
 
 - Production dependencies audit clean (`npm audit --omit=dev --audit-level=high`,
   CI-gated). Dev-only findings are tracked via Dependabot.
+- The **whole** tree audits clean — `npm audit --audit-level=low` reports 0
+  vulnerabilities, dev included. `braces` is the one remaining exception, and
+  it is an accepted risk rather than a finding (below).
 - **Known accepted risk:** `braces ≤ 3.0.3` (GHSA-vfj7-8cjw-p6xm, high,
   stack-exhaustion via deeply nested patterns) arrives transitively through
   `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` →
@@ -65,18 +68,27 @@ Content-Security-Policy plus `X-Frame-Options`, `X-Content-Type-Options`, `Refer
   upgrade to — and a downgrade does not remove it either. It runs at
   lint/build time over repo-controlled glob patterns, never over
   attacker-controlled input at runtime. Revisit when upstream ships a fix.
-- **Known accepted risk:** `minimatch < 11.0.1` (GHSA-g3hv-75wg-m249, moderate,
-  denial of service via glob-parts amplification) arrives transitively through
-  `eslint-plugin-import`, `eslint-plugin-react` and `eslint-plugin-jsx-a11y`,
-  all of which `eslint-config-next` pulls in. The fix exists — `11.0.1` — but
-  `minimatch` v3's default export is a *callable* CJS function and v11's is
-  not: v11 exposes `minimatch()` as a named export only. The plugins call
-  `minimatch(path, pattern)` directly, so forcing the upgrade replaces a
-  lint-tool crash with a lint-tool crash. The root `minimatch` (pulled by
-  `eslint` and `@typescript-eslint`) is already on 10.2.6 and is unaffected;
-  only the three plugin-nested v3 copies remain. Dev-only, lint-time, over
-  repo-controlled patterns. Revisit when those plugins move to a callable
-  `minimatch` v11 import.
+- **`minimatch` is overridden to `^11.0.1`** (GHSA-g3hv-75wg-m249, moderate,
+  denial of service via glob-parts amplification in `firstPhasePreProcess()`).
+  The flaw is in minimatch v10's pattern optimizer — minimatch v3 does not
+  contain that code path at all — but the advisory's affected range is a
+  blanket `< 11.0.1`, so the scanner flags every copy in the tree, including
+  the v3 ones under `eslint-plugin-import`, `eslint-plugin-react` and
+  `eslint-plugin-jsx-a11y`. Forcing the whole tree to v11 is what closes the
+  alert and takes `npm audit` to **0 vulnerabilities across dev and prod**.
+- **The `minimatch` override has one consequence, and it is guarded.**
+  minimatch v3's module export was a *callable* function; v11's is an object
+  with a named `minimatch` export. Those three ESLint plugins call the module
+  directly, so five of their rules (`import/extensions`,
+  `import/no-extraneous-dependencies`, `react/no-unstable-nested-components`,
+  `react/forbid-component-props`, `react/jsx-pascal-case`) throw
+  `TypeError: minimatch is not a function` under v11. None is enabled here and
+  `eslint-config-next` does not enable them either — they are opt-in rules
+  inside those plugins, and they only reach minimatch when a glob pattern is
+  configured for them. `eslint.config.mjs` checks the composed config and
+  fails with an actionable message if one of them is ever switched on, rather
+  than letting it blow up mid-lint. Revisit when the upstream plugins migrate
+  to minimatch's named export.
 
 ## Theming & UI Architecture
 
