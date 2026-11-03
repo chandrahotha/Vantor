@@ -1,10 +1,11 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
-
 # Security Policy - VANTOR
 
-**Status: enforced.** The controls below are implemented and covered by the automated
-suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspirational.
+> Documentation index: [docs/README.md](docs/README.md)
+
+The controls under **Enforced in the code** are implemented and covered by the
+automated suite. The ones under **Your responsibility** are deployment
+choices VANTOR cannot make for you. Anything not listed in either section is
+not claimed.
 
 ## Supported versions
 
@@ -21,23 +22,72 @@ suite (`backend/tests/`, `frontend/*.test.tsx`, `frontend/e2e/`), not aspiration
 - Expect acknowledgement within 72 hours. There is no dedicated security team or SLA
   behind this project today - triage timing is best-effort until that changes.
 
-## Guaranteed controls (Definition of Done)
+## Enforced in the code
 
-- Two auth modes, one verification path: `AUTH_MODE=local` (default) makes the
-  API its own issuer - RS256 tokens, no identity service, but **passwordless**
-  (anyone who can reach the deployment is the operator; single-container/SQLite
-  use only). `AUTH_MODE=oidc` requires Keycloak + MFA with short-lived JWT and
-  rotating refresh tokens. Both modes verify the same way: a forged or
-  foreign-signed token is a 401 either way.
-- RBAC + resource-level authz + `tenant_id` RLS on every query
-- Machine identities least-privilege by construction (see below)
-- Tenant-aware cache/search/storage/logs/AI context - cross-tenant tests mandatory
-- TLS everywhere, encryption at rest (managed disk/KMS in prod), secret manager (never `.env` in git)
-- Validated uploads (type/size), object storage only, malware-scan hook, OCR sandboxing
-- Rate limiting, security headers, CORS allowlist, CSRF where cookies used
-- Immutable audit log for all significant actions + AI tool calls
-- `npm audit` / `pip audit` + container + migration checks in CI (`/.github/workflows/ci.yml`)
-- AI treated as untrusted-input boundary: typed tools only, no raw SQL/shell, prompt-injection defenses (`docs/03-ai/safety.md`)
+- **Two auth modes, one verification path.** `AUTH_MODE=local` (default) makes
+  the API its own issuer — RS256 tokens, no identity service, but
+  **passwordless**: anyone who can reach the deployment is the operator, so
+  this mode is for single-container, SQLite, single-operator use only.
+  `AUTH_MODE=oidc` requires Keycloak, with short-lived JWTs and rotating
+  refresh tokens. Both modes verify the same way: a forged or foreign-signed
+  token is a 401 either way.
+- **RBAC and resource-level authorisation** on every endpoint, with
+  `tenant_id` row-level security on every query in PostgreSQL. The RLS
+  backstop fails closed.
+- **Machine identities are least-privilege by construction** — see
+  [Machine identities](#machine-identities) below.
+- **Tenant-scoped data paths.** Search, storage, logs and AI context are all
+  tenant-scoped, and cross-tenant isolation is covered by the test suite.
+- **Validated uploads.** Magic-byte sniffing against the declared type, an
+  extension allowlist, and a size ceiling enforced before and during the
+  read.
+- **Rate limiting**, per route and per identity, with separate read and write
+  budgets.
+- **Security headers** on both the API and the web app — see the
+  [Content-Security-Policy](#where-the-content-security-policy-actually-applies)
+  section below.
+- **Immutable audit log** for every significant action, including AI tool
+  calls. Entries are hash-chained.
+- **Idempotent mutations.** Workflow actions accept an idempotency key, and a
+  replayed request cannot apply twice.
+- **AI is treated as an untrusted-input boundary.** Typed tools only — no raw
+  SQL, no shell — with prompt-injection defences and evidence requirements
+  ([AI safety](docs/03-ai/safety.md)).
+- **Dependency and supply-chain checks in CI**
+  ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): `pip-audit` and
+  `npm audit` on every push, plus a secret scan, a container digest check and
+  a migration-chain check.
+
+## Not implemented
+
+Stated plainly so nobody relies on them:
+
+- **No malware scanning.** Uploads are validated by type and size, not
+  scanned. Put a scanner in front of the storage path if you need one.
+- **No OCR.** A scanned document with no text layer is quarantined, not
+  processed. There is no OCR sandbox to isolate.
+- **No CORS middleware.** The API does not send `Access-Control-Allow-Origin`
+  headers. If you serve the web app from a different origin than the API,
+  put a proxy in front rather than relying on CORS.
+- **No CSRF tokens.** Authentication is a bearer token in an `Authorization`
+  header, not a cookie, so there is no cookie-authenticated endpoint for a
+  CSRF token to protect. If you add cookie authentication, add CSRF
+  protection with it.
+- **The filesystem storage driver is the default.** Object storage is
+  available via `STORAGE_DRIVER=s3` and the `S3_*` variables, but the
+  default local stack writes to disk.
+
+## Your responsibility
+
+- **TLS.** VANTOR terminates plain HTTP. Put it behind a TLS-terminating
+  proxy and set `APP_URL`/`API_URL` to the `https://` origins.
+- **Encryption at rest** is a property of your disk or managed database.
+- **Secrets.** Use a secret manager. `.env` is a development convenience and
+  must never be committed.
+- **Database credentials.** The application role is separate from the schema
+  owner so that RLS applies to the application's own queries.
+- **Single-operator mode is not multi-user.** `AUTH_MODE=local` has no
+  concept of users. Use `oidc` for anything shared.
 
 ## Where the Content-Security-Policy actually applies
 

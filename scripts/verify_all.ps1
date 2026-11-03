@@ -29,8 +29,8 @@ Write-Host "==> 1. Running Secret Guard..." -ForegroundColor Cyan
 Write-Host "==> 2. Checking File Encodings..." -ForegroundColor Cyan
 & $python scripts/check_mojibake.py
 
-Write-Host "==> 3. Verifying Documentation Brain Links..." -ForegroundColor Cyan
-& $python scripts/verify_brain_links.py
+Write-Host "==> 3. Verifying Documentation Links..." -ForegroundColor Cyan
+& $python scripts/verify_doc_links.py
 
 Write-Host "==> 4. Auditing Migration Linearity..." -ForegroundColor Cyan
 & $python scripts/audit_migrations.py

@@ -65,7 +65,7 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
   non-positive or unparseable value falls back to the default rather than becoming a tight loop.
 - **The scheduler used to die on boot.** It called `RQScheduler(queue_name=…)` and
   `scheduler.schedule(…)`, neither of which exists in rq 1.16.2 or rq 3.0.0, so the container
-  exited immediately and no recurring job had ever run in any environment (B-34). The unit tests
+  exited immediately and no recurring job had ever run in any environment. The unit tests
   in `worker/tests/` run in CI and pin the real rq surface.
 - `python worker/enqueue.py roll_expiry` still runs one job immediately, by hand. The worker
   authenticates with a Keycloak client-credentials grant; `SERVICE_API_TOKEN` remains only as an
@@ -81,7 +81,7 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
   so a service token scoped to tenant A rolls A's contracts and delivers A's webhooks only. In a
   multi-tenant deployment you need one service account per tenant, or a deliberately
   cross-tenant identity - which is a different design decision, not a config tweak. Do not solve
-  it by removing the tenant filter from a query. (B-18, still open by design.)
+  it by removing the tenant filter from a query. This is deliberate, not an oversight.
 - **What "expiring" means depends on the tenant's timezone, not the server's.** The roll evaluates
   "within N days" in `organizations.timezone`, falling back to `CONTRACT_TIMEZONE` and then UTC.
   When an operator reports a contract flagged a day early or late, check that tenant's zone before
@@ -92,7 +92,7 @@ Sev1 (tenant leak / financial mis-post): freeze deploys, preserve `audit_events`
   there is no `rq_queue.enqueue(...)` anywhere in `backend/app/`. Work the app hands to the worker
   has to go through the HTTP routes the jobs call.
 - **Before trusting the dashboard's "expiring" count, check `beat` is running.** The live
-  `/contracts?expiring=true` calculation is a live query (B-13), but the *stored* status is still
+  `/contracts?expiring=true` calculation is a live query, but the *stored* status is still
   written by the roll. If `beat` is down, the roll-dependent surfaces are as fresh as the last
   successful run - `docker compose logs beat` is the thing to read.
 

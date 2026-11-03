@@ -1,9 +1,4 @@
-<!-- vantor-brain-link -->
-> 🧠 **Vantor Brain:** [BRAIN.md](docs/BRAIN.md) · [Docs index](docs/README.md)
-
 # VANTOR — Intelligent Procurement Operating System
-
-🚀 **Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/)
 
 [![Live Demo: Vercel](https://img.shields.io/badge/demo-vantor--os.vercel.app-black.svg?logo=vercel)](https://vantor-os.vercel.app/)
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
@@ -14,88 +9,59 @@
 [![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-black.svg)](frontend/)
 [![Auth: local or OIDC](https://img.shields.io/badge/auth-local%20or%20OIDC-orange.svg)](docs/04-security/architecture.md)
 [![DB: Postgres RLS](https://img.shields.io/badge/db-Postgres%20RLS-336791.svg)](docs/02-architecture/database.md)
-[![Docs: brain-linked](https://img.shields.io/badge/docs-brain--linked-6c47ff.svg)](docs/BRAIN.md)
 
-> **Value. Intelligence. Control.** Built by **Digi Tracks** — enquiries: **digi.tracks@outlook.com**.
+> **Value. Intelligence. Control.**
 
-VANTOR is a unified, self-hostable procurement operating system: ten procurement
-products in one coherent platform, from supplier risk to RFQs, contracts,
-purchase orders, invoices, spend analytics, and an evidence-cited AI copilot.
+VANTOR is a self-hostable procurement operating system. It puts suppliers,
+sourcing, contracts, purchase orders, invoices, spend analytics, budgets,
+approvals and an evidence-cited AI copilot behind one coherent system — with
+one audit trail and one permission model across all of it.
 
-| # | Product | VANTOR module | Status |
-|---|---|---|---|
-| 01 | ProcurementOS Agent | AI gateway + typed tool registry + HITL approvals | `TESTED` |
-| 02 | RFQLens — RFQ → sourcing decision | `sourcing/` RFQ→quote→award + split optimizer | `TESTED` |
-| 03 | CostPilot — should-cost + negotiation intelligence | `spend/` should-cost engine + price intel | `TESTED` |
-| 04 | ContractGuard — contract → PO → invoice compliance | `contracts/` + 11-dim matching + e-sign | `TESTED` |
-| 05 | SupplierRadar — supplier risk intelligence | `suppliers/` + scorecards + qualification | `TESTED` |
-| 06 | Strategic Sourcing Optimization | `sourcing/` optimizer (share-capped allocation) | `TESTED` |
-| 07 | Procurement Spend Intelligence | `spend/` cube, leakage, maverick, concentration | `TESTED` |
-| 08 | Supplier Onboarding & Qualification | `suppliers/` certs→scorecard→SoD decision | `TESTED` |
-| 09 | PO Price Intelligence | `spend/` median baseline + anomaly cases | `TESTED` |
-| 10 | AI Supplier Negotiation Simulator | `ai/` concession ladder + walk-away floor | `TESTED` |
+**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) ·
+Enquiries: **digi.tracks@outlook.com**
 
-Per-product detail: [`docs/01-product/portfolio.md`](docs/01-product/portfolio.md)
-(the canonical list). One platform covers the full cycle — discovery,
-onboarding, scorecards, risk, RFI/RFQ/RFP, quotations, awards, contracts,
-requisitions, purchase orders, receipts, invoices, spend, savings, approvals,
-documents, AI copilot, and integrations — every activity backed by evidence and audit.
+## What VANTOR does
 
-**Status.** Backend: 386 pytest collected (377 passing, 9 skipped — the
-PostgreSQL tier needs `PG_TEST_DATABASE_URL`), 98 API operations across 84
-paths. Web: 166 vitest green across 13 suites, 15 page routes. Worker: 38 tests
-collected (34 passing, 4 skipped — the 4 need a live Redis).
-
-> Re-verified 2026-10-08 — backend `377 passed, 9 skipped`, worker
-> `34 passed, 4 skipped`, frontend `166 passed`, OpenAPI drift check clean.
-> Reproduce with `make verify`.
-
-Not `PRODUCTION READY`. Know before you deploy:
-
-- The default SQLite run does **not** exercise row-level security, composite
-  foreign keys, or the pgvector index — those need a real Postgres
-  (`PG_TEST_DATABASE_URL`). Tenant isolation on SQLite rests on the
-  application layer alone (see `backend/README.md`).
-
-## Why VANTOR
-
-Procurement teams juggle suppliers, RFQs, quotes, contracts, POs, invoices,
-spend, risk, and savings across disconnected tools. VANTOR connects them in one
-**Procurement Graph**:
+Procurement teams juggle the same data across disconnected tools. VANTOR
+connects it into one graph:
 
 ```
 SUPPLIERS → SOURCING → RFQs → QUOTES → NEGOTIATION → CONTRACTS → PURCHASES → INVOICES → SPEND → PERFORMANCE → RISK → SAVINGS
 ```
 
-with human + AI collaboration on top — every AI answer cites evidence,
-confidence, and human-review gates.
+with human and AI collaboration on top: every AI answer carries its evidence,
+its confidence, and a human-review gate.
 
-## Features
+| Area | What it does |
+|---|---|
+| **Supplier management** | Supplier records, risk scorecards, qualification workflow, onboarding with segregation-of-duties decisions |
+| **Sourcing & RFQs** | RFQ → quote → award, multi-quote comparison, share-capped allocation optimizer |
+| **Contracts** | Obligations, renewal windows, e-signature handover, contract-to-PO-to-invoice matching across eleven dimensions |
+| **Purchase orders** | Requisition → PO → receipt → invoice chain, tiered approvals, budget enforcement, 3-way match |
+| **Invoices** | Invoice intake, approval routing, variance handling against the PO and receipt |
+| **Spend intelligence** | Spend cube by category/supplier/BU, leakage, maverick spend, supplier concentration |
+| **Should-cost & price intelligence** | Should-cost modelling, median price baselines, price-anomaly cases |
+| **Budgets & approvals** | Budget pools, configurable unset-policy, quorum approvals, separation of duties |
+| **Documents & evidence** | Upload → validate → store → extract → chunk, keyword and vector search, audit trail |
+| **AI copilot & negotiation simulator** | Typed tool registry, evidence-framed answers, human-in-the-loop approvals, concession ladder with a walk-away floor |
 
-- **Backend API** (FastAPI, 98 operations, 386 pytest collected): suppliers,
-  scorecards, onboarding, RFQ→quote→award with optimizer, contracts with
-  obligations/e-sign/11-dim matching, requisition→PO→receipt→invoice with
-  3-way match, tiered approvals with SoD, budgets, spend ledger and
-  intelligence, should-cost, catalogs, document pipeline
-  (pgvector HNSW on Postgres, honest mode label elsewhere), notifications,
-  AI gateway with typed tools + HITL + negotiation sim, webhooks.
-- **Auth** (`local` or `oidc`, one verification path): `local` (default) needs
-  no identity service — passwordless sessions for single-operator use, never
-  exposed to untrusted networks. `oidc` uses Keycloak. Forged tokens are 401
-  in both modes. Postgres RLS, RBAC, hash-chained audit, idempotency, rate
-  limits, and security headers included.
-- **Web app** (Next.js 16 / React 19, 15 routes): dashboard, supplier 360,
-  requisitions, RFQs with comparison and award, contracts, orders with price
-  check, spend analytics, documents, governance, integrations, negosim,
-  notifications, evidence-grounded copilot, command palette (`Ctrl+K`), dark theme.
-- **Worker + CI**: RQ + Redis with beat scheduler; per-push/PR lint,
-  typecheck, tests, and builds, plus OpenAPI drift, migration-chain, and audit
-  checks; weekly schedule and on-demand Postgres + Playwright tier.
-- **Not yet**: provider OCR, full Phase-11 vendor acceptance matrices, realtime
-  push (notifications poll), Android app (strategy only — API-ready).
+## Architecture
 
-Phase 10 hardening is `IN DEVELOPMENT`; Phase 9 Android is `PLANNED`.
-Details: `docs/00-plan/ROADMAP.md`.
+A modular monolith with a separate worker and web app — one deployment
+topology, one permission model, no distributed-system tax.
+
+| Component | Stack | Role |
+|---|---|---|
+| **API** | Python 3.14, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic | `/api/v1` — 98 API operations across 84 paths |
+| **Database** | PostgreSQL + pgvector | Primary store, row-level security, vector index |
+| **Web app** | Node 22, Next.js 16 (App Router), React 19, TypeScript 6 | 15 page routes |
+| **Worker** | Python, RQ, Redis | Scheduled jobs: expiry roll, spend snapshots, webhook drain |
+| **Identity** | Keycloak (OIDC) or built-in local auth | One verification path, two modes |
+| **AI gateway** | Pluggable providers, BYO key | Typed tools, evidence contracts, human review; `disabled` by default |
+
+**Auth modes.** `local` (the default) needs no identity service — passwordless
+sessions for single-operator use, never exposed to untrusted networks. `oidc`
+uses Keycloak. Forged tokens are rejected in both modes.
 
 ## Quickstart
 
@@ -106,27 +72,24 @@ docker build -t vantor .
 docker run -p 8080:8080 -v vantor-data:/data vantor
 ```
 
-Open **http://localhost:8080** → **Log in to VANTOR** (no password — anyone
-who can reach the URL is the operator; local/single-operator use only).
-The volume persists the database, uploads, and session key. SQLite means
-single-tenant only (no RLS) and no worker/scheduler.
+Open **http://localhost:8080** and sign in — no password. The volume persists
+the database, uploads and session key. SQLite means single-tenant only (no
+RLS) and no worker or scheduler.
 
 ### Backend + web separately (development)
 
-```powershell
+```bash
 # API (SQLite file, schema created on first boot)
 cd backend
-python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt
-$env:DATABASE_URL="sqlite:///./data/vantor.db"
-.\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+DATABASE_URL="sqlite:///./data/vantor.db" .venv/bin/python -m uvicorn app.main:app --port 8000
 ```
 
-```powershell
+```bash
 # Web
 cd frontend
 npm ci
-$env:NEXT_PUBLIC_API_URL="http://localhost:8000"
-npm run dev
+NEXT_PUBLIC_API_URL="http://localhost:8000" npm run dev
 ```
 
 Open **http://localhost:3000**. API reference: `http://localhost:8000/api/docs`.
@@ -139,107 +102,120 @@ authenticated request while health stays green.
 
 ### Full stack (Postgres, Redis, worker, Keycloak)
 
-```powershell
-Copy-Item .env.example .env
+```bash
+cp .env.example .env
 docker compose up -d --build
 docker compose ps
 ```
 
 Multi-tenant RLS, background jobs, and Keycloak OIDC (`AUTH_MODE=oidc`).
-Full variable reference: `docs/08-deployment/local.md`.
+Every environment variable is listed with a default in `.env.example`.
 
-## Repository layout
+## API
 
-```
-README.md  LICENSE  SECURITY.md  CONTRIBUTING.md  CODE_OF_CONDUCT.md  CHANGELOG.md
-.env.example  docker-compose.yml  Dockerfile  .gitignore  mkdocs.yml  Makefile
-docs/
-  BRAIN.md  README.md  glossary.md
-  00-plan/ROADMAP.md
-  01-product/{requirements.md,portfolio.md}
-  02-architecture/{system.md,domain.md,database.md,api.md}
-  03-ai/{architecture.md,safety.md,evaluation.md}
-  04-security/{architecture.md,threat-model.md}
-  05-frontend/design-system.md
-  06-brand/logo.md
-  07-android/strategy.md
-  08-deployment/local.md
-  09-operations/runbook.md
-  10-decisions/{README.md,ADR-001…007.md}
-  12-legal/ (drafts — not legally reviewed, see docs/12-legal/README.md)
-assets/brand/{vantor-logo-source.png,logo.svg,logo-mono.svg,logo-dark.svg,favicon.svg,app-icon.svg,social-preview.svg}
-backend/  frontend/  worker/  android/ (strategy only)  api/  scripts/  deploy/
-.github/{workflows/{ci.yml,release.yml},dependabot.yml,ISSUE_TEMPLATE/,PULL_REQUEST_TEMPLATE.md}
-```
+The contract is generated from the code and committed at `api/openapi.json`.
+CI regenerates it and fails the build if it drifts, so the file in the
+repository is always the contract the server actually serves.
 
-| Doc | Purpose |
-|---|---|
-| `docs/01-product/portfolio.md` | The 10 products — canonical list |
-| `docs/00-plan/ROADMAP.md` | Build phases, status, Definition of Done |
-| `docs/02-architecture/system.md` | Modular monolith, free stack |
-| `docs/03-ai/architecture.md` | Gateway, typed tools, HITL |
-| `docs/04-security/architecture.md` | Auth, tenancy, RBAC, audit |
-| `docs/05-frontend/design-system.md` | UI system |
-| `docs/08-deployment/local.md` | Deployment reference |
-| `docs/09-operations/runbook.md` | Health, backup, incidents |
+- **98 API operations across 84 paths**, versioned under `/api/v1`.
+- Idempotency keys on mutating workflow actions; cursor pagination with
+  filter, sort and field selection.
+- A single response envelope — `{data, pagination, error, requestId}` — and
+  typed validation errors with field paths.
 
 ## Security
 
-See `SECURITY.md`. Never commit secrets; report vulnerabilities privately
-(no public issues). Enforced: Keycloak OIDC, Postgres RLS (fail-closed),
-hash-chained audit, idempotency, rate limiting, and security headers on both
-API and web app. The worker holds a least-privilege `Service Identity` role
-covering exactly its two jobs.
+See [`SECURITY.md`](SECURITY.md). Never commit secrets; report
+vulnerabilities privately, not as a public issue.
+
+Enforced in the code, not just documented: Keycloak OIDC, PostgreSQL
+row-level security that fails closed, role-based access control, a
+hash-chained audit log, idempotent mutations, rate limiting, and security
+headers on both the API and the web app. The worker holds a least-privilege
+service role covering exactly its two jobs, and it is deliberately not a
+subset of any human role.
 
 ## Testing
 
 ```bash
-make verify  # all 16 gates (or scripts/verify_all.ps1 / .sh)
+make verify    # the full gate set
 ```
 
-```powershell
-# Backend fast tier (SQLite, 386 collected — 377 pass, 9 need PG)
-$env:APP_ENV="test"; $env:DATABASE_URL="sqlite://"
-python -m pytest backend/tests -q
-cd backend; ruff check app tests alembic; mypy app; cd ..
+```bash
+# Backend fast tier (SQLite — 386 collected, 377 pass, 9 need Postgres)
+APP_ENV=test DATABASE_URL=sqlite:// python -m pytest backend/tests -q
+
+# Worker
 python -m pytest worker/tests -q
-cd frontend; npm run typecheck; npm run lint; npm test; npm run build; cd ..
+
+# Web
+cd frontend && npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-## Troubleshooting
+Current state: **386 pytest collected** on the backend, **166 vitest green**
+across 13 suites in the web app, and 38 worker tests collected. The gates also
+cover lint, type checking, dependency audits, an OpenAPI drift check, a
+migration-chain check and a secret scan.
 
-- **Keycloak auth fails after `.env` reset**: the bootstrap password only
-  applies to an empty database — `docker compose down -v; docker compose up -d`.
-- **Uploads fail with `DOC_STORAGE_UNAVAILABLE`**: `S3_ENDPOINT` is
-  unreachable — leave the `S3_*` vars blank for local-disk storage (`uploads/`).
-- **Postgres permission denied**: app role (`vantor_app`) vs schema owner
-  (`POSTGRES_USER`) — keep `APP_DB_PASSWORD` in sync (migration `0026`).
-- **No Keycloak?** Set `AUTH_MODE=local` — the API issues its own sessions.
+## Current limitations
+
+Know these before you deploy.
+
+- **Not production-hardened.** There is no SLA, no on-call rotation and no
+  upgrade path. Treat it as a capable reference implementation you own.
+- **The SQLite tier does not exercise the database.** Row-level security,
+  composite foreign keys and the pgvector index need a real PostgreSQL
+  (`PG_TEST_DATABASE_URL`). On SQLite, tenant isolation rests on the
+  application layer alone.
+- **Document OCR is absent.** Upload, validation, storage, extraction,
+  chunking and audit are real; a scanned PDF with no text layer is
+  quarantined, not OCR'd.
+- **Search is lexical, not semantic.** Vectors are stored and compared for
+  real, but a cosine over bag-of-words vectors is lexical. The API labels
+  the mode honestly in its response rather than claiming "semantic search".
+  With no embedding provider configured, search is keyword-only.
+- **Notifications poll.** There is no realtime push.
+- **The worker drains one tenant.** Its delivery loop goes through the
+  tenant-scoped HTTP route, so a single worker will not deliver other
+  tenants' webhooks. Cross-tenant draining needs its own explicitly
+  cross-tenant identity.
+- **No Android client yet.** The API is ready for one; the app is not built.
+
+## Documentation
+
+The full documentation index is [`docs/README.md`](docs/README.md) —
+architecture, security model, deployment, operations, ADRs and the design
+system, each written to be read on its own.
+
+| Start here | What it covers |
+|---|---|
+| [`docs/02-architecture/system.md`](docs/02-architecture/system.md) | How the pieces fit together |
+| [`docs/02-architecture/database.md`](docs/02-architecture/database.md) | Schema, tenancy, row-level security |
+| [`docs/04-security/architecture.md`](docs/04-security/architecture.md) | Auth, RBAC, audit |
+| [`docs/08-deployment/local.md`](docs/08-deployment/local.md) | Every environment variable |
+| [`docs/09-operations/runbook.md`](docs/09-operations/runbook.md) | Health, backup, incidents |
 
 ## Contributing
 
-See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`. CI runs on every push/PR to
-`main`, weekly on Mondays 05:17 UTC, and on manual dispatch. The heavy tier
-(Postgres, Alembic drills, Playwright E2E) runs only with `full_suite: true`.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). CI runs on every push and pull
+request to `main`, weekly on Mondays, and on manual dispatch. A heavier tier
+(Postgres, migration drills, Playwright end-to-end) runs on demand with
+`full_suite: true`.
 
 ## License
 
-**Apache-2.0** © 2026 Digi Tracks — see `LICENSE`. Free to use, self-host,
-modify, and redistribute, including commercially. Keep the copyright and
-license notice.
+**Apache-2.0** © 2026 Digi Tracks — see [`LICENSE`](LICENSE). Free to use,
+self-host, modify and redistribute, including commercially. Keep the copyright
+and license notice.
 
-## Enquiries
+## Contact
 
-Product: **VANTOR** by **Digi Tracks** — **digi.tracks@outlook.com**.
-Bugs/features: [GitHub Issues](../../issues) (steps, expected vs actual,
-deployment mode). Vulnerabilities: `SECURITY.md` (private disclosure only).
+- **Product:** VANTOR by Digi Tracks — **digi.tracks@outlook.com**
+- **Bugs and features:** [GitHub Issues](../../issues) — please include steps,
+  expected vs actual behaviour, and your deployment mode.
+- **Vulnerabilities:** [`SECURITY.md`](SECURITY.md) — private disclosure only.
 
-## Roadmap
+## Changelog
 
-Architecture → Foundation → Core P2P → Intelligence → AI → Web UI →
-Integrations → Android → Production hardening → Portfolio extension.
-Status and Definition of Done: `docs/00-plan/ROADMAP.md`.
-
-> **Android — coming soon (API-ready).** `/api/v1` already serves it
-> (OIDC + RLS + approvals); the Kotlin app starts once device testing is
-> available. See `docs/07-android/strategy.md`.
+[`CHANGELOG.md`](CHANGELOG.md)
