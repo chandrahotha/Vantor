@@ -83,7 +83,7 @@ def build() -> int:
     # apple-touch must be opaque; iOS does not composite transparency.
     apple = _square(src, 180).convert("RGB")
     apple.save(OUT / "apple-touch-icon.png", "PNG", optimize=True)
-    print(f"  frontend/public/icons/apple-touch-icon.png  180x180")
+    print("  frontend/public/icons/apple-touch-icon.png  180x180")
 
     print("background-less mark (in-app sidebar):")
     bg = Image.open(BRAND / BGLESS[0]).convert("RGBA")

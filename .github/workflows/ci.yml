@@ -207,6 +207,45 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  # -------------------------------------------------------------------------
+  # The images the project ships.
+  #
+  # No CI job built a Dockerfile — ever. The `release` workflow publishes a
+  # GitHub release and never touches Docker, so the repository's primary
+  # delivery artefact — the container image — was built by nobody, ever, and
+  # a broken Dockerfile could reach `main` without a single test noticing.
+  #
+  # That is how `COPY . .` overwriting the container's `npm ci` install with
+  # the developer's own `node_modules` survived: the image was never built, so
+  # the image was never wrong in a way anyone could see.
+  #
+  # The three Python images are built on every push. They are quick (one
+  # `pip install` each) and they catch the failures that actually happen: a
+  # base image that no longer resolves, a requirements file that cannot be
+  # installed, a Dockerfile that no longer parses.
+  #
+  # The two Node images are much slower — each runs a full `npm ci` and a
+  # production `next build` — so they are built on the weekly schedule and on
+  # a manual `full_suite: true` dispatch instead of on every push.
+  # -------------------------------------------------------------------------
+  images:
+    needs: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the backend image
+        run: docker build -t vantor-backend:ci -f backend/Dockerfile backend
+      - name: Build the worker image
+        run: docker build -t vantor-worker:ci -f worker/Dockerfile worker
+      - name: Build the Keycloak provisioning image
+        run: docker build -t vantor-keycloak:ci -f deploy/keycloak/Dockerfile deploy/keycloak
+      - name: Build the frontend image
+        if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
+        run: docker build -t vantor-frontend:ci -f frontend/Dockerfile frontend
+      - name: Build the single-container image
+        if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
+        run: docker build -t vantor:ci -f Dockerfile .
+
   # =========================================================================
   # Heavy Expansion Tier (Enabled via workflow_dispatch with full_suite=true,
   # or un-commented when moving to full-scale PR/commit CI in a later phase)

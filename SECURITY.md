@@ -64,6 +64,14 @@ not claimed.
   ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): `pip-audit` and
   `npm audit` on every push, plus a secret scan, a container digest check and
   a migration-chain check.
+- **Every container image is pinned by digest** — the compose stack, the CI
+  service containers, and the base images the Dockerfiles build from. A tag
+  is a mutable name, so a pinned image is the same bytes today and tomorrow.
+  The check is offline and runs on every push; it fails on an unpinned or
+  malformed digest.
+- **The images the project ships are built by CI.** A Dockerfile that no
+  longer parses, a base image that no longer resolves, or a requirements file
+  that cannot be installed fails the build rather than reaching a release.
 
 ## Not implemented
 

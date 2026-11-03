@@ -63,6 +63,17 @@ COMPOSE = ROOT / "docker-compose.yml"
 #: that names the image, so that is where the pin belongs.
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
+#: Every Dockerfile that ships. The `docker` Dependabot ecosystem does not
+#: recurse, so these are listed explicitly — the same reason the compose file
+#: needs one entry per service.
+DOCKERFILES = [
+    ROOT / "Dockerfile",
+    ROOT / "backend" / "Dockerfile",
+    ROOT / "worker" / "Dockerfile",
+    ROOT / "frontend" / "Dockerfile",
+    ROOT / "deploy" / "keycloak" / "Dockerfile",
+]
+
 PLACEHOLDER_DIGEST = "sha256:" + "0" * 64
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE_RE = re.compile(
@@ -76,6 +87,15 @@ IMAGE_RE = re.compile(
 #: compose's `image:` lines interpolate `${VAR:-...}` and are handled by
 #: `IMAGE_RE` instead.
 CI_IMAGE_RE = re.compile(r"^\s*image:\s*(?P<ref>[^\s#]+)\s*(?:#.*)?$")
+
+#: A Dockerfile `FROM` line. The reference is the part before a stage alias
+#: (`AS name`) and may carry a digest. The alias, when present, defines a
+#: build stage rather than naming a base image.
+DOCKER_FROM_RE = re.compile(
+    r"^\s*FROM\s+(?P<ref>[^\s]+)"
+    r"(?:\s+AS\s+(?P<alias>[^\s]+))?\s*$",
+    re.IGNORECASE,
+)
 
 #: Manifest media types to ask for. Asking for the list gives us the multi-arch
 #: index digest, which is what `image@sha256:` must point at: the per-architecture
@@ -145,6 +165,72 @@ def check_ci_images(text: str) -> list[str]:
         if ":latest" in ref:
             problems.append(
                 f"{CI_WORKFLOW.name} line {number}: {ref} uses a mutable `latest` tag"
+            )
+    return problems
+
+
+def parse_dockerfile_bases(text: str) -> list[tuple[int, str]]:
+    """Return `(line number, base reference)` for every `FROM` line.
+
+    A `FROM` that names a build stage (`FROM web AS run`, where `web` was
+    defined earlier in this same file) refers to a stage this Dockerfile
+    already built — not to an image to pull — so it is not a base image.
+    Stage names are tracked as they are defined rather than guessed from the
+    reference's shape: a stage alias is a bare word, but `python:3.14-slim` is
+    also a bare word before the colon, and only the file itself says which one
+    it is.
+
+    A `FROM` that *defines* a stage (`FROM node:22-alpine AS web`) is still a
+    base image — the stage is just also named — so it is counted and its
+    digest is required.
+    """
+    found: list[tuple[int, str]] = []
+    stages: set[str] = set()
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = DOCKER_FROM_RE.match(raw)
+        if not m:
+            continue
+        ref = m.group("ref")
+        alias = m.group("alias")
+        if ref.lower() in stages:
+            # A previous stage, not a registry image. It cannot carry a
+            # digest, and it does not need one.
+            continue
+        found.append((number, ref))
+        if alias:
+            stages.add(alias.lower())
+    return found
+
+
+def check_dockerfile_bases(path: pathlib.Path) -> list[str]:
+    """Every base image a Dockerfile builds from must be pinned to a digest.
+
+    The base image is where the build's supply chain enters: it carries the
+    system packages, the interpreter, and the `npm ci` / `pip install` that
+    run on top of it. A mutable tag there means the image produced by the same
+    commit can differ from one day to the next — and the build was never run
+    by CI, so nothing would have noticed.
+    """
+    problems: list[str] = []
+    for number, ref in parse_dockerfile_bases(path.read_text(encoding="utf-8")):
+        if "@" not in ref:
+            problems.append(
+                f"{path.relative_to(ROOT)} line {number}: {ref} is not digest-pinned. "
+                "Use `FROM repo:tag@sha256:<64 hex>`"
+            )
+            continue
+        _name, _, digest = ref.rpartition("@")
+        if not DIGEST_RE.match(digest):
+            problems.append(
+                f"{path.relative_to(ROOT)} line {number}: {ref} has a malformed digest "
+                f"{digest!r} — expected sha256:<64 hex>"
+            )
+        if ":latest" in ref:
+            problems.append(
+                f"{path.relative_to(ROOT)} line {number}: {ref} uses a mutable `latest` tag"
             )
     return problems
 
@@ -331,13 +417,24 @@ def check(images, env_lines) -> int:
     else:
         problems.append(f"{CI_WORKFLOW.name} is missing — the CI images cannot be checked")
 
+    # The Dockerfiles build from base images. Those are the supply chain the
+    # build actually sits on, and nothing else in this gate can see them.
+    dockerfile_bases = 0
+    for dockerfile in DOCKERFILES:
+        if not dockerfile.exists():
+            problems.append(f"{dockerfile.relative_to(ROOT)} is missing — its base images cannot be checked")
+            continue
+        dockerfile_bases += len(parse_dockerfile_bases(dockerfile.read_text(encoding="utf-8")))
+        problems.extend(check_dockerfile_bases(dockerfile))
+
     if problems:
         for p in problems:
             print(f"FAIL {p}", file=sys.stderr)
         return 1
     print(
-        f"all {len(images)} compose images are digest-pinned and "
-        f"{len(ci_images)} CI service images are digest-pinned (structural check passed)"
+        f"all {len(images)} compose images, {len(ci_images)} CI service images and "
+        f"{dockerfile_bases} Dockerfile base images are digest-pinned "
+        "(structural check passed)"
     )
     return 0
 
@@ -414,6 +511,39 @@ CI_IMAGE_SELF_TEST_CASES = [
 ]
 
 
+#: (Dockerfile text, expected base count). The base-image half of the gate has
+#: to be able to *fail*, and it has to tell a base image apart from a build
+#: stage: `FROM web AS run` names a stage this file already built, not an
+#: image to pull, and treating it as one would demand a digest it cannot have.
+DOCKERFILE_SELF_TEST_CASES = [
+    (
+        "FROM python:3.14-slim@sha256:" + "a" * 64 + "\n",
+        1,
+    ),
+    (
+        "FROM python:3.14-slim\n",
+        1,
+    ),
+    (
+        "FROM node:22-alpine@sha256:" + "b" * 64 + " AS web\n"
+        "FROM python:3.14-slim@sha256:" + "c" * 64 + " AS run\n"
+        "COPY --from=web /web/.next /web\n",
+        2,
+    ),
+    (
+        # A `FROM` that reuses an earlier stage is not a base image — it
+        # cannot carry a digest and does not need one.
+        "FROM node:22-alpine@sha256:" + "d" * 64 + " AS build\n"
+        "FROM build AS run\n",
+        1,
+    ),
+    (
+        "# FROM python:3.14-slim\n",
+        0,
+    ),
+]
+
+
 def self_test() -> int:
     failures = []
     for ref, expected in SELF_TEST_CASES:
@@ -431,6 +561,13 @@ def self_test() -> int:
         if len(found) != expected:
             failures.append(
                 f"CI image check: expected {expected} problem(s), got {len(found)} "
+                f"for {text!r} -> {found}"
+            )
+    for text, expected in DOCKERFILE_SELF_TEST_CASES:
+        found = parse_dockerfile_bases(text)
+        if len(found) != expected:
+            failures.append(
+                f"Dockerfile base check: expected {expected} base image(s), got {len(found)} "
                 f"for {text!r} -> {found}"
             )
     for f in failures:
