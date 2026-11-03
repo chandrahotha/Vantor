@@ -114,6 +114,39 @@ def apply_security_headers(response, *, is_prod: bool = False, nonce: str = "") 
         ).strip()
 
 
+def apply_cors_headers(response, *, origin: str, allowed: bool) -> None:  # type: ignore[no-untyped-def]
+    """Attach the CORS response headers for an allowed origin.
+
+    Split out of the middleware because error responses never reach it.
+
+    Starlette installs a catch-all `Exception` handler on `ServerErrorMiddleware`,
+    which is the *outermost* layer — outside every `add_middleware` call. An
+    unhandled exception therefore never comes back through this middleware, and
+    its response was reaching the browser with no `Access-Control-Allow-Origin`
+    at all. The browser could not read the error envelope the API had carefully
+    built, and reported it instead as an opaque "Failed to fetch" — the one
+    response a client most needs to read is the one it could not see.
+
+    `errors.py` therefore calls this directly for the responses it generates.
+    """
+    if not allowed or not origin:
+        return
+    response.headers["Access-Control-Allow-Origin"] = origin
+    vary = response.headers.get("Vary")
+    response.headers["Vary"] = f"{vary}, Origin" if vary else "Origin"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Headers"] = (
+        "Authorization, Content-Type, X-Request-ID, Idempotency-Key, "
+        "X-Vantor-Provider-Key"
+    )
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+
+
+def origin_allowed(origin: str) -> bool:
+    """True when `origin` is on this deployment's CORS allowlist."""
+    return bool(origin) and origin in _allowed_origins()
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):  # type: ignore[no-untyped-def]
         from fastapi.responses import Response as _Plain
@@ -123,7 +156,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         is_prod = get_settings().is_prod
         nonce = new_nonce()
         origin = request.headers.get("origin", "")
-        allowed = origin in _allowed_origins()
+        allowed = origin_allowed(origin)
         if request.method == "OPTIONS" and allowed:
             # CORS preflight short-circuit (no auth needed to ask permission).
             resp = _Plain(status_code=204, headers={
@@ -139,16 +172,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             return resp
         response = await call_next(request)
         apply_security_headers(response, is_prod=is_prod, nonce=nonce)
-        if allowed:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            vary = response.headers.get("Vary")
-            response.headers["Vary"] = f"{vary}, Origin" if vary else "Origin"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Headers"] = (
-                "Authorization, Content-Type, X-Request-ID, Idempotency-Key, "
-                "X-Vantor-Provider-Key"
-            )
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        apply_cors_headers(response, origin=origin, allowed=allowed)
         return response
 
 

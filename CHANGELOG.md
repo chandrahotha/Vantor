@@ -57,6 +57,59 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Fixed
 
+- **A file-backed SQLite database shared one connection across every request
+  thread.** `get_engine()` gave `StaticPool` to every SQLite URL — a comment
+  said "unit-test / local only", but the condition was `url.startswith("sqlite")`,
+  which also matched `sqlite:////data/vantor.db`, the single-container
+  image's database. `StaticPool` hands out *one* connection to all threads,
+  which is the only way to make an in-memory SQLite database work, but a
+  SQLite connection is not safe for concurrent use. Concurrent requests
+  interleaved on it and surfaced as `sqlite3.InterfaceError: bad parameter or
+  other API misuse` and `IndexError: tuple index out of range` inside
+  SQLAlchemy's row loading — the second one because a thread found the result
+  row it expected had been consumed by another thread.
+  In-memory SQLite still gets `StaticPool` (its contents live inside the
+  connection, so a second connection would be a second, empty database); a
+  file-backed database now gets the dialect's own `QueuePool`, one connection
+  per thread. `backend/tests/test_sqlite_pooling.py` reproduces the original
+  failure and guards the fix.
+- **Error responses carried no CORS grant.** Starlette installs a catch-all
+  `Exception` handler on `ServerErrorMiddleware`, the outermost layer —
+  *outside* every `add_middleware` call. A response produced there therefore
+  never passed back through the CORS middleware, so a 500 reached the browser
+  with no `Access-Control-Allow-Origin` at all. The browser could not read
+  the `INTERNAL_ERROR` envelope the API had built and reported an opaque
+  "Failed to fetch" instead — the one response a client most needs to read
+  was the one it could not see. `errors.py` now applies the grant itself, and
+  still refuses it for an origin that is not on the allowlist.
+- **The Approvals queue did not say what it was asking you to approve.** The
+  table showed the document code (`REQ-…`, `PO-…`) and nothing else, so the
+  type of document had to be inferred from a code prefix, in a queue that
+  mixes requisitions, purchase orders and AI action requests. Approving a
+  purchase order and approving a requisition are different acts. There is now
+  a **Type** column.
+- **The Postgres-backed test that checks cross-PO invoice lines never reached
+  the check it was written for.** `POST /purchase-orders/{id}/invoices` runs
+  two gates in order: the PO's state, then whether each cited line belongs to
+  that PO. The test asserted `INVOICE_LINE_NOT_ON_PO` against a freshly
+  created PO, which is `draft`, so the state gate answered first and the test
+  failed on the wrong thing. The equivalent SQLite-tier test approves and
+  sends the PO first for exactly this reason. Both gates are now asserted, in
+  the order they run.
+- **The committed OpenAPI YAML was stale and ungated.** `api/openapi.yaml`
+  had 80 of its 84 paths disagreeing with `api/openapi.json` — it predated
+  FastAPI 0.162.0's `additionalProperties: true` on plain-object response
+  models — and nothing regenerated or checked it, while a documentation page
+  described it as "generated at build". `scripts/generate_openapi.py` now
+  writes both copies from a single `app.openapi()` call, so they cannot
+  disagree with each other, and CI regenerates and diffs both.
+- **The Playwright suite could silently test the wrong application.** The
+  config and the `dev` script both hardcoded port 3000, with
+  `reuseExistingServer: !process.env.CI` beside it: if anything else was
+  already listening on 3000, Playwright reused *it* and reported page-level
+  timeouts instead of "the port was taken". The port is now configurable with
+  `E2E_PORT`, and `next dev` / `next start` honour `PORT` rather than pinning
+  it.
 - **Dependency audits are now real CI gates** (README and SECURITY.md already
   claimed they were). `pip-audit --strict` on backend + worker requirements,
   `npm audit --omit=dev --audit-level=high` on the frontend production
@@ -91,6 +144,15 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Changed
 
+- **The CI tiers that were never run now run.** The `postgres-tier` and
+  `e2e-tier` jobs were `workflow_dispatch`-only, and the single time the
+  workflow was dispatched it failed in the `policy` job before reaching any
+  test. So the row-level-security, foreign-key and concurrency assertions had
+  never passed anywhere, and the Playwright end-to-end workflow had never run
+  green. Both tiers now also run on the weekly schedule, and the worker job
+  gets a Redis service so the four Redis-backed worker tests stop skipping.
+  The Linux Playwright screenshot baseline is committed — only the Windows one
+  was, so the suite could not have passed on a Linux runner.
 - **Dependabot config repaired (`.github/dependabot.yml`).** The file was
   invalid YAML — the `updates:` key was missing, so Dependabot was reading a
   bare list and the config never loaded. Beyond the syntax, three policy
@@ -141,6 +203,19 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
 
 ### Documentation
 
+- **`SECURITY.md` no longer claims controls that do not exist.** "Guaranteed
+  controls (Definition of Done)" listed object-storage-only uploads, a
+  malware-scan hook, OCR sandboxing, a CORS allowlist and CSRF protection —
+  none of which is implemented. The page is now split into what the code
+  enforces, what is explicitly **not** implemented, and what is the
+  deployer's responsibility (TLS, encryption at rest, secret management).
+  A public security policy that overstates its own guarantees is worse than
+  one that admits what is missing.
+  The rewrite then over-corrected in one place: it listed CORS under "not
+  implemented", when the API has always had an allowlist-driven CORS
+  implementation in `app/core/secheaders.py`. The claim is now accurate in
+  the other direction — CORS is enforced, fails closed, and is applied to
+  error responses as well as successful ones.
 - **The READMEs were rewritten as public documentation.** `README.md`,
   `backend/README.md`, `frontend/README.md`, `worker/README.md`,
   `android/README.md` and `docs/README.md` were internal working documents
@@ -171,14 +246,6 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   the public READMEs link to it, and that the docs tree still links back to
   its own central index. `scripts/fix_brain_links.py` is now scoped to
   `docs/`, where the convention belongs.
-- **`SECURITY.md` no longer claims controls that do not exist.** "Guaranteed
-  controls (Definition of Done)" listed object-storage-only uploads, a
-  malware-scan hook, OCR sandboxing, a CORS allowlist and CSRF protection —
-  none of which is implemented. The page is now split into what the code
-  enforces, what is explicitly **not** implemented, and what is the
-  deployer's responsibility (TLS, encryption at rest, secret management).
-  A public security policy that overstates its own guarantees is worse than
-  one that admits what is missing.
 - **Internal identifiers removed from the published docs.** The `(B-34)`,
   `(B-18)` and `(B-13)` ticket references in the operations runbook, and the
   reference to a retired external specification bundle in the roadmap, are

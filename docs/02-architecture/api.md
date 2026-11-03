@@ -17,4 +17,4 @@
 `search_suppliers get_supplier compare_suppliers create_rfq get_rfq analyze_quotes compare_quotes analyze_contract get_contract_obligations calculate_savings find_spend_anomalies request_approval get_purchase_orders get_supplier_performance generate_report` - all logged as `AI_TOOL_EXECUTED` with evidence refs.
 
 ## Contract source
-`api/openapi.yaml` generated at build; breaking changes require migration notes + version bump. Full reference published in Phase 3.
+The contract is generated from the application and committed twice — `api/openapi.json` and `api/openapi.yaml` — from a single `app.openapi()` call, so the two cannot disagree with each other. `python scripts/generate_openapi.py` writes both; CI regenerates them and fails the build if either drifts from the code. Breaking changes require migration notes + version bump.

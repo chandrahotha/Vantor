@@ -127,16 +127,29 @@ jobs:
           JWT_AUDIENCE: vantor-web
         run: python -m pytest backend/tests -q
       - name: API contract synchronization (OpenAPI matches committed copy)
+        # Both committed copies of the contract are regenerated from the same
+        # `app.openapi()` call and diffed. The YAML copy used to be ungated,
+        # so it drifted: 80 of its 84 paths disagreed with the contract the
+        # server actually serves, and nothing noticed.
         run: |
-          cd backend
-          APP_ENV=test DATABASE_URL=sqlite:// python -c "from app.main import app; import json; json.dump(app.openapi(), open('../api/openapi.json','w'), indent=2)"
-          test -f ../api/openapi.json
-          cd ..
-          git diff --exit-code -- api/openapi.json || (echo "api/openapi.json is stale - regenerate and commit" && exit 1)
+          pip install pyyaml==6.0.3
+          python scripts/generate_openapi.py
+          git diff --exit-code -- api/openapi.json api/openapi.yaml || (
+            echo "the committed OpenAPI contract is stale - run 'python scripts/generate_openapi.py' and commit" && exit 1
+          )
 
   worker:
     needs: policy
     runs-on: ubuntu-latest
+    services:
+      # The worker talks to Redis for real — queue promotion, job execution.
+      # Four tests in `worker/tests/test_worker.py` skip without a live Redis,
+      # so without this service they had never run anywhere.
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -151,6 +164,9 @@ jobs:
       - name: Worker dependency audit (pip-audit, strict)
         run: python -m pip_audit -r worker/requirements.txt --strict
       - name: Worker unit tests
+        env:
+          RQ_TEST_REDIS_URL: redis://localhost:6379/0
+          REDIS_URL: redis://localhost:6379/0
         run: cd worker && python -m pytest tests -q
 
   frontend:
@@ -196,7 +212,11 @@ jobs:
   # =========================================================================
   postgres-tier:
     needs: [backend]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true' }}
+    # Manual dispatch with full_suite=true, or the weekly scheduled run. This
+    # tier used to be dispatch-only, and the one time it was dispatched it
+    # failed — so the RLS, foreign-key and concurrency assertions had never
+    # passed anywhere.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -237,7 +257,9 @@ jobs:
 
   e2e-tier:
     needs: [frontend, backend]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true' }}
+    # Same trigger as the Postgres tier: manual full-suite dispatch, or the
+    # weekly schedule. The Playwright suite had never run green in CI.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

@@ -79,13 +79,20 @@ duties. Every state change is written to a hash-chained audit log.
 ## Database
 
 PostgreSQL is the primary store, with pgvector for document embeddings.
-Migrations are Alembic, and the chain is linear with a single head — CI
-verifies it, and runs `upgrade head` → `check` → `downgrade -1` →
-`upgrade head` against a real PostgreSQL.
+Migrations are Alembic, and the chain is linear with a single head.
+
+CI checks the chain on every run, and runs the full migration drill —
+`upgrade head` → `check` → `downgrade -1` → `upgrade head` — against a real
+PostgreSQL on the weekly scheduled run and on a manual dispatch with
+`full_suite: true`. The Postgres-backed tests (row-level security, foreign
+keys, concurrency) run in the same job.
 
 SQLite is supported for local development and the fast test tier. It is not
 equivalent: SQLite has no row-level security, no `FOR UPDATE`, and no
-composite foreign keys.
+composite foreign keys. A file-backed SQLite database — which is what the
+single-container image runs on — gets one connection per thread rather than
+one shared connection, so concurrent requests do not collide on the same
+cursor.
 
 ## Tests
 
@@ -93,7 +100,7 @@ composite foreign keys.
 python -m pytest tests -q
 ```
 
-**386 pytest collected** on the fast tier (377 pass, 9 need a real
+**392 pytest collected** on the fast tier (383 pass, 9 need a real
 PostgreSQL and skip without `PG_TEST_DATABASE_URL`). Auth and money paths
 are covered without mocked identities or fabricated tenants — the API tests
 exercise the real verification path rather than bypassing it.
