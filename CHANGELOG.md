@@ -77,6 +77,19 @@ All notable changes tracked here. Statuses: `PLANNED / IN DEVELOPMENT / IMPLEMEN
   packages copied into the image. With a `.dockerignore` per context: the
   context drops to the tracked source, and neither `node_modules` nor `.next`
   is copied.
+- **A developer's `.env` could have been baked into the published image.** The
+  first version of the root `.dockerignore` excluded `.env` and `.env.*`, but
+  a bare pattern matches only the *root* of the build context — and the root
+  Dockerfile copies `backend/` and `frontend/` wholesale. A developer's
+  `backend/.env` (which `Settings` loads from the working directory) or
+  `frontend/.env.local` would therefore have reached the image, with whatever
+  secrets it held. `frontend/.dockerignore` does not help: it does not apply
+  when the build context is the repository root.
+  The exclusions are now anchored at any depth (`**/.env`, `**/.env.*`,
+  `!**/.env.example`), along with `**/*.pem`, `**/*.key`, `**/*.p12` and
+  `**/*.pfx`. Verified by planting marker files at `backend/.env`,
+  `frontend/.env.local` and `frontend/.env.production`: none of them reaches
+  the image, and `.env.example` is still carried.
 - **No CI job built a Dockerfile — ever.** The `release` workflow publishes a
   GitHub release and never touches Docker, so the repository's primary
   delivery artefact was built by nobody, ever. A broken Dockerfile could

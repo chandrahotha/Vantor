@@ -25,11 +25,18 @@ playwright-report
 test-results
 .playwright
 
-# Local environment files. `NEXT_PUBLIC_*` is public by definition, but a
-# developer's `.env.local` is not, and an image is the wrong place for it.
-.env
-.env.*
-!.env.example
+# Local environment files, at any depth. `NEXT_PUBLIC_*` is public by
+# definition, but a developer's `.env.local` is not, and an image is the wrong
+# place for it.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and certificates must never reach an image.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
 
 # Tooling caches and logs.
 *.log

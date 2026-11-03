@@ -13,3 +13,12 @@ __pycache__
 data
 uploads
 tests
+
+# Local environment files and private keys. The Dockerfile copies named paths
+# only, so these would not reach the image — but they have no business being
+# in the build context either.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key

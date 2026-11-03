@@ -38,6 +38,20 @@ backend/data
 backend/.venv
 backend/uploads
 worker/.venv
-.env
-.env.*
-!.env.example
+# Local environment files, at any depth. These patterns have to be anchored
+# with `**/`: a bare `.env` matches only the root of the build context, and
+# this Dockerfile copies `backend/` and `frontend/` wholesale — so a
+# developer's `backend/.env` (which `Settings` loads from the working
+# directory) or `frontend/.env.local` would otherwise be baked into the
+# published image, with whatever secrets they hold.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and certificates. The session signing key is written under
+# `backend/data/` at runtime, but a stray `.pem` in the working tree must not
+# be able to reach an image.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
