@@ -34,8 +34,6 @@
 // replace it with the dev fallback and send every request to an address the
 // browser cannot reach outside the machine that built the image.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-import { getDemoSession, setDemoFlag, isDemoSession } from "./demoData";
-export { isDemoSession };
 const STORAGE_KEY = "vantor.session";
 /** Re-issue this far ahead of expiry, so a long-lived tab never blocks on it. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
@@ -92,19 +90,9 @@ function isLive(s: Session | null): s is Session {
 export function restoreSession(): Session | null {
   if (current) return current;
   try {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("demo") === "true") {
-        return signInDemo();
-      }
-    }
+    if (typeof window === "undefined") return null;
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      if (typeof window !== "undefined" && localStorage.getItem("vantor.demo") === "true") {
-        return signInDemo();
-      }
-      return null;
-    }
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     if (!isLive(parsed)) {
       localStorage.removeItem(STORAGE_KEY);
@@ -192,16 +180,8 @@ export async function signIn(persona?: string): Promise<Session> {
   return session;
 }
 
-export function signInDemo(persona?: string): Session {
-  const session = getDemoSession(persona);
-  setSession(session);
-  setDemoFlag(true);
-  return session;
-}
-
 export function logout(): void {
   setSession(null);
-  setDemoFlag(false);
 }
 
 /** Keep the session from lapsing while a tab is open.

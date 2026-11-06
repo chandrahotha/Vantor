@@ -1,8 +1,7 @@
 # VANTOR — Intelligent Procurement Operating System
 
-[![Live Demo: Vercel](https://img.shields.io/badge/demo-vantor--os.vercel.app-black.svg?logo=vercel)](https://vantor-os.vercel.app/)
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 403 backend + 170 frontend](https://img.shields.io/badge/tests-403%20backend%20%2B%20170%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 403 backend + 159 frontend](https://img.shields.io/badge/tests-403%20backend%20%2B%20159%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 98 operations](https://img.shields.io/badge/API-98%20operations-blue.svg)](api/openapi.json)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -17,7 +16,8 @@ sourcing, contracts, purchase orders, invoices, spend analytics, budgets,
 approvals and an evidence-cited AI copilot behind one coherent system — with
 one audit trail and one permission model across all of it.
 
-**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) ·
+**Run it in one command:** see [Quickstart](#quickstart) — there is no hosted
+demo, because a demo whose data is invented is not a demonstration of anything.
 Enquiries: **digi.tracks@outlook.com**
 
 ## What VANTOR does
@@ -152,8 +152,8 @@ python -m pytest worker/tests -q
 cd frontend && npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-Current state: **403 pytest collected** on the backend, **170 vitest green**
-across 14 suites in the web app, and 38 worker tests collected. The gates also
+Current state: **403 pytest collected** on the backend, **159 vitest green**
+across 13 suites in the web app, and 38 worker tests collected. The gates also
 cover lint, type checking, dependency audits, an OpenAPI drift check, a
 migration-chain check and a secret scan.
 

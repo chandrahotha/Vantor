@@ -10,7 +10,6 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 import { getSession } from "./auth";
-import { isDemoSession, getDemoResponse } from "./demoData";
 
 export type Envelope<T> = {
   data: T | null;
@@ -104,9 +103,9 @@ export async function api<T>(path: string, init?: ApiOptions, retried = false): 
     void _drop;
     res = await fetch(`${API_URL}${path}`, { ...rest, headers });
   } catch {
-    if (isDemoSession()) {
-      return getDemoResponse<T>(path, init);
-    }
+    // No invented fallback: with the API unreachable the panel shows its empty
+    // or error state and says which, because a dashboard of plausible fake
+    // records is indistinguishable from a working one to the person reading it.
     throw new ApiError(0, "NETWORK_ERROR", "API unreachable — is the backend running?", "");
   }
   if (res.status === 401 && !retried) {

@@ -70,16 +70,24 @@ export default function Dashboard() {
     // "Open RFQ" is a real count, not a 5-row sample. `limit=100` plus the
     // hasMore flag gives an exact count below 100 and "100+" above it, where the
     // previous code counted a 5-row sample and labelled it a total.
-    const rfqItems: Rfq[] = [];
+    //
+    // Deduplicated by id, because the two queries are merged into one list and
+    // the merge is only safe while `status=sent` and `status=response` are
+    // disjoint. Nothing in the API promises that: the day the definition of
+    // "open" overlaps a status filter, every RFQ in the intersection is shown
+    // twice *and* two rows share one React key, which is unsupported and drops
+    // or duplicates rows silently.
+    const rfqById = new Map<string, Rfq>();
     let rfqMore = false;
     for (const [name, res] of [["sent", rqSent], ["response", rqResponse]] as const) {
       if (res.status === "fulfilled") {
-        rfqItems.push(...(res.value.data || []));
+        for (const r of res.value.data || []) rfqById.set(r.id, r);
         if (res.value.pagination?.hasMore) rfqMore = true;
       } else {
         why(`rfq:${name}`, res.reason);
       }
     }
+    const rfqItems = [...rfqById.values()];
     setOpenRfqs({ items: rfqItems.sort((a, b) => a.code.localeCompare(b.code)), more: rfqMore });
 
     if (po.status === "fulfilled") setOrders({ items: po.value.data || [], more: !!po.value.pagination?.hasMore });

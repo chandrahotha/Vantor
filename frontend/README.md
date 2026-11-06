@@ -9,9 +9,10 @@ analytics, contract obligations and an evidence-grounded AI copilot.
 custom properties · Keycloak OIDC (Authorization Code + PKCE) · ESLint 10 ·
 Vitest 5.
 
-**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) — a
-standalone demo mode lets visitors explore the full interface without a
-backend running.
+**No demo mode.** Every panel is fed by the API. When the API is unreachable the
+UI says so and names the address it tried, rather than falling back to invented
+records: a dashboard of plausible fake numbers is indistinguishable from a
+working one to the person reading it.
 
 ## The routes
 
@@ -58,7 +59,7 @@ not come from the identity provider.
 ```bash
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
-npm test             # vitest — 170 vitest green across 14 suites
+npm test             # vitest — 159 vitest green across 13 suites
 npm run build        # next build
 ```
 
