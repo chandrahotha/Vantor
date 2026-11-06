@@ -45,6 +45,7 @@ export default defineConfig({
       PORT: String(PORT),
       NEXT_PUBLIC_API_URL: "http://localhost:8000",
       NEXT_PUBLIC_KEYCLOAK_URL: "http://localhost:8080",
+      AUTH_MODE: "local",
     }
   },
 });

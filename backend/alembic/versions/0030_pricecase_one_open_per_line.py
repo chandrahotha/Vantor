@@ -86,12 +86,13 @@ def upgrade() -> None:
                 sa.text(retire_statement(len(chunk))),
                 {"who": "migration:0030_dedupe", **{f"i{i}": cid for i, cid in enumerate(chunk)}},
             )
-        print(
+        import logging
+        log = logging.getLogger("alembic.runtime.migration")
+        log.info(
             f"0030: retired {len(stale)} duplicate open price case(s) to "
             f"`dismissed` (updated_by='migration:0030_dedupe') so the unique index "
             "could be created. The earliest case per line was kept open."
         )
-
     op.create_index(
         INDEX,
         "price_cases",
