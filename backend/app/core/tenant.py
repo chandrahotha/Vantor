@@ -181,6 +181,99 @@ def probe_session() -> Session:
     return _session_factory()()
 
 
+def rls_backstop() -> dict:
+    """Ask the database whether row-level security can apply to *this* connection.
+
+    PostgreSQL does not enforce row security for a superuser, for a role with
+    `BYPASSRLS`, or for the table owner — regardless of `FORCE ROW LEVEL
+    SECURITY`. Migration 0026 records that every `tenant_isolation` policy in
+    this schema was a no-op from 0001 forward for exactly that reason: every
+    deployment path pointed `DATABASE_URL` at the initdb superuser. The policies
+    were present, `set_config` was correct, the tests on SQLite passed, and no
+    rows were protected.
+
+    The runbook states the rule ("the runtime DB role must be NON-superuser and
+    must NOT own the tables") as a hard requirement. Stating it is the easy half:
+    a deployment that ignores it looks identical from the outside, so this reads
+    the catalog and reports whether the backstop the documentation promises is
+    actually engaged.
+    """
+    from .config import get_settings
+
+    url = get_settings().database_url_resolved
+    if url.startswith("sqlite"):
+        return {"dialect": "sqlite", "enforced": False, "applicable": False,
+                "reason": "SQLite has no row-level security; tenant isolation rests on "
+                          "the application's tenant filters alone"}
+    if not url.startswith("postgresql"):
+        return {"dialect": url.split(":", 1)[0], "enforced": False, "applicable": False,
+                "reason": "unknown dialect"}
+
+    from sqlalchemy import text
+
+    db = probe_session()
+    try:
+        row = db.execute(text(
+            """
+            SELECT current_user AS role,
+                   (SELECT coalesce(rolsuper, false) FROM pg_roles WHERE rolname = current_user) AS super,
+                   (SELECT coalesce(rolbypassrls, false) FROM pg_roles WHERE rolname = current_user) AS bypass,
+                   (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') AS tables,
+                   (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
+                      AND tableowner = current_user) AS owned
+            """
+        )).mappings().first()
+    except Exception as exc:  # noqa: BLE001 — a probe must not take the API down
+        return {"dialect": "postgresql", "enforced": False, "applicable": True,
+                "reason": f"could not read the catalog: {type(exc).__name__}"}
+    finally:
+        db.close()
+
+    if row is None:  # pragma: no cover — defensive; the catalog query always returns a row
+        return {"dialect": "postgresql", "enforced": False, "applicable": True,
+                "reason": "catalog query returned no row"}
+
+    role = str(row["role"])
+    owned = int(row["owned"] or 0)
+    total = int(row["tables"] or 0)
+    problems: list[str] = []
+    if bool(row["super"]):
+        problems.append(f"{role} is a superuser")
+    if bool(row["bypass"]):
+        problems.append(f"{role} has BYPASSRLS")
+    if total and owned == total:
+        problems.append(f"{role} owns every table in public (owners bypass RLS by design)")
+    enforced = not problems and bool(total)
+    reason = ("row-level security applies" if enforced else
+              "; ".join(problems) if problems else
+              "no tables in `public` yet — nothing for the policies to protect")
+    return {"dialect": "postgresql", "enforced": enforced, "applicable": True,
+            "role": role, "tables": total, "owned": owned, "reason": reason}
+
+
+def rls_verdict(status: dict, is_prod: bool) -> tuple[bool, str]:
+    """Decide what to do about the backstop, as a function so it can be tested.
+
+    Production refuses to start; everywhere else it is a warning. The asymmetry
+    is deliberate: `vantor_app` is not a convenience, it is the difference
+    between "the tenant filter was forgotten and the database caught it" and
+    "the tenant filter was forgotten" — and the second case is the one this
+    schema has already lived through for twenty-nine migrations.
+    """
+    if not status.get("applicable"):
+        return True, str(status.get("reason", ""))
+    if status.get("enforced"):
+        return True, f"RLS enforced as role {status.get('role', '?')}"
+    message = (
+        "row-level security is NOT enforced for this connection: "
+        f"{status.get('reason', 'unknown')}. Tenant isolation currently rests "
+        "on the application's `tenant_id` filters alone. Point DATABASE_URL at "
+        "the non-owner, non-superuser role created by migration 0026 "
+        "(`vantor_app`), as docs/09-operations/runbook.md §7 requires."
+    )
+    return (not is_prod), message
+
+
 def reset_engine_cache() -> None:
     global _engine, _SessionLocal
     _engine = None

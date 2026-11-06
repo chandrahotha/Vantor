@@ -266,3 +266,47 @@ def test_pinned_session_pins_on_postgres(monkeypatch):
     executed.clear()
     tenant_mod.pinned_session("")
     assert not executed
+
+
+def test_rls_verdict_refuses_production_when_the_backstop_cannot_apply():
+    """The runbook's hard rule, enforced by the process that depends on it.
+
+    docs/09-operations/runbook.md §7 says the runtime role "must be NON-superuser
+    and must NOT own the tables", and migration 0026 records what happened while
+    that was only a sentence: every `tenant_isolation` policy in the schema was a
+    no-op for the application's own connection from 0001 forward, because every
+    deployment path pointed `DATABASE_URL` at the initdb superuser. Postgres does
+    not apply row security to a superuser, a `BYPASSRLS` role or a table owner,
+    regardless of `FORCE ROW LEVEL SECURITY` — and the API behaves *identically*
+    either way, so nothing in a response ever told the operator.
+
+    The decision is a pure function so the refusal can be asserted without a
+    cluster; `rls_backstop()` is the part that needs one.
+    """
+    from app.core.tenant import rls_verdict
+
+    superuser = {"applicable": True, "enforced": False, "role": "vantor",
+                 "reason": "vantor is a superuser"}
+    ok, message = rls_verdict(superuser, is_prod=True)
+    assert ok is False, "production must not start with RLS bypassed by role"
+    assert "vantor_app" in message and "runbook" in message, message
+
+    # Same connection, not production: warn and carry on, because refusing a
+    # developer's `make up` would only teach them to set APP_ENV=production
+    # somewhere they did not mean to.
+    ok_dev, _ = rls_verdict(superuser, is_prod=False)
+    assert ok_dev is True
+
+    owner = {"applicable": True, "enforced": False, "role": "vantor",
+             "reason": "vantor owns every table in public (owners bypass RLS by design)"}
+    assert rls_verdict(owner, is_prod=True)[0] is False
+
+    good = {"applicable": True, "enforced": True, "role": "vantor_app", "reason": "row-level security applies"}
+    ok_good, message_good = rls_verdict(good, is_prod=True)
+    assert ok_good is True and message_good == "RLS enforced as role vantor_app"
+
+    # SQLite: the question does not apply, so it must never be a startup failure —
+    # that is the single-container deployment's entire identity path.
+    sqlite = {"applicable": False, "enforced": False,
+              "reason": "SQLite has no row-level security"}
+    assert rls_verdict(sqlite, is_prod=True) == (True, "SQLite has no row-level security")

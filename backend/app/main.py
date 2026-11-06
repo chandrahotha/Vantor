@@ -34,10 +34,30 @@ async def lifespan(_: FastAPI):
     first.
     """
     from .core.config import get_settings
-    if get_settings().database_url_resolved.startswith("sqlite"):
+    settings = get_settings()
+    if settings.database_url_resolved.startswith("sqlite"):
         from .core.tenant import get_engine
         from .models.registry import Base
         Base.metadata.create_all(get_engine())
+    else:
+        # Postgres. Ask the database whether the row-level-security backstop can
+        # actually apply to this connection before serving a single request:
+        # superusers, BYPASSRLS roles and table owners all ignore it, so a
+        # deployment that connects as the migration role has no DB-side tenant
+        # isolation at all while every endpoint still returns the right rows for
+        # the tenant its filters chose. Migration 0026 documents twenty-nine
+        # migrations spent in exactly that state. Production refuses; elsewhere
+        # it warns, and `/ready` reports the answer either way.
+        import warnings
+
+        from .core.tenant import rls_backstop, rls_verdict
+
+        status = rls_backstop()
+        ok, message = rls_verdict(status, settings.is_prod)
+        if not ok:
+            raise RuntimeError(message)
+        if status.get("applicable") and not status.get("enforced"):
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
     yield
 
 

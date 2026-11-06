@@ -7,6 +7,7 @@ every authenticated request while `/health`, which touches no dependency, stayed
 green, and the developer lost an afternoon to it.
 """
 import re
+import warnings
 from pathlib import Path
 
 import pytest
@@ -122,13 +123,67 @@ class TestRequireProdSecrets:
         with pytest.raises(RuntimeError, match="OIDC_ISSUER"):
             Settings(_env_file=None).require_prod_secrets()
 
-    def test_postgres_backend_without_password_is_refused(self, monkeypatch):
+    def test_managed_postgres_url_needs_no_separate_password_var(self, monkeypatch):
+        """A Postgres deployment described only by `DATABASE_URL` must boot.
+
+        This test replaced `test_postgres_backend_without_password_is_refused`,
+        which asserted the opposite. That assertion contradicted the principle
+        this class exists to hold — "do not demand variables no code reads" —
+        because `POSTGRES_PASSWORD` is read by docker-compose.yml's `migrate` and
+        keycloak-db services and by *nothing* in this process: the password
+        SQLAlchemy actually uses is inside the URL. So a managed-Postgres
+        operator who supplied one correct `DATABASE_URL` was refused a start for
+        missing a variable that could not change any behaviour. The gate got
+        narrower and correct, not weaker: the next test keeps the URL itself
+        under the placeholder check.
+        """
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor:real-secret@db.example.com:5432/vantor")
+        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+        Settings(_env_file=None).require_prod_secrets()  # must not raise
+
+    def test_placeholder_postgres_url_is_still_refused(self, monkeypatch):
+        """The credential still has to be a real one, wherever it lives."""
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor:change-me@db.example.com:5432/vantor")
+        with pytest.raises(RuntimeError, match="DATABASE_URL"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_passwordless_local_auth_warns_in_production_but_starts(self, monkeypatch):
+        """`AUTH_MODE=local` in production is loud, not fatal.
+
+        It is the documented single-container identity path — `POST /auth/session`
+        hands a Super Admin token to anyone who can reach the port — so the
+        supported answer is to say it on every boot and report it in `/ready`,
+        not to refuse a boot that the README's headline quickstart depends on.
+        Silence was the defect: a production deployment could be running with no
+        credential boundary and leave nothing in its own logs to indicate it.
+        """
         monkeypatch.setenv("APP_ENV", "production")
         monkeypatch.setenv("AUTH_MODE", "local")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor@postgres:5432/vantor")
-        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
-        with pytest.raises(RuntimeError, match="POSTGRES_PASSWORD"):
-            Settings(_env_file=None).require_prod_secrets()
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        settings = Settings(_env_file=None)
+        assert settings.passwordless_local_auth is True
+        with pytest.warns(RuntimeWarning, match="any caller who can reach the API"):
+            settings.require_prod_secrets()
+
+    def test_oidc_mode_does_not_warn_about_local_auth(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        settings = Settings(_env_file=None)
+        assert settings.passwordless_local_auth is False
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            settings.require_prod_secrets()  # must not warn, must not raise
 
     def test_s3_configured_without_secret_key_is_refused(self, monkeypatch):
         monkeypatch.setenv("APP_ENV", "production")

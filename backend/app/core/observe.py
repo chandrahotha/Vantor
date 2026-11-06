@@ -74,7 +74,50 @@ BUSINESS_COUNTERS: dict[str, dict[tuple[str, ...], int]] = {
     "vantor_approvals_decided": {},
     "vantor_money_posted": {},
     "vantor_ai_answers": {},
+    #: One increment per "we caught an infrastructure failure and chose to keep
+    #: serving" decision. See `record_degradation`.
+    "vantor_degraded_operations": {},
 }
+
+
+def record_degradation(component: str, reason: str, *, request_id: str = "",
+                       tenant: str = "", exc: BaseException | None = None) -> None:
+    """Say out loud that a safety mechanism failed open.
+
+    Fail-open is the right call for most of this system: a broken idempotency
+    store, a swallowed audit write or an unread tenant timezone must not take
+    procurement down. The *wrong* call is doing it silently. Every one of those
+    paths previously ended in `except Exception: pass`, so the degradation was
+    invisible in the product's own signal set — and two of them (an idempotency
+    claim that never released, an AI answer that was never audited) are exactly
+    the failures an operator needs to see before a user reports them.
+
+    This is a *signal*, not a fix: it does not change control flow, and callers
+    keep failing open. One JSON line on stdout in the same shape as the access
+    log, plus a counter increment so `/api/v1/ops/metrics` and the Prometheus
+    exposition show a rate instead of a mystery.
+    """
+    incr("vantor_degraded_operations", component, reason)
+    payload = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "level": "degraded",
+        "component": component,
+        "reason": reason,
+    }
+    if request_id:
+        payload["requestId"] = request_id
+    if tenant:
+        payload["tenant"] = tenant
+    if exc is not None:
+        payload["error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        sys.stdout.write(json.dumps(payload) + "\n")
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        # Reporting must not become the thing that fails. A closed stdout in a
+        # stopped container, or an unserialisable exception message, is not worth
+        # raising over — the counter increment above already happened.
+        pass
 
 
 def _percentile(sorted_values: list[float], fraction: float) -> float:

@@ -143,7 +143,16 @@ def _sniff_container(head: bytes, data: bytes | None) -> str:
     try:
         with zipfile.ZipFile(io.BytesIO(source)) as zf:
             names = set(zf.namelist())
-    except Exception:
+    except Exception as exc:
+        # Still classified as a zip: `PK` is the only positive evidence available,
+        # and re-routing a corrupt archive here would change validation behaviour
+        # for a symptom that is not the classifier's to decide. What must not
+        # happen is silence — a truncated upload that reads as a plain zip is the
+        # story behind "the extractor found nothing in a file that clearly has
+        # content", and this is the only place that knows it happened.
+        from ..core.observe import record_degradation
+
+        record_degradation("document_type", "archive_unreadable_despite_pk_header", exc=exc)
         return "zip"
     if "word/document.xml" in names:
         return "ooxml-docx"

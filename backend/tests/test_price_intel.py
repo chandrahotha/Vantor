@@ -127,3 +127,91 @@ def test_thin_history_skipped_not_flagged(client):
     ev = c.post(f"/api/v1/spend/price-evaluate/{po}", headers=_h(pem, "u1", "solo")).json()["data"]
     assert ev["opened"] == [] and len(ev["skipped"]) == 1
     assert ev["skipped"][0]["reason"] in {"PRICE_NO_HISTORY", "PRICE_THIN_HISTORY"}
+
+
+def test_the_database_refuses_a_second_open_case_for_one_line(client):
+    """Migration 0030's invariant, asserted where it is actually enforced.
+
+    `POST /spend/price-evaluate/{po}` reads the open cases for a PO and then
+    inserts one per anomalous line. Two concurrent evaluations both read "none
+    open for line 3" and both inserted — the endpoint's batch shape cannot be
+    made safe by choosing to look before writing, so the arbitration belongs in
+    a unique index. This test is the index, not the handler: a handler test could
+    pass while the constraint was dropped.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.tenant import pinned_session
+    from app.models.pricecase import PriceCase
+
+    c, pem = client
+    sup = c.post("/api/v1/suppliers", json={"code": "S-DUP", "name": "Dup Parts"},
+                 headers=_h(pem, "u0", "acme")).json()["data"]["id"]
+    _full_p2p(c, pem, "acme", "u1", "DUP1", 700, supplier_id=sup)
+    pos = c.get("/api/v1/purchase-orders", headers=_h(pem, "u0", "acme")).json()["data"]
+    po = pos[0]
+    line_id = c.get(f"/api/v1/purchase-orders/{po['id']}", headers=_h(pem, "u0", "acme")).json()["data"]["lines"][0]["id"]
+
+    db = pinned_session("acme")
+    try:
+        def open_case(who: str) -> PriceCase:
+            return PriceCase(tenant_id="acme", created_by=who, updated_by=who,
+                             po_id=po["id"], po_line_id=line_id, supplier_id=sup,
+                             item="bolt m10", baseline_minor=500, quoted_minor=900,
+                             variance_bp=8000, samples=3, status="open", detail={})
+
+        db.add(open_case("first"))
+        db.flush()
+        db.add(open_case("second"))
+        try:
+            db.flush()
+            raised = False
+        except IntegrityError:
+            raised = True
+        assert raised, (
+            "a second OPEN case for the same (tenant, po_line_id) was accepted — "
+            "the duplicate-open race is unguarded again")
+        db.rollback()
+
+        # The predicate's `po_line_id <> ''` half: cases raised without a specific
+        # line are legitimate in number, and a predicate that forgot the clause
+        # would let the first one block every later one in the tenant.
+        for i in range(3):
+            db.add(PriceCase(tenant_id="acme", created_by=f"nolink{i}", updated_by=f"nolink{i}",
+                             po_id=po["id"], po_line_id="", supplier_id=sup,
+                             item="unattached", baseline_minor=500, quoted_minor=900,
+                             variance_bp=8000, samples=0, status="open", detail={}))
+        db.flush()
+
+        # Closed cases must not occupy the slot, or re-evaluation after a review
+        # could never open a fresh case for the same line.
+        db.add(PriceCase(tenant_id="acme", created_by="again", updated_by="again",
+                         po_id=po["id"], po_line_id=line_id, supplier_id=sup,
+                         item="bolt m10", baseline_minor=500, quoted_minor=900,
+                         variance_bp=8000, samples=3, status="dismissed", detail={}))
+        db.flush()
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_re_evaluating_a_po_reports_the_existing_case_rather_than_duplicating(client):
+    """The handler's own answer when the line is already open."""
+    c, pem = client
+    sup = c.post("/api/v1/suppliers", json={"code": "S-TWICE", "name": "Twice Parts"},
+                 headers=_h(pem, "u0", "acme")).json()["data"]["id"]
+    for i, price in enumerate([500, 520, 510]):
+        _full_p2p(c, pem, "acme", f"u{i}", f"T{i}", price, supplier_id=sup)
+    _full_p2p(c, pem, "acme", "u9", "T9", 800, supplier_id=sup)
+    pos = c.get("/api/v1/purchase-orders", headers=_h(pem, "u0", "acme")).json()["data"]
+    spike = [p for p in pos if p["code"] == "PO-T9"][0]
+
+    first = c.post(f"/api/v1/spend/price-evaluate/{spike['id']}", headers=_h(pem, "u0", "acme"))
+    assert first.status_code == 201, first.text
+    assert len(first.json()["data"]["opened"]) == 1
+
+    again = c.post(f"/api/v1/spend/price-evaluate/{spike['id']}", headers=_h(pem, "u0", "acme"))
+    assert again.json()["data"]["opened"] == [], again.text
+    assert again.json()["data"]["skipped"][0]["reason"] == "PRICE_CASE_OPEN"
+    cases = c.get("/api/v1/spend/price-cases?status=open", headers=_h(pem, "u0", "acme")).json()["data"]
+    assert len(cases) == 1, [c["id"] for c in cases]

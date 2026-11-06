@@ -365,10 +365,16 @@ def _tenant_today(db, tenant_id: str):  # type: ignore[no-untyped-def]
         ).scalar_one_or_none()
         if row:
             candidates.append(str(row).strip())
-    except Exception:
+    except Exception as exc:
         # No row, or no such table on an older deployment. The deployment
-        # setting still applies, which is the previous behaviour.
-        pass
+        # setting still applies, which is the previous behaviour — but the
+        # operator needs to know the tenant's own zone was not used, because the
+        # symptom downstream is a contract flagged expiring a day early or late
+        # with nothing in the logs to explain it.
+        from ..core.observe import record_degradation
+
+        record_degradation("contract_expiry", "tenant_timezone_unreadable",
+                           tenant=tenant_id, exc=exc)
     candidates.append(deployment_tz)
 
     for name in candidates:
@@ -378,7 +384,14 @@ def _tenant_today(db, tenant_id: str):  # type: ignore[no-untyped-def]
             from zoneinfo import ZoneInfo
 
             return datetime.now(ZoneInfo(name)).date()
-        except Exception:
+        except Exception as exc:
+            # A typo in `organizations.timezone` or `CONTRACT_TIMEZONE` used to
+            # fall through to UTC invisibly. Say which value was refused so the
+            # fix is a config edit rather than a date-arithmetic investigation.
+            from ..core.observe import record_degradation
+
+            record_degradation("contract_expiry", "timezone_name_unparseable",
+                               tenant=tenant_id, exc=exc)
             continue
     return datetime.now(timezone.utc).date()
 

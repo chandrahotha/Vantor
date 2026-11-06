@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.errors import envelope
@@ -229,8 +230,19 @@ def price_evaluate(po_id: str, request: Request, actor: Actor = Depends(get_acto
                              baseline_minor=base["baseline_minor"], quoted_minor=ln.unit_price_minor,
                              variance_bp=var, samples=base["samples"], status="open",
                              detail={"line_no": ln.line_no})
-            db.add(case)
-            db.flush()
+            # A savepoint, not the surrounding transaction: this endpoint
+            # evaluates a whole PO, and losing one line to a concurrent
+            # evaluation must not discard the cases this run already opened for
+            # the other lines. `uq_pricecase_one_open_per_line` (migration 0030)
+            # is what makes the loss detectable at all — before it, both racers
+            # inserted and the duplicate simply existed.
+            try:
+                with db.begin_nested():
+                    db.add(case)
+                    db.flush()
+            except IntegrityError:
+                skipped.append({"line": ln.line_no, "reason": "PRICE_CASE_OPEN"})
+                continue
             opened.append(case.id)
     from ..services.audit import record_event as _rec
 

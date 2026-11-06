@@ -100,7 +100,7 @@ cursor.
 python -m pytest tests -q
 ```
 
-**392 pytest collected** on the fast tier (383 pass, 9 need a real
+**403 pytest collected** on the fast tier (394 pass, 9 need a real
 PostgreSQL and skip without `PG_TEST_DATABASE_URL`). Auth and money paths
 are covered without mocked identities or fabricated tenants — the API tests
 exercise the real verification path rather than bypassing it.

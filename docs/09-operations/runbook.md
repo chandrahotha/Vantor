@@ -15,6 +15,15 @@
 balancer must NOT route there. Redis down does not fail readiness alone but is
 reported (rate limiter runs fail-open, see §5).
 
+`ready.checks.identity` is a *report, never a gate*: it names the auth mode and
+says whether the deployment mints a session for anyone who can reach the API
+(`AUTH_MODE=local` / `both`) or requires an IdP-signed token (`oidc`). It exists
+because passwordless local auth boots identically either way, so the difference
+was only visible in the config file. On `AUTH_MODE=local` the same fact is also
+warned once per process at startup. If this line ever reads something you did
+not choose, that is the finding - see
+[`../04-security/architecture.md`](../04-security/architecture.md).
+
 ## 2. Logs (JSON access lines)
 
 Every non-probe request emits one JSON line: `ts, requestId, method, path,

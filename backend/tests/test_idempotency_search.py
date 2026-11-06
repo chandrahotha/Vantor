@@ -242,3 +242,39 @@ def test_quarantined_documents_are_not_searchable(client):
     after = c.get("/api/v1/documents/search?q=zebra", headers=h)
     assert after.status_code == 200
     assert after.json()["data"] == []
+
+
+def test_a_degraded_store_admits_it_on_the_response(client, monkeypatch):
+    """Fail-open must be visible to the client that asked for protection.
+
+    The module docstring claimed a degraded store "says so in
+    `Idempotency-Bypass`". Nothing ever set that header, so a caller that sent an
+    `Idempotency-Key`, got a 201 and later retried had no way to know the retry
+    was not deduplicated — the write happened twice and the only witness was a
+    swallowed exception. Asserting the header *and* the counter here is what keeps
+    the claim honest: the header is per-response, the counter is what an operator
+    sees in `/api/v1/ops/metrics` and the Prometheus exposition.
+    """
+    c, pem = client
+    from app.core import tenant as tenant_mod
+    from app.core.observe import metrics_snapshot
+
+    def before() -> int:
+        series = metrics_snapshot()["business"].get("vantor_degraded_operations", {})
+        return sum(series.values())
+
+    class _Broken:
+        def __call__(self, *a, **k):
+            raise RuntimeError("simulated store failure")
+
+    monkeypatch.setattr(tenant_mod, "pinned_session", _Broken())
+
+    started = before()
+    headers = _h(pem)
+    headers["Idempotency-Key"] = "key-for-a-degraded-write"
+    r = c.post("/api/v1/suppliers", headers=headers, json={
+        "name": "Degraded Store Supplier", "code": "SUP-DEGRADED-1"})
+    # Fail-open is preserved: the supplier is created.
+    assert r.status_code in (200, 201), r.text
+    assert r.headers.get("Idempotency-Bypass") == "store-unavailable", dict(r.headers)
+    assert before() > started, metrics_snapshot()["business"].get("vantor_degraded_operations")

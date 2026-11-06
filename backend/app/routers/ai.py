@@ -355,9 +355,17 @@ def _audit(record_event, session_factory, tenant: str, sub: str, rid: str,
                             "chars": len(answer)},
                      source="api", created_by=sub)
         db.commit()
-    except Exception:
+    except Exception as exc:
         if db is not None:
             db.rollback()
+        # Swallowing is right here — the caller is reading a live stream and an
+        # audit failure must not cut it off. Silence is not: this is the record of
+        # that an AI answer was produced at all, and the runbook's AI-incident
+        # procedure points at exactly this trail. Without a signal, a deployment
+        # can lose every streamed audit row and only find out during a review.
+        from ..core.observe import record_degradation
+
+        record_degradation("ai_audit", "stream_audit_write_failed", tenant=tenant, exc=exc)
     finally:
         if db is not None:
             db.close()
