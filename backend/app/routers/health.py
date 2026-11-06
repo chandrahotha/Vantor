@@ -12,9 +12,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from ..core.errors import envelope
+from ..core.config import get_settings
 from ..core.observe import metrics_snapshot, prometheus_text
 from ..core.security import Actor, get_actor
-from ..core.tenant import get_session_factory
+from ..core.tenant import probe_session
 
 router = APIRouter(tags=["platform"])
 
@@ -59,7 +60,10 @@ def ready(request: Request) -> JSONResponse:
     rid = getattr(request.state, "request_id", "")
     checks: dict[str, str] = {}
     try:
-        db = get_session_factory()()
+        # `probe_session()` rather than a pinned one: this reads `SELECT 1` and
+        # `alembic_version`, neither of which is a tenant table, and there is no
+        # actor at this endpoint to derive a tenant from.
+        db = probe_session()
         try:
             db.execute(text("SELECT 1"))
             try:
@@ -74,11 +78,30 @@ def ready(request: Request) -> JSONResponse:
     try:
         from redis import Redis as _Redis
 
-        from ..core.config import get_settings
-
         _Redis.from_url(get_settings().redis_url, socket_timeout=1.5).ping()
         checks["redis"] = "up"
     except Exception as exc:  # noqa: BLE001
         checks["redis"] = f"down: {type(exc).__name__}"
     ok = checks.get("database", "").startswith("up")
+    # Reported, never gating: passwordless local auth is a supported identity
+    # mode, not an outage, and failing readiness on it would break the
+    # single-container deployment that depends on this endpoint passing. What it
+    # does is make the mode visible after boot instead of only in a config file —
+    # an operator or a scanner can ask the running process who can sign in.
+    identity = get_settings()
+    checks["identity"] = (
+        f"local (AUTH_MODE={identity.auth_mode}) — passwordless: any caller who can "
+        "reach this API is the local operator"
+        if identity.passwordless_local_auth
+        else f"oidc (AUTH_MODE={identity.auth_mode}) — tokens must be signed by {identity.oidc_issuer}"
+    )
+    # The RLS answer, re-read here rather than cached from startup: the question
+    # "is the backstop engaged" is about the connection this process holds, and a
+    # readiness probe is the thing an operator already polls when they suspect the
+    # deployment is not what they meant to deploy.
+    from ..core.tenant import rls_backstop
+
+    rls = rls_backstop()
+    checks["rls"] = ("enforced as " + str(rls.get("role", "?"))) if rls.get("enforced") \
+        else f"not enforced: {rls.get('reason')}"
     return JSONResponse(status_code=200 if ok else 503, content=envelope({"ready": ok, "checks": checks}, None, rid))

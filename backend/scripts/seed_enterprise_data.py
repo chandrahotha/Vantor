@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 # Ensure path is backend root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.core.tenant import get_engine, get_session_factory
+from app.core.tenant import get_engine, pinned_session
 from app.models.base import Base
 from app.models.supplier import Supplier
 from app.models.contract import Contract
@@ -16,9 +16,12 @@ from app.models.notification import Notification
 def seed():
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
-    factory = get_session_factory()
-    db = factory()
     tenant = "vantor-corp"
+    # Pinned, not raw: every row below is tenant-scoped, so an unpinned session
+    # is rejected by the RLS `WITH CHECK` on a real Postgres and the seed would
+    # report success while writing nothing. SQLite has no RLS, so only the
+    # helper makes both environments mean the same thing.
+    db = pinned_session(tenant)
     user_sub = "director"
     now = datetime.now(timezone.utc)
 

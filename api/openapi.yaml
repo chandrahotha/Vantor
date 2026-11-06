@@ -161,7 +161,8 @@ paths:
       tags:
       - auth
       summary: Auth Config
-      description: 'What sign-in methods this deployment offers.
+      description: 'What sign-in methods this deployment offers, and how to start
+        each one.
 
 
         The web app reads this before it renders the sign-in screen, so the button
@@ -170,7 +171,22 @@ paths:
 
         the client is how the old build ended up offering a Keycloak redirect in a
 
-        deployment with no Keycloak.'
+        deployment with no Keycloak.
+
+
+        The OIDC parameters are served here rather than baked into the bundle as
+
+        `NEXT_PUBLIC_KEYCLOAK_*`, for two reasons: a build-time constant cannot
+
+        change between the staging and production deployment of one image, and the
+
+        three of those variables the client used to carry were read by nothing and
+
+        pointed at a realm the app had stopped talking to. The issuer the browser
+
+        must redirect to is the same value this process verifies tokens against, so
+
+        there is exactly one place that knows it.'
       operationId: auth_config_api_v1_auth_config_get
       responses:
         '200':

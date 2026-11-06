@@ -34,8 +34,6 @@
 // replace it with the dev fallback and send every request to an address the
 // browser cannot reach outside the machine that built the image.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-import { getDemoSession, setDemoFlag, isDemoSession } from "./demoData";
-export { isDemoSession };
 const STORAGE_KEY = "vantor.session";
 /** Re-issue this far ahead of expiry, so a long-lived tab never blocks on it. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
@@ -49,7 +47,24 @@ export type Session = {
   expiresAt: number;
   /** Local-auth persona key (e.g. "approver"), empty for an OIDC session. */
   persona?: string;
+  /** Which side issued this token. Changes what a renewal attempt does. */
+  provider?: "local" | "oidc";
+  /** OIDC refresh token. Deliberately not persisted with the rest — see
+   *  `setSession`. */
+  refreshToken?: string;
 };
+
+/** Where the OIDC refresh token lives: this tab only.
+ *
+ *  A refresh token is the credential that can mint new access tokens for as long
+ *  as the IdP session lasts — hours to days, versus the ~5 minutes an access
+ *  token is good for. Keeping it in `sessionStorage` means it dies with the tab
+ *  and is not readable by anything that survives a restart, while the short-lived
+ *  access token still persists so a reload does not force a full re-auth.
+ *  The remaining XSS exposure is real and is documented as such in
+ *  docs/04-security/architecture.md; this narrows it, it does not close it.
+ */
+const REFRESH_KEY = "vantor.session.refresh";
 
 type Listener = (s: Session | null) => void;
 
@@ -63,8 +78,19 @@ export function getSession(): Session | null {
 export function setSession(s: Session | null): void {
   current = s;
   try {
-    if (s) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    else localStorage.removeItem(STORAGE_KEY);
+    if (s) {
+      // Persist everything except the long-lived credential, then put that in
+      // per-tab storage. `JSON.parse(JSON.stringify())` is not used: the object
+      // is shallow and plain, and deleting a key from a copy keeps the caller's
+      // session object intact.
+      const { refreshToken, ...persist } = s;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
+      if (refreshToken) sessionStorage.setItem(REFRESH_KEY, refreshToken);
+      else sessionStorage.removeItem(REFRESH_KEY);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(REFRESH_KEY);
+    }
   } catch {
     // Private mode, or storage disabled. The session still works for this tab;
     // it just will not survive a reload.
@@ -92,25 +118,20 @@ function isLive(s: Session | null): s is Session {
 export function restoreSession(): Session | null {
   if (current) return current;
   try {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("demo") === "true") {
-        return signInDemo();
-      }
-    }
+    if (typeof window === "undefined") return null;
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      if (typeof window !== "undefined" && localStorage.getItem("vantor.demo") === "true") {
-        return signInDemo();
-      }
-      return null;
-    }
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     if (!isLive(parsed)) {
       localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(REFRESH_KEY);
       return null;
     }
-    current = parsed;
+    // The refresh token was deliberately kept out of `localStorage`; re-adopt it
+    // for this tab, and if it is gone (new tab, or the tab was closed) fall back
+    // to the access token, which still works until it expires.
+    const refreshToken = sessionStorage.getItem(REFRESH_KEY) ?? parsed.refreshToken ?? "";
+    current = refreshToken ? { ...parsed, refreshToken } : parsed;
     for (const l of listeners) l(parsed);
     return parsed;
   } catch {
@@ -118,13 +139,79 @@ export function restoreSession(): Session | null {
   }
 }
 
-export type AuthConfig = { local: boolean; oidc: boolean; productName: string };
+export type OidcProviderInfo = {
+  issuer: string;
+  clientId: string;
+  scope: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  endSessionEndpoint: string;
+};
 
+export type AuthConfig = {
+  local: boolean;
+  oidc: boolean;
+  productName: string;
+  /** Present only when the deployment actually verifies against an IdP. */
+  oidcProvider?: OidcProviderInfo | null;
+};
+
+/** Ask the server how sign-in works here.
+ *
+ *  Network failure is reported as a failure. The previous version let
+ *  `fetch`/`res.json()` throw a bare `TypeError: Failed to fetch` out of this
+ *  function, which is the one error a UI cannot show usefully — and it was
+ *  masked for as long as it took because nothing called it. `signIn()` has
+ *  always named the address it tried; this now matches it.
+ */
 export async function fetchAuthConfig(signal?: AbortSignal): Promise<AuthConfig> {
-  const res = await fetch(`${API_URL}/api/v1/auth/config`, { signal });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/v1/auth/config`, { signal });
+  } catch {
+    throw new Error(
+      `Could not reach the VANTOR API at ${API_URL} to ask how sign-in works. Start the backend, or set NEXT_PUBLIC_API_URL to where it is running.`,
+    );
+  }
   if (!res.ok) throw new Error(`The API answered ${res.status} when asked how to sign in.`);
-  const body = await res.json();
-  return body.data as AuthConfig;
+  const body = await res.json().catch(() => null);
+  const data = body?.data;
+  if (!data || typeof data.local !== "boolean" || typeof data.oidc !== "boolean") {
+    throw new Error("The API returned a sign-in configuration that is not in the expected shape.");
+  }
+  return data as AuthConfig;
+}
+
+/** Renew an OIDC session with its refresh token. Returns true when a new token
+ *  is installed.
+ *
+ *  Local sessions have nothing to refresh — `POST /auth/session` is re-called —
+ *  so this is the OIDC half of the same contract `api()` expects from its
+ *  refresh hook: true means "retry the request", false means "the caller is
+ *  signed out". It used to be that *no* refresh existed (`setRefreshFn(async ()
+ *  => false)`), which is fine for local and wrong for an IdP token that expires
+ *  on a five-minute clock while the user is mid-form.
+ *
+ *  Dynamic import, not a top-level one: `lib/oidc.ts` reads `AuthConfig` and
+ *  `fetchAuthConfig` from here, and a static cycle between the two would make
+ *  module initialisation order matter for no reason.
+ */
+export async function refreshOidcSession(): Promise<boolean> {
+  const s = current;
+  if (!s || s.provider !== "oidc") return false;
+  const refreshToken = s.refreshToken || (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(REFRESH_KEY) || "" : "");
+  if (!refreshToken) return false;
+  try {
+    const { refreshOidc, oidcSession } = await import("./oidc");
+    const config = await fetchAuthConfig();
+    if (!config.oidcProvider) return false;
+    const tokens = await refreshOidc(refreshToken, config.oidcProvider);
+    if (!tokens) return false;
+    setSession(oidcSession(tokens));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type Persona = { key: string; label: string };
@@ -192,16 +279,8 @@ export async function signIn(persona?: string): Promise<Session> {
   return session;
 }
 
-export function signInDemo(persona?: string): Session {
-  const session = getDemoSession(persona);
-  setSession(session);
-  setDemoFlag(true);
-  return session;
-}
-
 export function logout(): void {
   setSession(null);
-  setDemoFlag(false);
 }
 
 /** Keep the session from lapsing while a tab is open.

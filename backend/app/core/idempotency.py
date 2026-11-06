@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -223,9 +222,15 @@ def _claim(tenant_id: str, fingerprint: str, method: str, path: str) -> tuple[st
             return ("in_flight", stored)
         finally:
             db.close()
-    except Exception:
+    except Exception as exc:
         # Fail open: a broken idempotency store must never take procurement down.
-        # The header marks the response so the degradation is observable.
+        # The header marks the response so the degradation is observable, and the
+        # counter makes it *countable* — this branch swallowed AttributeError for
+        # months while the stale-claim takeover silently never ran, and nothing
+        # in the metrics moved.
+        from .observe import record_degradation
+
+        record_degradation("idempotency", "claim_failed", tenant=tenant_id, exc=exc)
         return ("unavailable", None)
 
 
@@ -243,16 +248,22 @@ def _complete(tenant_id: str, fingerprint: str, method: str, path: str, status_c
                 return
             row.state, row.status_code, row.response_body = "completed", status_code, body
             db.commit()
-        except Exception:
-            if os.getenv("VANTOR_DEBUG_IDEMPOTENCY"):
-                import traceback
-
-                traceback.print_exc()
+        except Exception as exc:
             db.rollback()
+            # The response was produced and is on its way to the client; only the
+            # *stored* outcome is missing, so a later retry re-executes the
+            # handler instead of replaying. That is a duplicate-write risk on a
+            # money endpoint, and it used to leave no trace unless a debug env var
+            # happened to be set.
+            from .observe import record_degradation
+
+            record_degradation("idempotency", "complete_failed", tenant=tenant_id, exc=exc)
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        from .observe import record_degradation
+
+        record_degradation("idempotency", "complete_unreachable", tenant=tenant_id, exc=exc)
 
 
 def _release(tenant_id: str, fingerprint: str, method: str, path: str) -> None:
@@ -272,12 +283,22 @@ def _release(tenant_id: str, fingerprint: str, method: str, path: str) -> None:
                 IdempotencyKey.method == method, IdempotencyKey.path == path,
                 IdempotencyKey.state == "in_progress"))
             db.commit()
-        except Exception:
+        except Exception as exc:
             db.rollback()
+            from .observe import record_degradation
+
+            record_degradation("idempotency", "release_failed", tenant=tenant_id, exc=exc)
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Not "forever", but for `STALE_CLAIM_S`: the claim stays in_progress
+        # until a later request takes it over, so a client retry inside that
+        # window gets 409 for a request that never happened. The release path
+        # used to swallow this with no signal at all, which is why the bounded
+        # version of a permanent wedge is still worth counting.
+        from .observe import record_degradation
+
+        record_degradation("idempotency", "release_unreachable", tenant=tenant_id, exc=exc)
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -321,6 +342,14 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             return resp
 
         response = await call_next(request)
+        if verdict == "unavailable":
+            # The module docstring has claimed for a long time that a degraded
+            # store says so in `Idempotency-Bypass`. It never did: no code set
+            # that header, so a client that dutifully sent an Idempotency-Key had
+            # no way to learn that its write was not deduplicated or replay-safe.
+            # The header now exists, per response, next to the
+            # `vantor_degraded_operations` counter that says the same in aggregate.
+            response.headers["Idempotency-Bypass"] = "store-unavailable"
         # Consume body regardless of wrapper type (plain Response has .body).
         try:
             iterator = getattr(response, "body_iterator", None)

@@ -1,8 +1,7 @@
 # VANTOR — Intelligent Procurement Operating System
 
-[![Live Demo: Vercel](https://img.shields.io/badge/demo-vantor--os.vercel.app-black.svg?logo=vercel)](https://vantor-os.vercel.app/)
 [![CI: on push and PR](https://img.shields.io/badge/CI-push%20%2B%20PR-brightgreen.svg)](.github/workflows/ci.yml)
-[![Tests: 392 backend + 170 frontend](https://img.shields.io/badge/tests-392%20backend%20%2B%20170%20frontend-brightgreen.svg)](backend/tests/)
+[![Tests: 410 backend + 170 frontend](https://img.shields.io/badge/tests-410%20backend%20%2B%20170%20frontend-brightgreen.svg)](backend/tests/)
 [![API: 98 operations](https://img.shields.io/badge/API-98%20operations-blue.svg)](api/openapi.json)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Backend: FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
@@ -17,7 +16,8 @@ sourcing, contracts, purchase orders, invoices, spend analytics, budgets,
 approvals and an evidence-cited AI copilot behind one coherent system — with
 one audit trail and one permission model across all of it.
 
-**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) ·
+**Run it in one command:** see [Quickstart](#quickstart) — there is no hosted
+demo, because a demo whose data is invented is not a demonstration of anything.
 Enquiries: **digi.tracks@outlook.com**
 
 ## What VANTOR does
@@ -61,7 +61,12 @@ topology, one permission model, no distributed-system tax.
 
 **Auth modes.** `local` (the default) needs no identity service — passwordless
 sessions for single-operator use, never exposed to untrusted networks. `oidc`
-uses Keycloak. Forged tokens are rejected in both modes.
+uses Keycloak, and the web app signs in through it directly: authorization code
+with PKCE, no client secret in the bundle, endpoints served by `GET /auth/config`
+so the realm the browser logs into is the realm the API verifies against. In that
+mode set `WEB_ORIGINS` to where the web app is served — the identity provider
+will not redirect back to an address it has not been told about. Forged tokens
+are rejected in both modes.
 
 ## Quickstart
 
@@ -142,7 +147,7 @@ make verify    # the full gate set
 ```
 
 ```bash
-# Backend fast tier (SQLite — 392 collected, 383 pass, 9 need Postgres)
+# Backend fast tier (SQLite — 410 collected, 401 pass, 9 need Postgres)
 APP_ENV=test DATABASE_URL=sqlite:// python -m pytest backend/tests -q
 
 # Worker
@@ -152,7 +157,7 @@ python -m pytest worker/tests -q
 cd frontend && npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-Current state: **392 pytest collected** on the backend, **170 vitest green**
+Current state: **410 pytest collected** on the backend, **170 vitest green**
 across 14 suites in the web app, and 38 worker tests collected. The gates also
 cover lint, type checking, dependency audits, an OpenAPI drift check, a
 migration-chain check and a secret scan.

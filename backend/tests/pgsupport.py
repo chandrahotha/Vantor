@@ -108,11 +108,15 @@ def pg_alembic_config():  # type: ignore[no-untyped-def]
 
 
 def require_postgres() -> str:
-    """Skip unless a reachable Postgres is configured and connectable.
+    """Return the test Postgres URL, or skip when this environment never asked for one.
 
-    Catches driver errors as well as connection errors: a missing DBAPI module
-    is "this environment cannot run the PG tier", which is a skip, not a
-    failure of the test.
+    An unset `PG_TEST_DATABASE_URL` is "this is not the Postgres tier" — a skip is
+    the honest answer. A *set* URL is a request to run these tests, so everything
+    that goes wrong after it is a failure, not a skip: the tier used to convert a
+    refused connection and a missing driver into skips, which meant the weekly
+    job could report success having asserted nothing about row-level security,
+    foreign keys or concurrency — the only things it exists to check. The
+    repository's own rule is that a green badge must mean the suite ran.
     """
     if not PG_TEST_URL:
         pytest.skip("PG_TEST_DATABASE_URL is not set — point it at a Postgres instance")
@@ -123,10 +127,14 @@ def require_postgres() -> str:
         engine = create_engine(pg_engine_url(), connect_args={"connect_timeout": 3})
         engine.connect().close()
     except (SQLAlchemyError, ImportError) as exc:
-        # SQLAlchemyError covers the connection refusal; ImportError covers a
-        # missing DBAPI driver. Both mean "this environment cannot run the PG
-        # tier", which is a skip, not a failure of the test.
-        pytest.skip(f"Postgres unusable at {PG_TEST_URL} ({exc})")
+        pytest.fail(
+            f"PG_TEST_DATABASE_URL is set to {PG_TEST_URL!r} but Postgres is not "
+            f"usable there: {exc}\n"
+            "    This is the Postgres tier: skipping here would report a green run "
+            "that proved nothing. Start the database, or unset "
+            "PG_TEST_DATABASE_URL to say this environment is not the tier.",
+            pytrace=False,
+        )
     return pg_engine_url()
 
 

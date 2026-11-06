@@ -65,6 +65,16 @@ def _all_migration_checks() -> dict[tuple[str, str], str]:
         def mappings(self) -> list:
             return []
 
+        def scalars(self) -> list:
+            # 0030 reads the duplicate rows it is about to retire through
+            # `.scalars()`. The double modelled `.mappings()` and
+            # `.scalar_one_or_none()` only, so a migration using another part of
+            # the same documented Result API failed as "broken" — which is the
+            # harness being less faithful than the interface, not the migration
+            # being wrong. Returning no rows keeps the harness honest: it still
+            # explodes on a genuine error, and it still reaches the DDL.
+            return []
+
         def scalar_one_or_none(self):  # type: ignore[no-untyped-def]
             return None
 

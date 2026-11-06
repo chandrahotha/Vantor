@@ -12,7 +12,13 @@ A hand-copied digest list goes stale and nobody notices, because a stale digest
 still pulls successfully -- it just pulls the old thing. So the digests live in
 `.env` next to the image names, and `--check` (offline, no registry access) is
 what CI runs: it fails when a digest is missing or is still a placeholder. The
-network is only needed to *refresh*.
+network is only needed to *refresh*, and to ask `--verify-remote` whether a pin
+has drifted from the tag it pins.
+
+The compose file pins each image twice over: `${NAME_DIGEST:-sha256:…}` carries
+the real pin as the default, and `.env` can override it deliberately. `--check`
+validates the default whether or not a `.env` exists, because the default is what
+a clone with no `.env` runs and CI has no `.env` at all.
 
 Two places name an image, and both are checked
 ----------------------------------------------
@@ -30,8 +36,9 @@ a literal `image: repo:tag@sha256:...`. Two parsers, one gate.
 
 Usage:
     python scripts/pin_digests.py            # resolve and write digests to .env
-    python scripts/pin_digests.py --check    # offline: verify .env is pinned
+    python scripts/pin_digests.py --check    # offline: verify every pin is real
     python scripts/pin_digests.py --stdout   # print, change nothing
+    python scripts/pin_digests.py --verify-remote  # network: has any pin drifted?
 
 Registry authentication uses the standard anonymous-pull flow: a manifest GET,
 then the token the 401's WWW-Authenticate challenge points at. That works for
@@ -335,20 +342,50 @@ def read_env(path: pathlib.Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 
 
+def check_compose_default(image: str, default: str) -> list[str]:
+    """The digest written into the compose default must be a real one.
+
+    The default in `${NAME_DIGEST:-sha256:…}` is what a clone with no `.env`
+    actually runs. It used to be the zero placeholder for every service, so the
+    documented install path resolved images that do not exist and failed at pull
+    time — while `docker compose config`, which interpolates without ever
+    contacting a registry, reported the file as valid. The default is checked
+    independently of `.env`, because a clone has no `.env` at all and the
+    default is what such a clone runs.
+    """
+    if default == PLACEHOLDER_DIGEST:
+        return [
+            (
+                f"{image}: the compose default digest is the zero placeholder, so a "
+                "clone with no `.env` resolves an image that cannot be pulled\n"
+                "    run: python scripts/pin_digests.py and write the result into the "
+                "`@${NAME_DIGEST:-sha256:…}` default in docker-compose.yml"
+            )]
+    if not DIGEST_RE.match(default):
+        return [f"{image}: the compose default digest {default!r} is not sha256:<64 hex>"]
+    return []
+
+
 def check(images, env_lines) -> int:
     """Offline verification. No registry access: this is the CI gate.
 
-    Three separate things are checked, because they fail for different reasons
+    Several separate things are checked, because they fail for different reasons
     and only some of them can be checked in CI:
 
-    * **Structural (compose)** — every `image:` line is of the form
-      `${VAR:-name:tag}@${DIGEST_VAR:-...}` and no tag is `latest`. This needs
-      nothing but the compose file, so it is the part CI can enforce on every
-      push, and it is what catches someone reverting a service to a mutable tag.
-    * **Values** — if a `.env` exists, the digests in it are real sha256 values
-      rather than the zero placeholder. A developer's stale `.env` is caught
-      here; CI has no `.env`, so this half is skipped there rather than faked.
-    * **Structural (CI workflow)** — every image a CI job runs carries a
+    * **Shape (compose)** — every `image:` line is of the form
+      `${VAR:-name:tag}@${DIGEST_VAR:-...}` and no tag is `latest`. This catches
+      someone reverting a service to a mutable tag.
+    * **The compose pin** — the digest in that default is a real sha256 value. A
+      clone with no `.env` runs exactly that string, so a zero placeholder there
+      was a broken default install. It is checked whether or not a `.env` exists;
+      the placeholder stayed green for two reasons at once — this half skipped
+      itself when `.env` was absent, and CI deleted the `.env` it had just copied
+      before running this command.
+    * **`.env` values** — if a `.env` exists, any digest set in it is real. Blank
+      means "use the pin in docker-compose.yml", which is the supported default.
+    * **One image, one digest** — an image named in both compose and the workflow
+      must carry the same pin, or CI certifies an image the stack does not run.
+    * **Shape (CI workflow)** — every image a CI job runs carries a
       literal digest. The CI images are pinned in the workflow rather than in
       `.env`, and the reason is the same as for compose, so they are gated by
       the same command.
@@ -391,21 +428,18 @@ def check(images, env_lines) -> int:
 
         if image.endswith(":latest") or ":latest" in image:
             problems.append(f"{image}: uses a mutable `latest` tag")
-        if not DIGEST_RE.match(default) or default == PLACEHOLDER_DIGEST:
-            pass  # a zero placeholder is the expected shipped default
+        problems.extend(check_compose_default(image, default))
+
         if not env_lines:
-            continue  # no .env: structural check only
+            continue  # nothing to say about a .env that does not exist
 
         value = present.get(digest_var)
         if not value:
-            problems.append(f"{digest_var} is not set in .env (image {image})")
-        elif value == PLACEHOLDER_DIGEST or not DIGEST_RE.match(value):
+            continue  # blank means "use the pin in docker-compose.yml"
+        if value == PLACEHOLDER_DIGEST or not DIGEST_RE.match(value):
             problems.append(
                 f"{digest_var} is a placeholder or malformed: {value!r}\n"
                 f"    run: python scripts/pin_digests.py")
-        elif value == default:
-            problems.append(
-                f"{digest_var} still matches the compose placeholder for {image}")
 
     # The CI workflow names its own images, inline. They are not in `.env`,
     # so the compose half of this gate cannot see them.
@@ -414,6 +448,7 @@ def check(images, env_lines) -> int:
         ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
         ci_images = parse_ci_images(ci_text)
         problems.extend(check_ci_images(ci_text))
+        problems.extend(check_pin_consistency(images, ci_images))
     else:
         problems.append(f"{CI_WORKFLOW.name} is missing — the CI images cannot be checked")
 
@@ -433,8 +468,105 @@ def check(images, env_lines) -> int:
         return 1
     print(
         f"all {len(images)} compose images, {len(ci_images)} CI service images and "
-        f"{dockerfile_bases} Dockerfile base images are digest-pinned "
-        "(structural check passed)"
+        f"{dockerfile_bases} Dockerfile base images are digest-pinned, and the "
+        "compose defaults carry real digests"
+    )
+    return 0
+
+
+def check_pin_consistency(
+    compose_images: list[tuple[str, str, str, str]],
+    ci_images: list[tuple[int, str]],
+) -> list[str]:
+    """An image named in both compose and the workflow must carry one digest.
+
+    `redis:7-alpine` was pinned to two different digests in these two files, and
+    every existing rule passed: each file was asked whether it had *a* digest,
+    never whether the two agreed. CI therefore certified an image the shipped
+    stack does not run, which is the one thing a supply-chain pin exists to
+    prevent. References are matched on the `repo:tag` string as written, so an
+    image spelled with an explicit `docker.io/` prefix in one file would not be
+    recognised as the same image — that is a known limit of this check, not an
+    exemption.
+    """
+    compose_pins: dict[str, str] = {}
+    for _var, _digest_var, image, default in compose_images:
+        if DIGEST_RE.match(default) and default != PLACEHOLDER_DIGEST:
+            compose_pins[image] = default
+
+    problems: list[str] = []
+    for number, ref in ci_images:
+        if "@" not in ref:
+            continue  # already reported as unpinned by check_ci_images
+        name, _, digest = ref.rpartition("@")
+        pinned = compose_pins.get(name)
+        if pinned is not None and pinned != digest:
+            problems.append(
+                f"{CI_WORKFLOW.name} line {number}: {name} is pinned to {digest} in CI "
+                f"but to {pinned} in {COMPOSE.name}\n"
+                "    one image must carry one digest — refresh both with "
+                "`python scripts/pin_digests.py --stdout`")
+    return problems
+
+
+def verify_remote(images, env_lines) -> int:
+    """Ask each registry whether the pinned digest is still what the tag points at.
+
+    `--check` proves a pin is shaped correctly; only the registry knows whether
+    the tag has moved. A pin is not obliged to follow its tag — that is the point
+    of pinning — so drift is a warning and still exits 0: a job that goes red
+    because upstream rebuilt an image trains people to ignore it. An image that
+    cannot be resolved at all does fail, because an unresolvable pin is the exact
+    defect this file exists to catch, and "could not check" must never read as
+    "checked". Network required, so this runs in the heavy CI tier, not on push.
+    """
+    present: dict[str, str] = {}
+    for line in env_lines:
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, _, v = line.partition("=")
+            present[k.strip()] = v.strip()
+
+    effective: dict[str, str] = {}
+    for _var, digest_var, image, default in images:
+        value = present.get(digest_var) or default
+        if DIGEST_RE.match(value) and value != PLACEHOLDER_DIGEST:
+            effective[image] = value
+
+    if CI_WORKFLOW.exists():
+        for number, ref in parse_ci_images(CI_WORKFLOW.read_text(encoding="utf-8")):
+            if "@" not in ref:
+                continue
+            name, _, digest = ref.rpartition("@")
+            if DIGEST_RE.match(digest) and digest != PLACEHOLDER_DIGEST:
+                effective.setdefault(name, digest)
+
+    unreachable = 0
+    drifted = 0
+    for image, digest in sorted(effective.items()):
+        try:
+            actual = resolve_digest(image)
+        except SystemExit as exc:
+            print(f"FAIL {image}: {exc}", file=sys.stderr)
+            unreachable += 1
+            continue
+        if actual != digest:
+            print(
+                f"WARN {image}: the tag now resolves to {actual}, this repo pins "
+                f"{digest} — refresh deliberately with `python scripts/pin_digests.py`",
+                file=sys.stderr)
+            drifted += 1
+        else:
+            print(f"OK   {image} -> {digest}")
+
+    if unreachable:
+        print(
+            f"\n{unreachable} image(s) could not be resolved against their registry"
+            + (f" ({drifted} more drifted)" if drifted else ""),
+            file=sys.stderr)
+        return 1
+    print(
+        f"{len(effective)} image(s) checked against their registry: "
+        f"{len(effective) - drifted} match the pin, {drifted} drifted"
     )
     return 0
 
@@ -544,6 +676,44 @@ DOCKERFILE_SELF_TEST_CASES = [
 ]
 
 
+#: (image, compose default digest, expected problem count). This half of the gate
+#: was a bare `pass` in front of the exact case it exists to catch — every
+#: compose service defaulted to the zero placeholder, so a fresh clone resolved
+#: images that cannot be pulled while `--check` reported success. Both directions
+#: are pinned here so it cannot quietly become a `pass` again.
+COMPOSE_DEFAULT_SELF_TEST_CASES = [
+    ("redis:7-alpine", PLACEHOLDER_DIGEST, 1),
+    ("redis:7-alpine", "sha256:" + "a" * 64, 0),
+    ("redis:7-alpine", "sha256:deadbeef", 1),
+    ("redis:7-alpine", "", 1),
+    ("redis:7-alpine", "latest", 1),
+]
+
+#: (compose images, CI image lines, expected problem count). One image must carry
+#: one digest: compose and the workflow pinned `redis:7-alpine` to different
+#: digests and every rule in this file passed, which meant CI was certifying an
+#: image the shipped stack does not run.
+PIN_CONSISTENCY_SELF_TEST_CASES = [
+    (
+        [("REDIS_IMAGE", "REDIS_DIGEST", "redis:7-alpine", "sha256:" + "a" * 64)],
+        [(3, "redis:7-alpine@sha256:" + "a" * 64)],
+        0,
+    ),
+    (
+        [("REDIS_IMAGE", "REDIS_DIGEST", "redis:7-alpine", "sha256:" + "a" * 64)],
+        [(3, "redis:7-alpine@sha256:" + "b" * 64)],
+        1,
+    ),
+    (
+        # An image named in only one file is nobody's business here; the
+        # placeholder default is reported by check_compose_default instead.
+        [("REDIS_IMAGE", "REDIS_DIGEST", "redis:7-alpine", PLACEHOLDER_DIGEST)],
+        [(3, "quay.io/keycloak/keycloak:25.0@sha256:" + "b" * 64)],
+        0,
+    ),
+]
+
+
 def self_test() -> int:
     failures = []
     for ref, expected in SELF_TEST_CASES:
@@ -570,6 +740,20 @@ def self_test() -> int:
                 f"Dockerfile base check: expected {expected} base image(s), got {len(found)} "
                 f"for {text!r} -> {found}"
             )
+    for image, default, expected in COMPOSE_DEFAULT_SELF_TEST_CASES:
+        found = check_compose_default(image, default)
+        if len(found) != expected:
+            failures.append(
+                f"compose default: expected {expected} problem(s), got {len(found)} "
+                f"for {image!r} default {default!r} -> {found}"
+            )
+    for compose_images, ci_refs, expected in PIN_CONSISTENCY_SELF_TEST_CASES:
+        found = check_pin_consistency(compose_images, ci_refs)
+        if len(found) != expected:
+            failures.append(
+                f"pin consistency: expected {expected} problem(s), got {len(found)} "
+                f"for compose={compose_images} ci={ci_refs} -> {found}"
+            )
     for f in failures:
         print(f"SELF-TEST FAIL: {f}", file=sys.stderr)
     return len(failures)
@@ -583,6 +767,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true", help="verify only, no network")
     ap.add_argument("--stdout", action="store_true", help="print, change nothing")
+    ap.add_argument(
+        "--verify-remote", action="store_true",
+        help="ask each registry whether the pinned digest still matches its tag")
     args = ap.parse_args()
 
     images = parse_compose_images(COMPOSE.read_text(encoding="utf-8"))
@@ -593,6 +780,8 @@ def main() -> int:
 
     if args.check:
         return check(images, env_lines)
+    if args.verify_remote:
+        return verify_remote(images, env_lines)
 
     digests: dict[str, str] = {}
     failures = 0

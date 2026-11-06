@@ -3,15 +3,16 @@
 The web application: every procurement workspace, the approvals queue, spend
 analytics, contract obligations and an evidence-grounded AI copilot.
 
-**15 routes** in a Next.js 16 App Router application.
+**16 routes** in a Next.js 16 App Router application.
 
 **Stack:** Node 22 · Next.js 16 · React 19 · TypeScript 6 · Tailwind-free CSS
 custom properties · Keycloak OIDC (Authorization Code + PKCE) · ESLint 10 ·
 Vitest 5.
 
-**Live demo:** [vantor-os.vercel.app](https://vantor-os.vercel.app/) — a
-standalone demo mode lets visitors explore the full interface without a
-backend running.
+**No demo mode.** Every panel is fed by the API. When the API is unreachable the
+UI says so and names the address it tried, rather than falling back to invented
+records: a dashboard of plausible fake numbers is indistinguishable from a
+working one to the person reading it.
 
 ## The routes
 
@@ -31,6 +32,7 @@ backend running.
 | `/negosim` | AI negotiation simulator |
 | `/notifications` | Notification feed |
 | `/copilot` | Evidence-grounded AI copilot |
+| `/auth/callback` | OIDC redirect target — authorization code + PKCE exchange. Not linked from the navigation and not in the sitemap: it exists only as the address the identity provider returns to. |
 
 ## Run it
 

@@ -9,7 +9,9 @@ acceptance suites are planned as Phase 11 gates.
 
 VANTOR consolidates **ten** procurement products into one modular monolith.
 Nine of the ten ship as native VANTOR modules; one (ProcurementOS Agent) is
-realised as the AI/HITL/approval substrate the others call. Explore all 10 products interactively on Vercel: [VANTOR - Intelligent Procurement Operating System](https://vantor-os.vercel.app/).
+realised as the AI/HITL/approval substrate the others call. There is no hosted
+demo: every screen below is driven by the API, so running it is the way to see
+it — see [`../../README.md`](../../README.md#quickstart).
 
 > **Why ten.** Products 01–05 are the supplier, sourcing, cost, contract, and
 > spend foundations; products 06–10 arrived later and ship as native modules.

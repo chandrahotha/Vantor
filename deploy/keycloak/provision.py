@@ -53,6 +53,21 @@ SERVICE_CLIENT_SECRET = os.environ.get("SERVICE_CLIENT_SECRET", "")
 SERVICE_TENANT = os.environ.get("SERVICE_TENANT", "vantor-corp")
 TEMPLATE = pathlib.Path(__file__).with_name("realm-vantor.json")
 
+#: Where the browser app is served from, comma-separated.
+#:
+#: Keycloak refuses an authorization redirect to any origin that is not listed on
+#: the client, and a realm file can only ever name `localhost` — so a deployment
+#: on a real host could not complete a sign-in at all, in exactly the
+#: `AUTH_MODE=oidc` mode that `.env.example` ships as the default. The redirect
+#: list is therefore reconciled here from the environment on every start, the
+#: same way the service secret is, rather than being frozen in JSON.
+WEB_CLIENT_ID = os.environ.get("WEB_CLIENT_ID", "vantor-web")
+WEB_ORIGINS = tuple(
+    o.strip().rstrip("/")
+    for o in os.environ.get("WEB_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+)
+
 #: The only roles the worker's service account holds.
 #:
 #: VNT-024. This used to be `("Super Admin", "Procurement Admin",
@@ -228,6 +243,48 @@ class Admin:
         print(f"    * client secret for {SERVICE_CLIENT_ID} matches the environment")
         return found["id"]
 
+    def ensure_web_client_redirects(self) -> None:
+        """Make the browser client accept the origins this deployment uses.
+
+        Without this, `AUTH_MODE=oidc` is a dead end: the sign-in screen
+        redirects to Keycloak, Keycloak refuses the callback with "Invalid
+        redirect uri", and the operator is left with a login that cannot finish
+        and no clue that the realm file, not their config, is what pinned it to
+        localhost.
+        """
+        for origin in WEB_ORIGINS:
+            if origin.startswith("http://") and "localhost" not in origin and "127.0.0.1" not in origin:
+                raise SystemExit(
+                    f"WEB_ORIGINS contains plaintext {origin!r}. An identity provider will send "
+                    "authorization codes over this connection; serve the web app over HTTPS or "
+                    "leave it on localhost."
+                )
+        found = self.find_client(WEB_CLIENT_ID)
+        if not found:
+            raise SystemExit(
+                f"client {WEB_CLIENT_ID} is not in realm {REALM}; the web app has no identity to "
+                "redirect to")
+
+        want_redirects = [f"{origin}/*" for origin in WEB_ORIGINS]
+        have_redirects = list(found.get("redirectUris") or [])
+        have_origins = list(found.get("webOrigins") or [])
+        if set(have_redirects) == set(want_redirects) and set(have_origins) == set(WEB_ORIGINS):
+            print(f"    * {WEB_CLIENT_ID} already redirects to {', '.join(WEB_ORIGINS)}")
+            return
+
+        found["redirectUris"] = want_redirects
+        found["webOrigins"] = list(WEB_ORIGINS)
+        # A public SPA client that never completes a login is worse than one
+        # whose redirect list is being reconciled on every start.
+        found["standardFlowEnabled"] = True
+        found["publicClient"] = True
+        status, body = self._request(
+            "PUT", f"/admin/realms/{REALM}/clients/{found['id']}", found
+        )
+        if status not in (204, 200):
+            raise SystemExit(f"could not set redirect URIs on {WEB_CLIENT_ID} ({status}): {body}")
+        print(f"    * {WEB_CLIENT_ID} now redirects to {', '.join(WEB_ORIGINS)}")
+
     def ensure_service_account_roles(self) -> None:
         status, body = self._request(
             "GET", f"/admin/realms/{REALM}/clients/{SERVICE_CLIENT_ID}/service-account-user"
@@ -379,6 +436,9 @@ def main() -> int:
     admin.ensure_service_client()
     admin.ensure_service_account_roles()
     admin.ensure_service_account_tenant()
+
+    print("==> ensuring the web client can redirect the browser back")
+    admin.ensure_web_client_redirects()
 
     print("==> ensuring the bootstrap user")
     for user in template.get("users", []):

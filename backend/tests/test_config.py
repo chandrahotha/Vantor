@@ -7,6 +7,7 @@ every authenticated request while `/health`, which touches no dependency, stayed
 green, and the developer lost an afternoon to it.
 """
 import re
+import warnings
 from pathlib import Path
 
 import pytest
@@ -67,31 +68,72 @@ def test_default_oidc_issuer_is_host_reachable():
         f"the default issuer points at the Compose service name: {issuer!r}")
 
 
-def test_default_audience_matches_env_example_and_the_web_client():
-    """The audience must be the client the web app actually uses.
+def test_default_audience_matches_the_client_the_realm_provisions():
+    """The audience must be the client the browser actually authenticates as.
 
     A token minted for `vantor-web` is not a token for anything else, and a
     mismatch is a 403 the developer reads as an RBAC problem.
+
+    This used to compare against `NEXT_PUBLIC_KEYCLOAK_CLIENT`, a build-time
+    constant the web app had stopped reading. The check is now against the two
+    files that actually decide the value: `.env.example` (what the operator
+    sets) and the realm definition `keycloak-init` provisions (what the IdP
+    issues). A third party that only *claimed* to agree is not a control.
     """
-    expected = env_example_value("NEXT_PUBLIC_KEYCLOAK_CLIENT")
-    assert Settings().jwt_audience == expected
-    assert re.search(
-        r"^NEXT_PUBLIC_KEYCLOAK_CLIENT=" + re.escape(expected) + r"$",
-        ENV_EXAMPLE.read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
+    import json
+    from pathlib import Path
+
+    expected = env_example_value("KEYCLOAK_CLIENT_ID")
+    assert Settings().jwt_audience == expected, (
+        f"JWT_AUDIENCE default {Settings().jwt_audience!r} is not the realm's web client "
+        f"{expected!r}; every OIDC sign-in would 403 on audience.")
+
+    realm_path = Path(__file__).resolve().parents[2] / "deploy" / "keycloak" / "realm-vantor.json"
+    realm = json.loads(realm_path.read_text(encoding="utf-8"))
+    web = [c for c in realm.get("clients", []) if c.get("clientId") == expected]
+    assert web, f"the realm does not provision a {expected!r} client, so nothing can mint that audience"
+    assert web[0].get("standardFlowEnabled") is True, "the web client cannot complete a browser login"
+    assert web[0].get("publicClient") is True, (
+        "a browser cannot hold a client secret; a confidential web client means the secret "
+        "is in the bundle")
+    assert web[0].get("attributes", {}).get("pkce.code.challenge.method") == "S256", (
+        "authorization code without PKCE is redeemable by whoever intercepts the code")
 
 
-def test_the_three_keycloak_hosts_agree():
-    """backend default, .env.example and the Next client must name one realm.
+def test_the_build_time_keycloak_variables_stay_deleted():
+    """No second source of truth for where the identity provider is.
 
-    These are three files stating the same fact. They are allowed to disagree
-    with docker-compose, which is in a different network and says so, but not
-    with each other.
+    `NEXT_PUBLIC_KEYCLOAK_URL/REALM/CLIENT` were read by nothing, pointed at a
+    realm the app had stopped talking to, and could not be changed without
+    rebuilding the image — so they were a trap an operator would set and a
+    reviewer would trust. The browser now asks `GET /auth/config`, which derives
+    the endpoints from the same `OIDC_ISSUER` this process verifies tokens
+    against. Re-adding any of them would put a stale IdP address in the bundle.
     """
-    kc_url = env_example_value("NEXT_PUBLIC_KEYCLOAK_URL")
-    realm = env_example_value("NEXT_PUBLIC_KEYCLOAK_REALM")
-    assert Settings().oidc_issuer == f"{kc_url}/realms/{realm}"
+    text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    for name in ("NEXT_PUBLIC_KEYCLOAK_URL", "NEXT_PUBLIC_KEYCLOAK_REALM", "NEXT_PUBLIC_KEYCLOAK_CLIENT"):
+        assert not re.search(rf"^{name}=", text, re.MULTILINE), (
+            f"{name} is back in .env.example; the web app does not read it and a second "
+            "IdP address is a defect, not a convenience")
+
+
+def test_the_issuer_and_the_provisioned_realm_name_one_place():
+    """Backend issuer ↔ Keycloak's own realm, in the files that must agree.
+
+    These are two files stating the same fact. They are allowed to disagree with
+    docker-compose, which is in a different network and says so, but not with
+    each other: `jwt.decode(issuer=...)` compares exactly, so a realm served at
+    a host the backend does not expect answers 401 on every authenticated
+    request while `/health` stays green.
+    """
+    realm_name = env_example_value("KEYCLOAK_REALM")
+    issuer = Settings().oidc_issuer
+    assert issuer.endswith(f"/realms/{realm_name}"), (
+        f"the default issuer {issuer!r} is not realm {realm_name!r}; the browser would be "
+        "sent to one realm and the API would verify against another")
+    # The endpoints the SPA is handed are derived from this same string, so the
+    # IdP the user logs into is the IdP whose keys the API accepts.
+    assert issuer.rstrip("/").endswith(f"/realms/{realm_name}")
 
 
 class TestRequireProdSecrets:
@@ -122,13 +164,67 @@ class TestRequireProdSecrets:
         with pytest.raises(RuntimeError, match="OIDC_ISSUER"):
             Settings(_env_file=None).require_prod_secrets()
 
-    def test_postgres_backend_without_password_is_refused(self, monkeypatch):
+    def test_managed_postgres_url_needs_no_separate_password_var(self, monkeypatch):
+        """A Postgres deployment described only by `DATABASE_URL` must boot.
+
+        This test replaced `test_postgres_backend_without_password_is_refused`,
+        which asserted the opposite. That assertion contradicted the principle
+        this class exists to hold — "do not demand variables no code reads" —
+        because `POSTGRES_PASSWORD` is read by docker-compose.yml's `migrate` and
+        keycloak-db services and by *nothing* in this process: the password
+        SQLAlchemy actually uses is inside the URL. So a managed-Postgres
+        operator who supplied one correct `DATABASE_URL` was refused a start for
+        missing a variable that could not change any behaviour. The gate got
+        narrower and correct, not weaker: the next test keeps the URL itself
+        under the placeholder check.
+        """
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor:real-secret@db.example.com:5432/vantor")
+        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+        Settings(_env_file=None).require_prod_secrets()  # must not raise
+
+    def test_placeholder_postgres_url_is_still_refused(self, monkeypatch):
+        """The credential still has to be a real one, wherever it lives."""
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor:change-me@db.example.com:5432/vantor")
+        with pytest.raises(RuntimeError, match="DATABASE_URL"):
+            Settings(_env_file=None).require_prod_secrets()
+
+    def test_passwordless_local_auth_warns_in_production_but_starts(self, monkeypatch):
+        """`AUTH_MODE=local` in production is loud, not fatal.
+
+        It is the documented single-container identity path — `POST /auth/session`
+        hands a Super Admin token to anyone who can reach the port — so the
+        supported answer is to say it on every boot and report it in `/ready`,
+        not to refuse a boot that the README's headline quickstart depends on.
+        Silence was the defect: a production deployment could be running with no
+        credential boundary and leave nothing in its own logs to indicate it.
+        """
         monkeypatch.setenv("APP_ENV", "production")
         monkeypatch.setenv("AUTH_MODE", "local")
-        monkeypatch.setenv("DATABASE_URL", "postgresql://vantor@postgres:5432/vantor")
-        monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
-        with pytest.raises(RuntimeError, match="POSTGRES_PASSWORD"):
-            Settings(_env_file=None).require_prod_secrets()
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        settings = Settings(_env_file=None)
+        assert settings.passwordless_local_auth is True
+        with pytest.warns(RuntimeWarning, match="any caller who can reach the API"):
+            settings.require_prod_secrets()
+
+    def test_oidc_mode_does_not_warn_about_local_auth(self, monkeypatch):
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "oidc")
+        monkeypatch.setenv("OIDC_ISSUER", "https://issuer.example.com/realms/vantor")
+        monkeypatch.setenv("JWT_AUDIENCE", "vantor-web")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:////data/vantor.db")
+        settings = Settings(_env_file=None)
+        assert settings.passwordless_local_auth is False
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            settings.require_prod_secrets()  # must not warn, must not raise
 
     def test_s3_configured_without_secret_key_is_refused(self, monkeypatch):
         monkeypatch.setenv("APP_ENV", "production")

@@ -6,6 +6,7 @@ production secrets are accepted: app refuses to start in prod without them.
 from __future__ import annotations
 
 import os
+import warnings
 from functools import lru_cache
 
 from pydantic import Field, field_validator
@@ -219,6 +220,17 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def passwordless_local_auth(self) -> bool:
+        """True when a caller with no credential can obtain a session.
+
+        `local` and `both` both expose `POST /auth/session`, which mints a token
+        for whoever asks; `oidc` alone does not. Reported by `/ready` because the
+        difference is invisible from the outside otherwise — the API answers
+        normally either way, and only the identity of the caller changes.
+        """
+        return self.auth_mode in {"local", "both"}
+
+    @property
     def jwks_url(self) -> str:
         return f"{self.oidc_issuer.rstrip('/')}/protocol/openid-connect/certs"
 
@@ -250,8 +262,13 @@ class Settings(BaseSettings):
         required = ["DATABASE_URL"]
         if self.auth_mode == "oidc":
             required += ["OIDC_ISSUER", "JWT_AUDIENCE"]
-        if not self.database_url_resolved.startswith("sqlite"):
-            required.append("POSTGRES_PASSWORD")
+        # `POSTGRES_PASSWORD` used to be required here for any non-SQLite URL. No
+        # code in this process reads it — only docker-compose.yml's `migrate` and
+        # keycloak-db services do — so it broke the docstring's own rule ("only
+        # variables this process actually reads are checked") and refused
+        # production start for managed-Postgres deployments that correctly supply
+        # a single `DATABASE_URL`. The password is in that URL; requiring the
+        # separate variable protected nothing.
         if self.s3_endpoint or self.s3_bucket:
             required.append("S3_SECRET_KEY")
 
@@ -259,6 +276,26 @@ class Settings(BaseSettings):
             val = os.getenv(name, "")
             if _is_placeholder(val):
                 raise RuntimeError(f"Refusing production start: {name} is missing or placeholder")
+
+        if self.passwordless_local_auth:
+            # Deliberately a warning, not a refusal: `AUTH_MODE=local` is the
+            # supported single-container identity path, documented as
+            # passwordless at docs/04-security/architecture.md, and refusing it
+            # would break the README's headline quickstart. What it must not be
+            # is *quiet* — in this mode anyone who can open a socket to the API
+            # is Super Admin (see `auth_mode` above), so production says so on
+            # every boot instead of leaving it to a comment in this file.
+            warnings.warn(
+                "AUTH_MODE={mode!r} in production: the local session endpoint mints a "
+                "Super Admin token for any caller who can reach the API, with no "
+                "password. That is the documented trade for a single-operator "
+                "deployment — bind it to loopback or a trusted network, or set "
+                "AUTH_MODE=oidc. It is reported in /ready as "
+                "'passwordless_local_auth' so operators can see it after boot.".format(
+                    mode=self.auth_mode),
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 @lru_cache

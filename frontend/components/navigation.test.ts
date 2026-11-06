@@ -20,6 +20,11 @@ import { describe, expect, it } from "vitest";
 const NOT_IN_NAV = new Map<string, string>([
   // A detail page reached by clicking a row, not a destination of its own.
   ["/suppliers/[id]", "supplier 360 is opened from a row on /suppliers"],
+  // The OIDC redirect target. It is never a destination a user chooses: it is
+  // where the identity provider sends the browser back with a code, and it must
+  // not appear in the navigation or be crawled into a sitemap, where a
+  // `?code=…` URL would be a stale credential in a search index.
+  ["/auth/callback", "the identity provider redirects here; not a user-navigable page and not indexable"],
 ]);
 
 const ROOT = path.resolve(__dirname, "..");

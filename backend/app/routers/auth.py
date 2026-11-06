@@ -103,19 +103,39 @@ def whoami(request: Request, actor: Actor = Depends(get_actor)) -> dict:
 
 @router.get("/auth/config")
 def auth_config(request: Request) -> dict:
-    """What sign-in methods this deployment offers.
+    """What sign-in methods this deployment offers, and how to start each one.
 
     The web app reads this before it renders the sign-in screen, so the button
     it shows matches what the server will actually accept. Hardcoding that in
     the client is how the old build ended up offering a Keycloak redirect in a
     deployment with no Keycloak.
+
+    The OIDC parameters are served here rather than baked into the bundle as
+    `NEXT_PUBLIC_KEYCLOAK_*`, for two reasons: a build-time constant cannot
+    change between the staging and production deployment of one image, and the
+    three of those variables the client used to carry were read by nothing and
+    pointed at a realm the app had stopped talking to. The issuer the browser
+    must redirect to is the same value this process verifies tokens against, so
+    there is exactly one place that knows it.
     """
     settings = get_settings()
+    oidc = settings.auth_mode.strip().lower() in {"oidc", "both"}
+    issuer = settings.oidc_issuer.rstrip("/")
     return envelope(
         {
             "local": localauth.enabled(),
-            "oidc": settings.auth_mode.strip().lower() in {"oidc", "both"},
+            "oidc": oidc,
             "productName": "VANTOR",
+            # Only populated when there is an IdP to talk to: an empty block is a
+            # clearer signal to the client than a URL that would 404.
+            "oidcProvider": {
+                "issuer": issuer,
+                "clientId": settings.keycloak_client_id,
+                "scope": "openid profile email",
+                "authorizationEndpoint": f"{issuer}/protocol/openid-connect/auth",
+                "tokenEndpoint": f"{issuer}/protocol/openid-connect/token",
+                "endSessionEndpoint": f"{issuer}/protocol/openid-connect/logout",
+            } if oidc else None,
         },
         None,
         getattr(request.state, "request_id", ""),

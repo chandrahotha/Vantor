@@ -23,7 +23,10 @@
 #   dropped capabilities and bounded resources. A container that can write its own
 #   root filesystem and run as uid 0 turns any RCE into a foothold.
 # * **Images are pinned to digests** (see `scripts/pin_digests.py` for how), with
-#   the version tag retained as a comment so a human can tell what they are.
+#   the version tag retained as a comment so a human can tell what they are. The
+#   `@${NAME_DIGEST:-sha256:…}` default is a real digest, not a placeholder, so a
+#   fresh clone with no `.env` resolves an image that actually pulls. Setting
+#   `NAME_DIGEST` in `.env` overrides the pin deliberately.
 # * **Keycloak boots with `--import-realm`** against a rendered realm, so a fresh
 #   clone has a working realm, client, roles and a machine identity for the worker.
 # * **Keycloak is no longer in dev mode.** `start-dev` is HTTP-only with relaxed
@@ -60,7 +63,7 @@ x-hardened: &hardened
 services:
   postgres:
     # pgvector/pgvector:pg16 — digest pinned by scripts/pin_digests.py
-    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f}
     <<: *hardened
     # The official entrypoint starts as root to `chown` a fresh PGDATA volume to
     # the postgres user, then drops to it with gosu — `cap_drop: ALL` removes
@@ -91,7 +94,7 @@ services:
 
   redis:
     # redis:7-alpine — digest pinned by scripts/pin_digests.py
-    image: ${REDIS_IMAGE:-redis:7-alpine}@${REDIS_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    image: ${REDIS_IMAGE:-redis:7-alpine}@${REDIS_DIGEST:-sha256:c5d34a98396a4775e223c74e929162c35c5a2182901ba26b50ade939941ce14b}
     <<: *hardened
     # Same reason as postgres: the Alpine entrypoint chowns /data and drops from
     # root to the redis user before `cap_drop: ALL` would let it, so the plain
@@ -136,7 +139,7 @@ services:
 
   keycloak:
     # quay.io/keycloak/keycloak:25.0 — digest pinned by scripts/pin_digests.py
-    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:25.0}@${KEYCLOAK_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:25.0}@${KEYCLOAK_DIGEST:-sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2}
     <<: *hardened
     # VNT-036. The realm shape is imported from the mounted template; the parts
     # that need the client secret are reconciled by `keycloak-init` below, because
@@ -187,7 +190,7 @@ services:
   # application database cannot take the identity provider with it. The postgres
   # image creates POSTGRES_DB on first boot, so no bootstrap script is needed.
   keycloak-db:
-    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}@${POSTGRES_DIGEST:-sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f}
     <<: *hardened
     # Same postgres entrypoint, same requirement — see the `postgres` service.
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
@@ -218,6 +221,12 @@ services:
       SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
       SERVICE_TENANT: ${SERVICE_TENANT:-vantor-corp}
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
+      # The browser client's redirect list. Keycloak refuses any callback origin
+      # that is not listed on the client, so without this the OIDC deployment has
+      # a sign-in button that cannot finish — the realm file alone can only ever
+      # name localhost. Comma-separate for more than one web origin.
+      WEB_CLIENT_ID: ${WEB_CLIENT_ID:-vantor-web}
+      WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:3000}
     depends_on:
       keycloak:
         condition: service_healthy
@@ -225,7 +234,7 @@ services:
     restart: "no"
 
   ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama:0.3.12}@${OLLAMA_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.3.12}@${OLLAMA_DIGEST:-sha256:e458178cf2c114a22e1fe954dd9a92c785d1be686578a6c073a60cf259875470}
     profiles: ["ai"]
     <<: *hardened
     volumes:
@@ -300,9 +309,24 @@ services:
       start_period: 40s
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Same-origin: the browser calls `/api` on whatever host serves the page
+        # and the Next server proxies it to the backend over the internal
+        # network. Baking an address here is what made the stack work only on
+        # the machine that built it — see the same reasoning in the
+        # single-container image at Dockerfile:29-39.
+        NEXT_PUBLIC_API_URL: ""
+        INTERNAL_API_URL: http://backend:8000
     <<: *hardened
     env_file: .env
+    environment:
+      # Stated at runtime as well as at build so the two cannot disagree: a
+      # server component reading `localhost:8000` inside this container would
+      # resolve to the frontend itself, not to the API.
+      NEXT_PUBLIC_API_URL: ""
+      INTERNAL_API_URL: http://backend:8000
     ports: ["3000:3000"]
     depends_on:
       backend:

@@ -52,13 +52,24 @@ RQ_TEST_REDIS_URL = os.getenv("RQ_TEST_REDIS_URL", "").strip()
 
 
 def live_connection() -> Redis:
-    """A connection to a Redis that is actually there, or skip."""
+    """A connection to a Redis that is there, or skip when none was ever asked for.
+
+    Unset means "this environment is not the Redis tier" and a skip is honest.
+    Set-but-unreachable is a failure: the CI job that exists to exercise real
+    queue delivery used to turn a dead Redis into four skips and report green.
+    """
     if not RQ_TEST_REDIS_URL:
         pytest.skip("RQ_TEST_REDIS_URL is not set — point it at a Redis instance")
     try:
         Redis.from_url(RQ_TEST_REDIS_URL).ping()
     except RedisError as exc:
-        pytest.skip(f"Redis unusable at {RQ_TEST_REDIS_URL} ({exc})")
+        pytest.fail(
+            f"RQ_TEST_REDIS_URL is set to {RQ_TEST_REDIS_URL!r} but Redis is not "
+            f"usable there: {exc}\n"
+            "    Start Redis, or unset RQ_TEST_REDIS_URL to say this environment is "
+            "not the Redis tier.",
+            pytrace=False,
+        )
     return Redis.from_url(RQ_TEST_REDIS_URL)
 
 

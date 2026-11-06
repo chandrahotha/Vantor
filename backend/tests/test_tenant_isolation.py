@@ -184,38 +184,59 @@ def test_tenant_a_cannot_read_tenant_bs_row_through_the_real_app_connection(pg_c
 
 
 def test_no_unpinned_sessions_outside_request_cycle():
-    """Every non-request DB session must be tenant-pinned.
+    """The raw session factory may only be touched by the module that pins.
 
-    `get_session_factory()()` is safe on SQLite (no RLS) and silently broken on
+    An unpinned session is safe on SQLite (no RLS) and silently broken on
     Postgres: the RLS `WITH CHECK` rejects the write and a broad `except` hides
     it. That is how idempotency replay and the SSE audit both died in production
-    while the test suite stayed green. This test makes the mistake impossible to
-    reintroduce, because SQLite cannot catch it.
+    semantics while the test suite stayed green.
+
+    The previous version of this test scanned for the literal call
+    `get_session_factory()()`. It missed the aliased form —
+    `factory = get_session_factory()` then `factory()` — which the pinning
+    module itself used two lines above the docstring warning about it, so the
+    one pattern the test could not see was the one in the file that defines the
+    rule. It also exempted whole files by path, which exempted their future
+    contents, and it looked 400 characters back for the word `pinned_session(`,
+    so an unpinned call under a docstring that merely mentioned the helper was
+    waved through.
+
+    This version checks a structural property instead of a spelling: the factory
+    is private, so any reference outside its own module is the defect, in any
+    form, anywhere in the tree — including the scripts directory, which the old
+    scan never read and where a seeding script was in fact doing exactly that.
     """
     import pathlib
-    import re
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    root = pathlib.Path(__file__).resolve().parents[2]
+    allowed = pathlib.Path("backend/app/core/tenant.py")
+    scanned = [root / "backend" / "app", root / "backend" / "scripts", root / "worker", root / "scripts"]
     offenders: list[str] = []
-    for path in root.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        if "get_session_factory()()" not in text:
-            continue
-        rel = path.relative_to(root).as_posix()
-        # health.py probes liveness with a read-only SELECT 1 + version check,
-        # which is tenant-independent by design. tenant.py *defines* the pinned
-        # wrapper, so the raw call there is the one being made safe.
-        if rel in {"routers/health.py", "core/tenant.py"}:
-            continue
-        # Everything else must go through pinned_session().
-        for match in re.finditer(r"get_session_factory\(\)\(\)", text):
-            line_no = text[: match.start()].count("\n") + 1
-            window = text[max(0, match.start() - 400) : match.start()]
-            if "pinned_session(" not in window:
-                offenders.append(f"{rel}:{line_no}")
+    per_root: dict[str, int] = {}
+    for base in scanned:
+        assert base.is_dir(), f"the guard lost a scan root: {base}"
+        files = sorted(base.rglob("*.py"))
+        per_root[base.relative_to(root).as_posix()] = len(files)
+        for path in files:
+            if "_session_factory" not in path.read_text(encoding="utf-8"):
+                continue
+            rel = path.relative_to(root).as_posix()
+            if rel != allowed.as_posix():
+                offenders.append(rel)
+    # A guard whose scan roots silently shrink passes vacuously — which is how a
+    # coverage gate can look green while checking nothing. `backend/app` is the
+    # application surface and has 72 modules today; a fraction of that means the
+    # scan, not the code, is what changed.
+    assert per_root["backend/app"] >= 50, f"backend/app scan collapsed: {per_root}"
+    assert per_root["backend/scripts"] >= 1, f"backend/scripts scan vanished: {per_root}"
+    assert per_root["worker"] >= 1, f"worker scan vanished: {per_root}"
+    assert per_root["scripts"] >= 1, f"scripts scan vanished: {per_root}"
     assert not offenders, (
-        "unpinned get_session_factory()() outside health.py — RLS will reject "
-        f"these writes on Postgres: {offenders}"
+        "_session_factory() is referenced outside app/core/tenant.py. An unpinned "
+        "session has no app.tenant_id, so on Postgres it reads zero rows and its "
+        f"writes are rejected by RLS: {offenders}\n"
+        "    Use get_db(tenant_id) in the request cycle, pinned_session(tenant_id) "
+        "anywhere else, or probe_session() for a probe that touches no tenant table."
     )
 
 
@@ -237,7 +258,7 @@ def test_pinned_session_pins_on_postgres(monkeypatch):
             executed.append(str(stmt))
             return None
 
-    monkeypatch.setattr(tenant_mod, "get_session_factory", lambda: (lambda: FakeSession()))
+    monkeypatch.setattr(tenant_mod, "_session_factory", lambda: (lambda: FakeSession()))
     tenant_mod.pinned_session("tenant-a")
     assert any("app.tenant_id" in s for s in executed), executed
     # An empty tenant must NOT be pinned — that would set an empty GUC and
@@ -245,3 +266,47 @@ def test_pinned_session_pins_on_postgres(monkeypatch):
     executed.clear()
     tenant_mod.pinned_session("")
     assert not executed
+
+
+def test_rls_verdict_refuses_production_when_the_backstop_cannot_apply():
+    """The runbook's hard rule, enforced by the process that depends on it.
+
+    docs/09-operations/runbook.md §7 says the runtime role "must be NON-superuser
+    and must NOT own the tables", and migration 0026 records what happened while
+    that was only a sentence: every `tenant_isolation` policy in the schema was a
+    no-op for the application's own connection from 0001 forward, because every
+    deployment path pointed `DATABASE_URL` at the initdb superuser. Postgres does
+    not apply row security to a superuser, a `BYPASSRLS` role or a table owner,
+    regardless of `FORCE ROW LEVEL SECURITY` — and the API behaves *identically*
+    either way, so nothing in a response ever told the operator.
+
+    The decision is a pure function so the refusal can be asserted without a
+    cluster; `rls_backstop()` is the part that needs one.
+    """
+    from app.core.tenant import rls_verdict
+
+    superuser = {"applicable": True, "enforced": False, "role": "vantor",
+                 "reason": "vantor is a superuser"}
+    ok, message = rls_verdict(superuser, is_prod=True)
+    assert ok is False, "production must not start with RLS bypassed by role"
+    assert "vantor_app" in message and "runbook" in message, message
+
+    # Same connection, not production: warn and carry on, because refusing a
+    # developer's `make up` would only teach them to set APP_ENV=production
+    # somewhere they did not mean to.
+    ok_dev, _ = rls_verdict(superuser, is_prod=False)
+    assert ok_dev is True
+
+    owner = {"applicable": True, "enforced": False, "role": "vantor",
+             "reason": "vantor owns every table in public (owners bypass RLS by design)"}
+    assert rls_verdict(owner, is_prod=True)[0] is False
+
+    good = {"applicable": True, "enforced": True, "role": "vantor_app", "reason": "row-level security applies"}
+    ok_good, message_good = rls_verdict(good, is_prod=True)
+    assert ok_good is True and message_good == "RLS enforced as role vantor_app"
+
+    # SQLite: the question does not apply, so it must never be a startup failure —
+    # that is the single-container deployment's entire identity path.
+    sqlite = {"applicable": False, "enforced": False,
+              "reason": "SQLite has no row-level security"}
+    assert rls_verdict(sqlite, is_prod=True) == (True, "SQLite has no row-level security")

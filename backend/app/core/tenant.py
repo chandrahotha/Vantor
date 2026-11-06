@@ -108,7 +108,18 @@ def get_engine():  # type: ignore[no-untyped-def]
     return _engine
 
 
-def get_session_factory() -> sessionmaker:
+def _session_factory() -> sessionmaker:
+    """The raw sessionmaker. Private on purpose — see `probe_session`.
+
+    A session from here is *unpinned*: on Postgres it has no `app.tenant_id`, so
+    every RLS predicate is false against it. Reads return nothing and writes are
+    rejected by `WITH CHECK`, which a broad `except` then hides. The three
+    sanctioned ways to obtain a session are `get_db()` (request cycle),
+    `pinned_session()` (anything outside it) and `probe_session()` (a
+    tenant-independent liveness probe). `test_no_unpinned_sessions_outside_request_cycle`
+    fails the build on any other use, because SQLite cannot see the difference
+    and a green suite therefore proved nothing.
+    """
     global _SessionLocal
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(bind=get_engine(), class_=Session, expire_on_commit=False)
@@ -121,8 +132,7 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
     Use as FastAPI dep via `db_for_actor` below so tenant always comes from
     the verified JWT, never from a query param.
     """
-    factory = get_session_factory()
-    db = factory()
+    db = _session_factory()()
     try:
         if tenant_id and db.bind.dialect.name == "postgresql":
             # `session.info` makes `_reapply_tenant_pin_on_every_transaction` pin
@@ -141,17 +151,127 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
 
 def pinned_session(tenant_id: str) -> Session:
     """Standalone session pinned to `tenant_id` — for callers outside the
-    request/dependency cycle (middleware, SSE generators, background work).
+    request/dependency cycle (middleware, SSE generators, background work,
+    seeding scripts).
 
-    Raw `get_session_factory()()` is NOT safe: on Postgres the RLS `WITH CHECK`
-    on tenant-scoped tables rejects the write, and a broad `except` then hides
-    it. Always pin. Callers own commit/rollback/close.
+    Raw `_session_factory()()` is NOT safe: on Postgres the RLS `WITH CHECK` on
+    tenant-scoped tables rejects the write, and a broad `except` then hides it.
+    Always pin. Callers own commit/rollback/close.
     """
-    db = get_session_factory()()
+    db = _session_factory()()
     if tenant_id and db.bind.dialect.name == "postgresql":
         db.info[_TENANT_INFO_KEY] = tenant_id
         db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     return db
+
+
+def probe_session() -> Session:
+    """An intentionally unpinned session, for probes that touch no tenant table.
+
+    `GET /ready` runs `SELECT 1` and reads `alembic_version`; neither is a
+    tenant-scoped table, so there is no tenant to pin and pinning one would be
+    a lie about what the probe checks. This exists so the readiness probe can
+    say so *without* calling the private factory and becoming the exception that
+    justifies a whitelist — the previous guard exempted `routers/health.py` by
+    path, which also exempted every future line added to that file.
+
+    Callers own commit/close. Do not use this to read or write anything that has
+    a `tenant_id` column.
+    """
+    return _session_factory()()
+
+
+def rls_backstop() -> dict:
+    """Ask the database whether row-level security can apply to *this* connection.
+
+    PostgreSQL does not enforce row security for a superuser, for a role with
+    `BYPASSRLS`, or for the table owner — regardless of `FORCE ROW LEVEL
+    SECURITY`. Migration 0026 records that every `tenant_isolation` policy in
+    this schema was a no-op from 0001 forward for exactly that reason: every
+    deployment path pointed `DATABASE_URL` at the initdb superuser. The policies
+    were present, `set_config` was correct, the tests on SQLite passed, and no
+    rows were protected.
+
+    The runbook states the rule ("the runtime DB role must be NON-superuser and
+    must NOT own the tables") as a hard requirement. Stating it is the easy half:
+    a deployment that ignores it looks identical from the outside, so this reads
+    the catalog and reports whether the backstop the documentation promises is
+    actually engaged.
+    """
+    from .config import get_settings
+
+    url = get_settings().database_url_resolved
+    if url.startswith("sqlite"):
+        return {"dialect": "sqlite", "enforced": False, "applicable": False,
+                "reason": "SQLite has no row-level security; tenant isolation rests on "
+                          "the application's tenant filters alone"}
+    if not url.startswith("postgresql"):
+        return {"dialect": url.split(":", 1)[0], "enforced": False, "applicable": False,
+                "reason": "unknown dialect"}
+
+    from sqlalchemy import text
+
+    db = probe_session()
+    try:
+        row = db.execute(text(
+            """
+            SELECT current_user AS role,
+                   (SELECT coalesce(rolsuper, false) FROM pg_roles WHERE rolname = current_user) AS super,
+                   (SELECT coalesce(rolbypassrls, false) FROM pg_roles WHERE rolname = current_user) AS bypass,
+                   (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') AS tables,
+                   (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
+                      AND tableowner = current_user) AS owned
+            """
+        )).mappings().first()
+    except Exception as exc:  # noqa: BLE001 — a probe must not take the API down
+        return {"dialect": "postgresql", "enforced": False, "applicable": True,
+                "reason": f"could not read the catalog: {type(exc).__name__}"}
+    finally:
+        db.close()
+
+    if row is None:  # pragma: no cover — defensive; the catalog query always returns a row
+        return {"dialect": "postgresql", "enforced": False, "applicable": True,
+                "reason": "catalog query returned no row"}
+
+    role = str(row["role"])
+    owned = int(row["owned"] or 0)
+    total = int(row["tables"] or 0)
+    problems: list[str] = []
+    if bool(row["super"]):
+        problems.append(f"{role} is a superuser")
+    if bool(row["bypass"]):
+        problems.append(f"{role} has BYPASSRLS")
+    if total and owned == total:
+        problems.append(f"{role} owns every table in public (owners bypass RLS by design)")
+    enforced = not problems and bool(total)
+    reason = ("row-level security applies" if enforced else
+              "; ".join(problems) if problems else
+              "no tables in `public` yet — nothing for the policies to protect")
+    return {"dialect": "postgresql", "enforced": enforced, "applicable": True,
+            "role": role, "tables": total, "owned": owned, "reason": reason}
+
+
+def rls_verdict(status: dict, is_prod: bool) -> tuple[bool, str]:
+    """Decide what to do about the backstop, as a function so it can be tested.
+
+    Production refuses to start; everywhere else it is a warning. The asymmetry
+    is deliberate: `vantor_app` is not a convenience, it is the difference
+    between "the tenant filter was forgotten and the database caught it" and
+    "the tenant filter was forgotten" — and the second case is the one this
+    schema has already lived through for twenty-nine migrations.
+    """
+    if not status.get("applicable"):
+        return True, str(status.get("reason", ""))
+    if status.get("enforced"):
+        return True, f"RLS enforced as role {status.get('role', '?')}"
+    message = (
+        "row-level security is NOT enforced for this connection: "
+        f"{status.get('reason', 'unknown')}. Tenant isolation currently rests "
+        "on the application's `tenant_id` filters alone. Point DATABASE_URL at "
+        "the non-owner, non-superuser role created by migration 0026 "
+        "(`vantor_app`), as docs/09-operations/runbook.md §7 requires."
+    )
+    return (not is_prod), message
 
 
 def reset_engine_cache() -> None:

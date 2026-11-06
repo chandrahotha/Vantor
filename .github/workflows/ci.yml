@@ -28,25 +28,92 @@ permissions:
   contents: read
 
 # Cancel superseded runs on the same ref so stale commits don't burn minutes.
+#
+# Keyed on the ref alone, this also caught the weekly full-suite run: a schedule
+# and a push both run under refs/heads/main, so any push that Monday could
+# cancel the one run that exercises Postgres RLS, the migration chain and the
+# Playwright flows — and a cancelled run leaves no red badge to notice. The
+# heavy runs get their own group and are never cancelled; superseded pushes still
+# cancel each other, which is what this was for.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true')) && 'full' || 'fast' }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') }}
 
 jobs:
   policy:
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 5
     steps:
-      - name: Cadence check
+      - name: Cadence and ref policy
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
+          FULL_SUITE: ${{ github.event.inputs.full_suite }}
         run: |
-          event="${{ github.event_name }}"
-          case "$event" in
-            push|pull_request|schedule|workflow_dispatch) echo "cadence OK ($event)";;
-            *) echo "unexpected event: $event"; exit 1;;
+          # This job used to compare $EVENT against the four names in this file's
+          # own `on:` block. That cannot fail: every run that exists was, by
+          # construction, triggered by one of them. Seven jobs say `needs:
+          # policy`, so the root gate was decorative while still printing a check
+          # that reads like a policy was evaluated.
+          #
+          # What it does instead is enforce the policy the README states — CI runs
+          # on pushes and pull requests *to main*, and the weekly schedule is the
+          # run that certifies main. Those are the automated events whose badges
+          # people cite, so an automated event off a stale or unexpected ref is a
+          # failure.
+          #
+          # `workflow_dispatch` is deliberately allowed on any ref, and told to
+          # say so in the log: dispatching the heavy tiers against a branch is how
+          # a branch gets its Postgres evidence *before* merging, which is the
+          # thing that caught the never-run tiers the first time. Refusing it
+          # would push people to merge untested code just to get a real test run.
+          case "$EVENT" in
+            push)
+              if [ "$REF" != "refs/heads/main" ]; then
+                echo "FAIL: a push triggered CI on '$REF'. The policy is pushes to main;"
+                echo "      check the 'on: push: branches:' list in this file."
+                exit 1
+              fi
+              ;;
+            pull_request)
+              if [ "$BASE_REF" != "main" ]; then
+                echo "FAIL: a pull_request targeting '$BASE_REF' triggered CI."
+                echo "      The policy is pull requests targeting main."
+                exit 1
+              fi
+              ;;
+            schedule)
+              if [ "$REF" != "refs/heads/main" ]; then
+                echo "FAIL: the weekly full-suite run executed '$REF', not main."
+                echo "      Its Postgres and Playwright results would be cited as"
+                echo "      evidence about main while testing something else."
+                exit 1
+              fi
+              echo "cadence OK: scheduled full-suite run on $REF"
+              ;;
+            workflow_dispatch)
+              echo "cadence OK: manual dispatch on $REF (full_suite=${FULL_SUITE:-false})"
+              if [ "$REF" != "refs/heads/main" ]; then
+                echo "::notice::This run certifies '$REF', not main. Do not read its"
+                echo "  Postgres/e2e results as evidence about main."
+              fi
+              ;;
+            *)
+              echo "FAIL: unexpected event '$EVENT' — this workflow's triggers changed"
+              echo "      without the policy job being told about it."
+              exit 1
+              ;;
           esac
 
   guard:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: Secret guard (tracked files only)
@@ -66,13 +133,30 @@ jobs:
           grep -q SERVICE_CLIENT_SECRET .env.example
           cp .env.example .env
           docker compose config > /dev/null
-          rm -f .env
+          # The refs compose would actually pull, in the log. `config` only
+          # interpolates — it never contacts a registry — so printing the
+          # resolved image names is the cheapest way to see a bad digest.
+          docker compose config --images
       - name: Images are digest-pinned
-        run: python scripts/pin_digests.py --check
+        # Deliberately runs with the `.env` from the step above still present.
+        # Deleting it first put this gate into "structural check only" mode,
+        # which is how every compose service could default to a zero digest
+        # that no registry has and still report success on every push.
+        run: |
+          python scripts/pin_digests.py --check
+          rm -f .env
+      - name: CI gates can still fail
+        # Regex-only, no third-party imports: this job deliberately has no
+        # dependency install, because a gate that needs its dependencies
+        # installed to check the dependencies is a weak gate.
+        run: python scripts/check_ci_consistency.py --check
 
   docs:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Required documentation present
@@ -100,6 +184,9 @@ jobs:
   backend:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -110,22 +197,22 @@ jobs:
           pip install -r backend/requirements.txt
           pip install ruff mypy pip-audit
       - name: Backend lint (Ruff)
-        run: cd backend && ruff check app tests alembic
+        # Every check below runs the Makefile target rather than a copy of the
+        # command. The two had already drifted: `make test-worker` omitted the
+        # Redis URL that this workflow passed, so four worker tests skipped
+        # locally while passing in CI, and a green `make test` meant something
+        # different from a green CI run.
+        run: make lint-backend
       - name: Backend typecheck (Mypy)
-        run: cd backend && mypy app
+        run: make typecheck-backend
       - name: Backend dependency audit (pip-audit, strict)
-        run: python -m pip_audit -r backend/requirements.txt --strict
+        run: make audit-python REQUIREMENTS=backend/requirements.txt
       - name: Palette contrast and token audit
-        run: cd frontend && python check_palette_layer.py
+        run: python frontend/check_palette_layer.py
       - name: Migration chain is linear
         run: python scripts/audit_migrations.py
       - name: Backend test suite (pytest, SQLite fast tier)
-        env:
-          APP_ENV: test
-          DATABASE_URL: sqlite://
-          OIDC_ISSUER: https://issuer.test/realms/vantor
-          JWT_AUDIENCE: vantor-web
-        run: python -m pytest backend/tests -q
+        run: make test-backend
       - name: API contract synchronization (OpenAPI matches committed copy)
         # Both committed copies of the contract are regenerated from the same
         # `app.openapi()` call and diffed. The YAML copy used to be ungated,
@@ -141,13 +228,16 @@ jobs:
   worker:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 20
     services:
       # The worker talks to Redis for real — queue promotion, job execution.
       # Four tests in `worker/tests/test_worker.py` skip without a live Redis,
       # so without this service they had never run anywhere.
       redis:
         # Digest-pinned: `scripts/pin_digests.py --check` enforces this.
-        image: redis:7-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
+        image: redis:7-alpine@sha256:c5d34a98396a4775e223c74e929162c35c5a2182901ba26b50ade939941ce14b
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
@@ -161,18 +251,30 @@ jobs:
           pip install -r worker/requirements.txt
           pip install pytest ruff pip-audit
       - name: Worker lint
-        run: cd worker && ruff check .
+        run: make lint-worker
       - name: Worker dependency audit (pip-audit, strict)
-        run: python -m pip_audit -r worker/requirements.txt --strict
+        run: make audit-python REQUIREMENTS=worker/requirements.txt
       - name: Worker unit tests
         env:
           RQ_TEST_REDIS_URL: redis://localhost:6379/0
           REDIS_URL: redis://localhost:6379/0
-        run: cd worker && python -m pytest tests -q
+          # Passed through to the Makefile target, which runs the same command
+          # locally. That indirection is the fix: the target used to omit these
+          # two variables, so four tests skipped for everyone running `make`
+          # while CI ran them, and neither side knew the other disagreed.
+          STRICT: "1"
+        # STRICT=1 means "nothing may skip": these four tests skipped silently
+        # for a long time, which is how the scheduler that crashes on boot stayed
+        # in the tree. 38 is the whole worker suite, and the Redis service above
+        # means all 38 are expected to run.
+        run: make test-worker
 
   frontend:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 30
     env:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_API_URL: http://localhost:8000
@@ -190,22 +292,15 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Frontend typecheck
-        working-directory: frontend
-        run: npm run typecheck
+        run: make typecheck-frontend
       - name: Frontend lint
-        working-directory: frontend
-        run: npm run lint
+        run: make lint-frontend
       - name: Frontend dependency audit (production deps, high+)
-        # Production surface only: dev-only findings with no upstream patch
-        # (e.g. braces via eslint) are tracked via Dependabot, not this gate.
-        working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: make audit-js
       - name: Frontend unit/component tests
-        working-directory: frontend
-        run: npm test
+        run: make test-frontend
       - name: Production build (Next.js)
-        working-directory: frontend
-        run: npm run build
+        run: make build-frontend
 
   # -------------------------------------------------------------------------
   # The images the project ships.
@@ -231,16 +326,50 @@ jobs:
   images:
     needs: policy
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      - name: Every pin resolves at its registry
+        # Metadata GETs, not pulls: this proves `docker compose up` can resolve
+        # each digest it names without downloading gigabytes. Drift is a warning
+        # (pinning is the point); an unresolvable pin fails the step. Runs here
+        # rather than on every push because it needs the network and the answer
+        # changes with upstream, not with this repo.
+        run: python scripts/pin_digests.py --verify-remote
       - name: Build the backend image
         run: docker build -t vantor-backend:ci -f backend/Dockerfile backend
       - name: Build the worker image
         run: docker build -t vantor-worker:ci -f worker/Dockerfile worker
       - name: Build the Keycloak provisioning image
         run: docker build -t vantor-keycloak:ci -f deploy/keycloak/Dockerfile deploy/keycloak
-      - name: Build the frontend image
+      - name: Build the frontend image the way compose builds it
         if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
+        # Built through `docker compose build`, not a hand-written `docker build`
+        # that repeats the args — repeating them here would test CI's copy of the
+        # configuration instead of the file users actually read. The bundle is
+        # then inspected because a build-time fallback of `http://localhost:8000`
+        # is invisible until every API call from another host fails: the compose
+        # stack shipped that way with a green pipeline.
+        run: |
+          cp .env.example .env
+          docker compose build frontend
+          docker run --rm --entrypoint sh vantor-frontend -c '
+            set -e
+            test -f .next/routes-manifest.json || { echo "FAIL: no routes-manifest.json in the image"; exit 1; }
+            if grep -rq "http://localhost:8000" .next/static 2>/dev/null; then
+              echo "FAIL: the web bundle baked a build-machine API address."
+              echo "      NEXT_PUBLIC_API_URL must reach the build as an arg,"
+              echo "      and "" (same-origin) is the value compose passes."
+              exit 1
+            fi
+            grep -q "/api/:path*" .next/routes-manifest.json || {
+              echo "FAIL: no same-origin /api rewrite — INTERNAL_API_URL was not set at build time"; exit 1; }
+            echo "OK: no baked localhost API address, and the /api rewrite is present"
+          '
+          rm -f .env
+      - name: Build the frontend image with no args (developer default)
         run: docker build -t vantor-frontend:ci -f frontend/Dockerfile frontend
       - name: Build the single-container image
         if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
@@ -258,6 +387,9 @@ jobs:
     # passed anywhere.
     if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 30
     services:
       postgres:
         # Digest-pinned: `scripts/pin_digests.py --check` enforces this.
@@ -294,7 +426,14 @@ jobs:
           APP_DB_PASSWORD: ci-app-role-test-pw
           OIDC_ISSUER: https://issuer.test/realms/vantor
           JWT_AUDIENCE: vantor-web
-        run: cd backend && python -m pytest -m pg -q
+        # Two separate holes, one target. `require_postgres()` now fails rather
+        # than skipping when the URL is set but the database is unreachable, so
+        # a dead service container reddens the job instead of turning it green by
+        # omission; and run_tier.py refuses to certify the tier if anything
+        # skipped or fewer than the 11 pg-marked tests passed, which also covers
+        # a lost `pg` marker selecting nothing. The same target is what
+        # `make test-pg` runs locally, so nobody has to guess what CI did.
+        run: make test-pg
 
   e2e-tier:
     needs: [frontend, backend]
@@ -302,6 +441,9 @@ jobs:
     # weekly schedule. The Playwright suite had never run green in CI.
     if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
+    # Bounded so a wedged service container fails the job in minutes instead
+    # of eating GitHub's 360-minute default and reading as "still running".
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -330,11 +472,16 @@ jobs:
           done
           curl -sf http://localhost:8000/api/v1/health || (cat /tmp/backend.log && exit 1)
       - name: Install Playwright browsers and run E2E
-        working-directory: frontend
         run: |
-          npm ci
-          npx playwright install --with-deps chromium
-          NEXT_PUBLIC_API_URL=http://localhost:8000 npx playwright test
+          npm --prefix frontend ci
+          # npx resolves from the current directory's node_modules, so this has
+          # to happen inside frontend/ — there is no `npx --prefix`.
+          cd frontend && npx playwright install --with-deps chromium && cd ..
+          # `make test-e2e`, the same target a developer runs. It requires five
+          # passing tests: the tier has exactly five, so a skip anywhere in it
+          # drops the count below the requirement and reddens the job rather than
+          # passing on an empty run.
+          NEXT_PUBLIC_API_URL=http://localhost:8000 make test-e2e
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
