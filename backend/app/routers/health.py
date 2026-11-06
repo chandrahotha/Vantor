@@ -14,7 +14,7 @@ from sqlalchemy import text
 from ..core.errors import envelope
 from ..core.observe import metrics_snapshot, prometheus_text
 from ..core.security import Actor, get_actor
-from ..core.tenant import get_session_factory
+from ..core.tenant import probe_session
 
 router = APIRouter(tags=["platform"])
 
@@ -59,7 +59,10 @@ def ready(request: Request) -> JSONResponse:
     rid = getattr(request.state, "request_id", "")
     checks: dict[str, str] = {}
     try:
-        db = get_session_factory()()
+        # `probe_session()` rather than a pinned one: this reads `SELECT 1` and
+        # `alembic_version`, neither of which is a tenant table, and there is no
+        # actor at this endpoint to derive a tenant from.
+        db = probe_session()
         try:
             db.execute(text("SELECT 1"))
             try:

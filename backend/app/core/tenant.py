@@ -108,7 +108,18 @@ def get_engine():  # type: ignore[no-untyped-def]
     return _engine
 
 
-def get_session_factory() -> sessionmaker:
+def _session_factory() -> sessionmaker:
+    """The raw sessionmaker. Private on purpose — see `probe_session`.
+
+    A session from here is *unpinned*: on Postgres it has no `app.tenant_id`, so
+    every RLS predicate is false against it. Reads return nothing and writes are
+    rejected by `WITH CHECK`, which a broad `except` then hides. The three
+    sanctioned ways to obtain a session are `get_db()` (request cycle),
+    `pinned_session()` (anything outside it) and `probe_session()` (a
+    tenant-independent liveness probe). `test_no_unpinned_sessions_outside_request_cycle`
+    fails the build on any other use, because SQLite cannot see the difference
+    and a green suite therefore proved nothing.
+    """
     global _SessionLocal
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(bind=get_engine(), class_=Session, expire_on_commit=False)
@@ -121,8 +132,7 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
     Use as FastAPI dep via `db_for_actor` below so tenant always comes from
     the verified JWT, never from a query param.
     """
-    factory = get_session_factory()
-    db = factory()
+    db = _session_factory()()
     try:
         if tenant_id and db.bind.dialect.name == "postgresql":
             # `session.info` makes `_reapply_tenant_pin_on_every_transaction` pin
@@ -141,17 +151,34 @@ def get_db(tenant_id: str = "") -> Generator[Session, None, None]:
 
 def pinned_session(tenant_id: str) -> Session:
     """Standalone session pinned to `tenant_id` — for callers outside the
-    request/dependency cycle (middleware, SSE generators, background work).
+    request/dependency cycle (middleware, SSE generators, background work,
+    seeding scripts).
 
-    Raw `get_session_factory()()` is NOT safe: on Postgres the RLS `WITH CHECK`
-    on tenant-scoped tables rejects the write, and a broad `except` then hides
-    it. Always pin. Callers own commit/rollback/close.
+    Raw `_session_factory()()` is NOT safe: on Postgres the RLS `WITH CHECK` on
+    tenant-scoped tables rejects the write, and a broad `except` then hides it.
+    Always pin. Callers own commit/rollback/close.
     """
-    db = get_session_factory()()
+    db = _session_factory()()
     if tenant_id and db.bind.dialect.name == "postgresql":
         db.info[_TENANT_INFO_KEY] = tenant_id
         db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     return db
+
+
+def probe_session() -> Session:
+    """An intentionally unpinned session, for probes that touch no tenant table.
+
+    `GET /ready` runs `SELECT 1` and reads `alembic_version`; neither is a
+    tenant-scoped table, so there is no tenant to pin and pinning one would be
+    a lie about what the probe checks. This exists so the readiness probe can
+    say so *without* calling the private factory and becoming the exception that
+    justifies a whitelist — the previous guard exempted `routers/health.py` by
+    path, which also exempted every future line added to that file.
+
+    Callers own commit/close. Do not use this to read or write anything that has
+    a `tenant_id` column.
+    """
+    return _session_factory()()
 
 
 def reset_engine_cache() -> None:

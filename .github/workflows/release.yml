@@ -18,43 +18,113 @@ jobs:
   release:
     name: Draft GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout code
+      - name: Resolve the tag
+        id: tag
+        run: |
+          # A `workflow_dispatch` runs against whatever ref was selected, and
+          # `github.ref_name` for that run is the *branch*, not a tag. The old
+          # `${{ inputs.tag || github.ref_name }}` fallback therefore published a
+          # release literally named `main` when someone dispatched from a branch
+          # and left the input empty.
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FAIL: '$TAG' is not a release tag (expected vMAJOR.MINOR.PATCH)."
+            echo "      Dispatching from a branch? Pass the tag in the `tag` input;"
+            echo "      this workflow does not release a branch."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the tagged commit
         uses: actions/checkout@v7
         with:
+          # Tags are lightweight here, so the commit has to be fetched by SHA
+          # rather than assumed to be on the tip of main.
           fetch-depth: 0
+          ref: ${{ steps.tag.outputs.tag }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - name: Extract Release Notes
-        id: notes
+      - name: The tag must point at main
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "Building release for version $VERSION ($TAG)"
-          # Extract section from CHANGELOG.md if present
-          python -c "
+          # A release cut from an unmerged branch would publish code that never
+          # went through review, and the CI run being checked below would be the
+          # branch's run, not main's — so "CI was green for this commit" would be
+          # true and meaningless at the same time.
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -qE 'origin/main$'; then
+            echo "FAIL: ${{ steps.tag.outputs.tag }} points at $GITHUB_SHA, which is not on origin/main."
+            echo "      Merge it first, then tag the merged commit."
+            exit 1
+          fi
+          echo "tag is on main: $GITHUB_SHA"
+
+      - name: CI must be green for the commit being released
+        # This workflow used to gate nothing: no `needs`, no build, no test. A
+        # tag could be pushed against a commit whose CI run was still in flight
+        # or had failed, and the release would be published anyway. `gh` is
+        # preinstalled on the runner and authenticated by the default token,
+        # which already has contents: write here.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 60); do
+            JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-suites")
+            if ! echo "$JSON" | grep -q '"status":"in_progress"\|"status":"queued"'; then
+              break
+            fi
+            echo "CI still running for $GITHUB_SHA (wait $i/60)"; sleep 30
+          done
+          if echo "$JSON" | grep -q '"status":"in_progress"\|"status":"queued"'; then
+            echo "FAIL: CI for $GITHUB_SHA had not finished after 30 minutes."
+            echo "      Release the commit once its run is green instead of racing it."
+            exit 1
+          fi
+          echo "$JSON" | grep -qE '"conclusion":"(neutral|success)"' || {
+            echo "FAIL: no successful CI run for $GITHUB_SHA. Nothing was released."
+            echo "$JSON" | python3 -c "import json,sys; [print(' -', s['name'], s.get('conclusion') or s['status']) for s in json.load(sys.stdin)['check_suites']]"
+            exit 1
+          }
+          echo "CI is green for $GITHUB_SHA"
+
+      - name: Require a changelog section for this version
+        run: |
+          # The previous behaviour was a silent fallback: no `## [0.9.0]` section
+          # produced a release whose entire body was "See CHANGELOG.md for
+          # details", which reads like a release with no notes and lets a
+          # forgotten changelog become the normal state of a release.
+          VERSION="${{ steps.tag.outputs.version }}"
+          python3 - "$VERSION" <<'PY'
           import re, sys
           from pathlib import Path
 
-          changelog = Path('CHANGELOG.md').read_text(encoding='utf-8')
-          version = '$VERSION'
-          pattern = rf'## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
-          match = re.search(pattern, changelog, re.DOTALL)
-          if match:
-              Path('release_notes.md').write_text(match.group(0).strip() + '\n', encoding='utf-8')
-          else:
-              Path('release_notes.md').write_text(f'Release {TAG}\n\nSee CHANGELOG.md for details.\n', encoding='utf-8')
-          "
+          version = sys.argv[1]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(rf"^## \[{re.escape(version)}\]", changelog, re.MULTILINE)
+          if not match:
+              print(f"FAIL: CHANGELOG.md has no `## [{version}]` section.")
+              print("      Write the release notes first, then tag. A release with")
+              print("      auto-generated filler notes is not a documented release.")
+              sections = re.findall(r"^## \[([^\]]+)\]", changelog, re.MULTILINE)
+              print(f"      Sections present (newest first): {', '.join(sections[:5]) or 'none'}")
+              sys.exit(1)
+          body = re.search(
+              rf"^## \[{re.escape(version)}\].*?\n(.*?)(?=^## \[|\Z)",
+              changelog, re.DOTALL | re.MULTILINE,
+          )
+          entries = [l for l in (body.group(1).splitlines() if body else []) if l.strip().startswith("-")]
+          if not entries:
+              print(f"FAIL: `## [{version}]` exists but has no bullet entries.")
+              sys.exit(1)
+          Path("release_notes.md").write_text(body.group(0).strip() + "\n", encoding="utf-8")
+          print(f"release notes: {len(entries)} entries for {version}")
+          PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Vantor ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Vantor ${{ steps.tag.outputs.tag }}
           body_path: release_notes.md
           draft: false
           # Pre-1.0: every release is a pre-release until 1.0 ships.
