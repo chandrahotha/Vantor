@@ -68,31 +68,72 @@ def test_default_oidc_issuer_is_host_reachable():
         f"the default issuer points at the Compose service name: {issuer!r}")
 
 
-def test_default_audience_matches_env_example_and_the_web_client():
-    """The audience must be the client the web app actually uses.
+def test_default_audience_matches_the_client_the_realm_provisions():
+    """The audience must be the client the browser actually authenticates as.
 
     A token minted for `vantor-web` is not a token for anything else, and a
     mismatch is a 403 the developer reads as an RBAC problem.
+
+    This used to compare against `NEXT_PUBLIC_KEYCLOAK_CLIENT`, a build-time
+    constant the web app had stopped reading. The check is now against the two
+    files that actually decide the value: `.env.example` (what the operator
+    sets) and the realm definition `keycloak-init` provisions (what the IdP
+    issues). A third party that only *claimed* to agree is not a control.
     """
-    expected = env_example_value("NEXT_PUBLIC_KEYCLOAK_CLIENT")
-    assert Settings().jwt_audience == expected
-    assert re.search(
-        r"^NEXT_PUBLIC_KEYCLOAK_CLIENT=" + re.escape(expected) + r"$",
-        ENV_EXAMPLE.read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
+    import json
+    from pathlib import Path
+
+    expected = env_example_value("KEYCLOAK_CLIENT_ID")
+    assert Settings().jwt_audience == expected, (
+        f"JWT_AUDIENCE default {Settings().jwt_audience!r} is not the realm's web client "
+        f"{expected!r}; every OIDC sign-in would 403 on audience.")
+
+    realm_path = Path(__file__).resolve().parents[2] / "deploy" / "keycloak" / "realm-vantor.json"
+    realm = json.loads(realm_path.read_text(encoding="utf-8"))
+    web = [c for c in realm.get("clients", []) if c.get("clientId") == expected]
+    assert web, f"the realm does not provision a {expected!r} client, so nothing can mint that audience"
+    assert web[0].get("standardFlowEnabled") is True, "the web client cannot complete a browser login"
+    assert web[0].get("publicClient") is True, (
+        "a browser cannot hold a client secret; a confidential web client means the secret "
+        "is in the bundle")
+    assert web[0].get("attributes", {}).get("pkce.code.challenge.method") == "S256", (
+        "authorization code without PKCE is redeemable by whoever intercepts the code")
 
 
-def test_the_three_keycloak_hosts_agree():
-    """backend default, .env.example and the Next client must name one realm.
+def test_the_build_time_keycloak_variables_stay_deleted():
+    """No second source of truth for where the identity provider is.
 
-    These are three files stating the same fact. They are allowed to disagree
-    with docker-compose, which is in a different network and says so, but not
-    with each other.
+    `NEXT_PUBLIC_KEYCLOAK_URL/REALM/CLIENT` were read by nothing, pointed at a
+    realm the app had stopped talking to, and could not be changed without
+    rebuilding the image — so they were a trap an operator would set and a
+    reviewer would trust. The browser now asks `GET /auth/config`, which derives
+    the endpoints from the same `OIDC_ISSUER` this process verifies tokens
+    against. Re-adding any of them would put a stale IdP address in the bundle.
     """
-    kc_url = env_example_value("NEXT_PUBLIC_KEYCLOAK_URL")
-    realm = env_example_value("NEXT_PUBLIC_KEYCLOAK_REALM")
-    assert Settings().oidc_issuer == f"{kc_url}/realms/{realm}"
+    text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    for name in ("NEXT_PUBLIC_KEYCLOAK_URL", "NEXT_PUBLIC_KEYCLOAK_REALM", "NEXT_PUBLIC_KEYCLOAK_CLIENT"):
+        assert not re.search(rf"^{name}=", text, re.MULTILINE), (
+            f"{name} is back in .env.example; the web app does not read it and a second "
+            "IdP address is a defect, not a convenience")
+
+
+def test_the_issuer_and_the_provisioned_realm_name_one_place():
+    """Backend issuer ↔ Keycloak's own realm, in the files that must agree.
+
+    These are two files stating the same fact. They are allowed to disagree with
+    docker-compose, which is in a different network and says so, but not with
+    each other: `jwt.decode(issuer=...)` compares exactly, so a realm served at
+    a host the backend does not expect answers 401 on every authenticated
+    request while `/health` stays green.
+    """
+    realm_name = env_example_value("KEYCLOAK_REALM")
+    issuer = Settings().oidc_issuer
+    assert issuer.endswith(f"/realms/{realm_name}"), (
+        f"the default issuer {issuer!r} is not realm {realm_name!r}; the browser would be "
+        "sent to one realm and the API would verify against another")
+    # The endpoints the SPA is handed are derived from this same string, so the
+    # IdP the user logs into is the IdP whose keys the API accepts.
+    assert issuer.rstrip("/").endswith(f"/realms/{realm_name}")
 
 
 class TestRequireProdSecrets:

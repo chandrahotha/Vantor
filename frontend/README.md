@@ -3,7 +3,7 @@
 The web application: every procurement workspace, the approvals queue, spend
 analytics, contract obligations and an evidence-grounded AI copilot.
 
-**15 routes** in a Next.js 16 App Router application.
+**16 routes** in a Next.js 16 App Router application.
 
 **Stack:** Node 22 · Next.js 16 · React 19 · TypeScript 6 · Tailwind-free CSS
 custom properties · Keycloak OIDC (Authorization Code + PKCE) · ESLint 10 ·
@@ -32,6 +32,7 @@ working one to the person reading it.
 | `/negosim` | AI negotiation simulator |
 | `/notifications` | Notification feed |
 | `/copilot` | Evidence-grounded AI copilot |
+| `/auth/callback` | OIDC redirect target — authorization code + PKCE exchange. Not linked from the navigation and not in the sitemap: it exists only as the address the identity provider returns to. |
 
 ## Run it
 
@@ -59,7 +60,7 @@ not come from the identity provider.
 ```bash
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
-npm test             # vitest — 159 vitest green across 13 suites
+npm test             # vitest — 170 vitest green across 14 suites
 npm run build        # next build
 ```
 

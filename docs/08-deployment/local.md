@@ -65,3 +65,43 @@ docker exec vantor-ollama-1 ollama pull nomic-embed-text
   rolling and spend rollups do not happen at all - the dashboard's live `expiring` query still
   works, but the stored statuses do not move. `docker compose logs beat` is the place to look.
 - Staging/prod reuse same images; swap to managed Postgres/Redis/S3/OIDC via env only. Backups + restore drills, and the full production checklist: see `../09-operations/runbook.md`.
+
+## Identity: which mode, and what each one needs
+
+`AUTH_MODE` decides how anyone signs in, and the web app reads the answer from
+the API (`GET /auth/config`) instead of a build-time constant — so one image
+serves both modes and there is no stale IdP address baked into a bundle.
+
+| `AUTH_MODE` | What it does | What you must set |
+|---|---|---|
+| `local` (the default when unset) | The API mints its own session. **Passwordless**: anyone who can reach the port is the local operator, with the full role set. | Nothing. Bind it to loopback or a trusted network. Never expose it. |
+| `oidc` | Keycloak issues tokens; the browser is redirected there and comes back to `/auth/callback`. Authorization code + PKCE, no client secret in the bundle. | `OIDC_ISSUER`, `JWT_AUDIENCE`, and **`WEB_ORIGINS`** |
+| `both` | Offers both paths. | Both rows above |
+
+**`WEB_ORIGINS` is the one that breaks a first login.** Keycloak refuses an
+authorization redirect to any origin that is not listed on the `vantor-web`
+client, and the realm file can only ever name `localhost:3000` — so a deployment
+on a real host that does not set this gets a sign-in button that cannot finish.
+`keycloak-init` reconciles the client's redirect list from `WEB_ORIGINS` on
+every start, the same way it reconciles the worker's secret:
+
+```bash
+WEB_ORIGINS=https://procurement.example.com    # comma-separate for several
+AUTH_MODE=oidc
+```
+
+Plaintext `http://` origins are refused by provisioning unless they are
+`localhost`, because an authorization code sent in the clear is a credential.
+
+Two related variables are worth naming because they are easy to get wrong:
+
+- `OIDC_ISSUER` must match the `iss` claim **byte for byte**. `127.0.0.1` and
+  `localhost` are the same server and different issuers; a mismatch returns 401
+  on every authenticated request while `/health` stays green.
+- `JWT_AUDIENCE` must be the realm's web client id (`vantor-web`). A token minted
+  for another client is not a token for this API. `test_config.py` asserts the
+  default, `.env.example` and the provisioned realm all agree.
+
+Revocation and MFA do not exist in this build — see
+[`../04-security/architecture.md`](../04-security/architecture.md) for what is
+implemented versus designed. A leaked access token is valid until it expires.

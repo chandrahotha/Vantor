@@ -211,7 +211,7 @@
           "auth"
         ],
         "summary": "Auth Config",
-        "description": "What sign-in methods this deployment offers.\n\nThe web app reads this before it renders the sign-in screen, so the button\nit shows matches what the server will actually accept. Hardcoding that in\nthe client is how the old build ended up offering a Keycloak redirect in a\ndeployment with no Keycloak.",
+        "description": "What sign-in methods this deployment offers, and how to start each one.\n\nThe web app reads this before it renders the sign-in screen, so the button\nit shows matches what the server will actually accept. Hardcoding that in\nthe client is how the old build ended up offering a Keycloak redirect in a\ndeployment with no Keycloak.\n\nThe OIDC parameters are served here rather than baked into the bundle as\n`NEXT_PUBLIC_KEYCLOAK_*`, for two reasons: a build-time constant cannot\nchange between the staging and production deployment of one image, and the\nthree of those variables the client used to carry were read by nothing and\npointed at a realm the app had stopped talking to. The issuer the browser\nmust redirect to is the same value this process verifies tokens against, so\nthere is exactly one place that knows it.",
         "operationId": "auth_config_api_v1_auth_config_get",
         "responses": {
           "200": {

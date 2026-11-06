@@ -221,6 +221,12 @@ services:
       SERVICE_CLIENT_ID: ${SERVICE_CLIENT_ID:-vantor-service}
       SERVICE_TENANT: ${SERVICE_TENANT:-vantor-corp}
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET:?set SERVICE_CLIENT_SECRET in .env}
+      # The browser client's redirect list. Keycloak refuses any callback origin
+      # that is not listed on the client, so without this the OIDC deployment has
+      # a sign-in button that cannot finish — the realm file alone can only ever
+      # name localhost. Comma-separate for more than one web origin.
+      WEB_CLIENT_ID: ${WEB_CLIENT_ID:-vantor-web}
+      WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:3000}
     depends_on:
       keycloak:
         condition: service_healthy

@@ -19,7 +19,8 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { fetchPersonas, getSession, keepFresh, restoreSession, setSession, signIn, subscribeSession, type Persona } from "../lib/auth";
+import { fetchAuthConfig, fetchPersonas, getSession, keepFresh, refreshOidcSession, restoreSession, setSession, signIn, subscribeSession, type AuthConfig, type Persona } from "../lib/auth";
+import { startOidcSignIn } from "../lib/oidc";
 import { setRefreshFn, setTokenGetter, setUnauthorizedHandler } from "../lib/api";
 import Shell from "./Shell";
 
@@ -261,9 +262,11 @@ export function useBoot(load: () => Promise<void>) {
     // Read the session per request rather than capturing a token once: a
     // renewal replaces it, and a captured value would go stale and 401.
     setTokenGetter(() => getSession()?.token);
-    // There is no refresh grant to exchange — a local session is renewed by
-    // asking for a new one — so a 401 is final and the retry is a no-op.
-    setRefreshFn(async () => false);
+    // A local session has no refresh grant — it is renewed by asking for a new
+    // one, so a 401 is final. An OIDC session does have one, and without using
+    // it the user is signed out every time the access token's short clock runs
+    // out mid-work.
+    setRefreshFn(async () => refreshOidcSession());
 
     const stopFresh = keepFresh(endSession);
 
@@ -397,12 +400,18 @@ export function AuthScreen({ state, error, onRetry }: { state: BootState; error?
 
 /** The sign-in screen: one button, no credentials.
  *
- *  Sign-in is a single request to this product's own API, so the screen asks
- *  for nothing and explains nothing the user cannot act on. What it must do is
- *  report failure honestly — the previous version redirected to an identity
- *  provider and, when that host was down, the user left the app entirely and
- *  landed on the browser's "can't reach this page". A failed sign-in now stays
- *  here and says which address could not be reached.
+ *  In `AUTH_MODE=local` sign-in is a single request to this product's own API,
+ *  so the screen asks for nothing and explains nothing the user cannot act on.
+ *  In `AUTH_MODE=oidc` it is not: the browser has to leave for the identity
+ *  provider and come back to /auth/callback. The screen now reads which of
+ *  those this deployment is from `GET /auth/config` instead of assuming local,
+ *  which is what made an OIDC deployment offer a button whose route answers 404
+ *  (`LOCAL_AUTH_DISABLED`) with "Sign in through it" and no way through.
+ *
+ *  What it must still do is report failure honestly — the older version
+ *  redirected to an identity provider and, when that host was down, the user
+ *  left the app entirely and landed on the browser's "can't reach this page".
+ *  A failed sign-in stays here and says which address could not be reached.
  */
 function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -412,6 +421,9 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
   // fetch for a different endpoint — fetchPersonas() never throws for that.
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [persona, setPersona] = useState("");
+  // null until the API answers; the button label must not promise a method that
+  // this deployment does not offer while that question is still open.
+  const [config, setConfig] = useState<AuthConfig | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -421,19 +433,29 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
         setPersona((cur) => cur || list[0].key);
       }
     });
+    fetchAuthConfig(ctrl.signal).then(setConfig).catch(() => setConfig(null));
     return () => ctrl.abort();
   }, []);
+
+  const oidcOnly = !!config?.oidc && !config?.local;
 
   async function enter() {
     setBusy(true);
     setFailed("");
     try {
+      if (oidcOnly) {
+        // Navigates away; busy stays true so the button cannot be pressed twice
+        // while the browser is mid-redirect.
+        await startOidcSignIn(config!, "/");
+        return;
+      }
       await signIn(persona || undefined);
       onSignedIn?.();
     } catch (e: unknown) {
       setFailed(e instanceof Error ? e.message : "Sign-in failed.");
-    } finally {
       setBusy(false);
+    } finally {
+      if (!oidcOnly) setBusy(false);
     }
   }
 
@@ -487,7 +509,15 @@ function SignInCard({ onSignedIn }: { onSignedIn?: () => void }) {
               <span className="authscreen-cta-headline">
                 {busy ? "Opening your workspace…" : "Log in to VANTOR"}
               </span>
-              <small className="authscreen-cta-sub">No password needed on this deployment</small>
+              <small className="authscreen-cta-sub">
+                {config === null
+                  ? "Checking how this deployment signs in…"
+                  : oidcOnly
+                    ? "You will be sent to your organisation's identity provider"
+                    : config.oidc
+                      ? "Local operator session, or your identity provider"
+                      : "No password needed on this deployment"}
+              </small>
             </div>
           </button>
         </div>
