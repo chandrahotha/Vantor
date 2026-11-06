@@ -66,9 +66,18 @@ jobs:
           grep -q SERVICE_CLIENT_SECRET .env.example
           cp .env.example .env
           docker compose config > /dev/null
-          rm -f .env
+          # The refs compose would actually pull, in the log. `config` only
+          # interpolates — it never contacts a registry — so printing the
+          # resolved image names is the cheapest way to see a bad digest.
+          docker compose config --images
       - name: Images are digest-pinned
-        run: python scripts/pin_digests.py --check
+        # Deliberately runs with the `.env` from the step above still present.
+        # Deleting it first put this gate into "structural check only" mode,
+        # which is how every compose service could default to a zero digest
+        # that no registry has and still report success on every push.
+        run: |
+          python scripts/pin_digests.py --check
+          rm -f .env
 
   docs:
     needs: policy
@@ -147,7 +156,7 @@ jobs:
       # so without this service they had never run anywhere.
       redis:
         # Digest-pinned: `scripts/pin_digests.py --check` enforces this.
-        image: redis:7-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
+        image: redis:7-alpine@sha256:c5d34a98396a4775e223c74e929162c35c5a2182901ba26b50ade939941ce14b
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
@@ -233,14 +242,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Every pin resolves at its registry
+        # Metadata GETs, not pulls: this proves `docker compose up` can resolve
+        # each digest it names without downloading gigabytes. Drift is a warning
+        # (pinning is the point); an unresolvable pin fails the step. Runs here
+        # rather than on every push because it needs the network and the answer
+        # changes with upstream, not with this repo.
+        run: python scripts/pin_digests.py --verify-remote
       - name: Build the backend image
         run: docker build -t vantor-backend:ci -f backend/Dockerfile backend
       - name: Build the worker image
         run: docker build -t vantor-worker:ci -f worker/Dockerfile worker
       - name: Build the Keycloak provisioning image
         run: docker build -t vantor-keycloak:ci -f deploy/keycloak/Dockerfile deploy/keycloak
-      - name: Build the frontend image
+      - name: Build the frontend image the way compose builds it
         if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
+        # Built through `docker compose build`, not a hand-written `docker build`
+        # that repeats the args — repeating them here would test CI's copy of the
+        # configuration instead of the file users actually read. The bundle is
+        # then inspected because a build-time fallback of `http://localhost:8000`
+        # is invisible until every API call from another host fails: the compose
+        # stack shipped that way with a green pipeline.
+        run: |
+          cp .env.example .env
+          docker compose build frontend
+          docker run --rm --entrypoint sh vantor-frontend -c '
+            set -e
+            test -f .next/routes-manifest.json || { echo "FAIL: no routes-manifest.json in the image"; exit 1; }
+            if grep -rq "http://localhost:8000" .next/static 2>/dev/null; then
+              echo "FAIL: the web bundle baked a build-machine API address."
+              echo "      NEXT_PUBLIC_API_URL must reach the build as an arg,"
+              echo "      and "" (same-origin) is the value compose passes."
+              exit 1
+            fi
+            grep -q "/api/:path*" .next/routes-manifest.json || {
+              echo "FAIL: no same-origin /api rewrite — INTERNAL_API_URL was not set at build time"; exit 1; }
+            echo "OK: no baked localhost API address, and the /api rewrite is present"
+          '
+          rm -f .env
+      - name: Build the frontend image with no args (developer default)
         run: docker build -t vantor-frontend:ci -f frontend/Dockerfile frontend
       - name: Build the single-container image
         if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.full_suite == 'true') || github.event_name == 'schedule' }}
