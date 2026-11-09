@@ -21,7 +21,7 @@
 # can point at different bytes tomorrow, so the image built today and the image
 # built next week would not be the same thing. `scripts/pin_digests.py --check`
 # enforces this on every push — see CONTRIBUTING.md for how to refresh it.
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
+FROM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
