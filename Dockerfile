@@ -40,7 +40,7 @@ ENV INTERNAL_API_URL="http://127.0.0.1:8000"
 RUN npm run build
 
 # ---- run -------------------------------------------------------------------
-FROM python:3.14-slim@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966 AS run
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS run
 WORKDIR /srv
 
 # Node is needed at runtime because the web app is a Next server, not a bundle
