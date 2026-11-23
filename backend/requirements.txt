@@ -1,4 +1,4 @@
-fastapi==0.162.0
+fastapi==0.165.0
 # Pinned explicitly: starlette is a transitive dep of fastapi, and 7 advisories
 # (DoS, request smuggling) live there. pip-audit only sees what is resolvable,
 # so the security-relevant transitive must be named, not left to the resolver.
@@ -13,7 +13,7 @@ pgvector==0.5.1
 PyJWT==2.15.1
 cryptography==50.0.2
 httpx==0.28.1
-python-multipart==0.0.33
+python-multipart==0.0.34
 redis==8.1.0
 # rq is deliberately absent: the backend never imports it (only worker/ does),
 # and a second pin is a second version to keep in step for no benefit.
